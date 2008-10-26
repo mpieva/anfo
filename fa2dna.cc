@@ -36,11 +36,13 @@
  * in the original sequence.
  */
 
+#include "util.h"
+
 #include <iostream>
 #include <fstream>
 #include <cctype>
 
-static const int max_num_n = 2 ;
+static const unsigned max_num_n = 2 ;
 
 uint8_t decode_fna( char c ) {
 	switch( c ) {
@@ -77,8 +79,8 @@ class FastaDecoder
 		unsigned source_position ;
 		unsigned num_n  ;
 		uint8_t one_nt ;
-		std::ostream& out ;
 		std::ostream& dna ;
+		std::ostream& out ;
 		
 		
 	public:
@@ -109,11 +111,22 @@ class FastaDecoder
 		void finish_genome()
 		{
 			put_nt( '-' ) ;
+			out << "\ttotal_size " << position << "\n} ;\n" ;
 			if( position & 1 ) put_nt( '-' ) ;
-			out << "} ;\n" ;
 		}
 
-		void put_char_lit( char c ) { out << c ; /* XXX */ }
+		void put_char_lit( char c )
+		{
+			char hexdigit[] = "0123456789ABCDEF" ;
+			if( c == '"' ) out << "\\\"" ;
+			else if( c == '\'' ) out << "\\\'" ;
+			else if( isprint( c ) ) out << c ;
+			else if( c == '\n' ) out << "\\n" ;
+			else if( c == '\t' ) out << "\\t" ;
+			else if( c == '\r' ) out << "\\r" ;
+			else if( c == '\0' ) out << "\\0" ;
+			else out << "\\x" << hexdigit[ c >> 4 ] << hexdigit[ c & 0xf ] ;
+		}
 
 		void put_nt( char c )
 		{
@@ -246,7 +259,7 @@ class FastaDecoder
 
 
 
-int main( int argc, const char *argv[] )
+int main_( int argc, const char * const argv[] )
 {
 	if( argc != 2 ) return 1 ;
 	std::ofstream dna_file( argv[1] ) ;
@@ -255,6 +268,7 @@ int main( int argc, const char *argv[] )
 	FastaDecoder fd( 8, dna_file, std::cout ) ;
 	for( int c ; (c = std::cin.get()) != std::istream::traits_type::eof() ; ) fd.step( c ) ;
 	fd.step( 0 ) ;
+	return 0 ;
 }
 
 
