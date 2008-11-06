@@ -1,15 +1,12 @@
+#include "Index.h"
 #include "util.h"
 
-#include <sys/mman.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-
 #include <cassert>
-#include <cmath>
 #include <iostream>
 #include <iomanip>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 /*
  * Scans a dna file, creating an index of fixed-size words. 
@@ -51,108 +48,6 @@
 /* Note to self: creating and mmapping a sparse file, then filling it in
  * random order is an exceptionally bad idea...
  */
-
-typedef long long unsigned int Oligo ;
-typedef unsigned char uint8_t ;			// ???
-
-class CompactGenome
-{
-	private:
-		uint8_t *base ;
-		unsigned length ;
-		int fd ;
-
-	public:
-		CompactGenome( const char* fp ) ;
-		~CompactGenome() ;
-
-		// get nucleotide at position ix, relative to the beginning of
-		// the file
-		uint8_t operator[]( unsigned ix ) {
-			uint8_t w = base[ix >> 1] ;
-			if( ix & 1 ) w >>= 4 ;
-			return w & 0xf ;
-		}
-
-		// scan over finite words of the dna; these may well contain
-		// ambiguity codes, but are guaranteed not to contain gaps
-		template< typename F, typename G >
-			void scan_words( int w, F mk_word, G consume_word, const char* msg = 0 ) ;
-
-		uint8_t deref( unsigned offset ) const
-		{ return (base[offset >> 1] >> (4 * (offset & 1))) & 0xf ; }
-
-} ;
-
-CompactGenome::CompactGenome( const char *fp )
-	: base(0), length(0), fd(-1)
-{
-	int fd = open( fp, O_RDONLY ) ;
-	throw_errno_if_minus1( fd, "opening", fp ) ;
-	struct stat the_stat ;
-	throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
-	length = the_stat.st_size ;
-	void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
-	throw_errno_if_minus1( p, "mmapping", fp ) ;
-	base = (uint8_t*)p ;
-}
-
-CompactGenome::~CompactGenome()
-{
-	if( base ) munmap( base, length ) ;
-	if( fd != -1 ) close( fd ) ;
-}
-
-// Scan over the dna words in the genome.  Size of the words is limited
-// to what fits into a (long long unsigned), typically 16.
-//
-// Words are encodes as four bits per nucleotide, first nucleotide in
-// the MSB(!).  See make_dense_word for why that makes sense.  Unused
-// MSBs in words passed to mk_word contain junk.
-inline void report( unsigned o, unsigned l, const char* msg ) {
-	if( msg )
-		std::clog << '\r' << msg << ": at offset " << o << " (of " << 2*l
-			<< ", " << round((50.0*o)/l) << "%)\e[K" << std::flush ;
-}
-
-template< typename F, typename G >
-void CompactGenome::scan_words( int w, F mk_word, G consume_word, const char* msg ) {
-	assert( std::numeric_limits< Oligo >::digits >= 4 * w ) ;
-#ifdef _BSD_SOURCE
-	madvise( base, length, MADV_SEQUENTIAL ) ;
-#endif
-	unsigned offs = 0 ;
-	Oligo dna = 0 ;
-
-	while( deref( offs ) != 0 ) ++offs ;		// first first gap
-	for( int i = 0 ; i != w ; ++i )				// fill first word
-	{
-		dna <<= 4 ;
-		dna |= deref( offs ) ;
-		++offs ;
-	}
-
-	report(offs,length,msg) ;
-	while( offs != 2 * length )
-	{
-		if( (offs & 0xfffff) == 0 ) report(offs,length,msg) ;
-
-		dna <<= 4 ;
-		dna |= deref( offs ) ;
-		++offs ;
-
-		// throw away words containing gap symbols
-		// (This is necessary since we may want to construct
-		// discontiguous words, but not if a "don't care" position is a
-		// gap.)
-		bool clean = true ;
-		for( int i = 0 ; i != w ; ++i )
-			clean &= ((dna >> (4*i)) & 0xf) != 0 ;
-
-		if( clean ) mk_word( w, offs-w, dna, consume_word ) ;
-	}
-	std::clog << "\r\e[K" << std::flush ;
-}
 
 template< typename G >
 void make_dense_word1( int w, unsigned offs, Oligo dna, unsigned acc, G consume_word )
@@ -322,8 +217,8 @@ int main_( int argc, const char * const argv[] )
 	int fd = open( argv[2], O_RDWR | O_TRUNC | O_CREAT, 0644 ) ;
 	throw_errno_if_minus1( fd, "opening", argv[2] ) ;
 
-	unsigned signature = 0x30584449 ; // IDX0 
-	write( fd, &signature, 4 ) ;
+	uint32_t sig = FixedIndex::signature ;
+	write( fd, &sig, 4 ) ;
 	write( fd, &first_level_len, 4 ) ;
 	write( fd, base, 4 * first_level_len ) ;
 	write( fd, &total, 4 ) ;
