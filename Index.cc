@@ -21,6 +21,8 @@ CompactGenome::CompactGenome( const char *fp )
 	throw_errno_if_minus1( p, "mmapping", fp ) ;
 	base = (uint8_t*)p ;
 	
+	std::cerr << "genome base: " << p << std::endl ;
+
 	if( ((uint32_t*)base)[0] != signature ) 
 		throw fp + std::string(" does not have 'DNA0' signature") ;
 }
@@ -49,6 +51,8 @@ FixedIndex::FixedIndex( const char* fp, int w )
 	void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
 	throw_errno_if_minus1( p, "mmapping", fp ) ;
 	base = (uint32_t*)p ;
+
+	std::cerr << "index base: " << p << std::endl ;
 
 	if( base[0] != signature ) 
 		throw fp + std::string(" does not have 'IDX0' signature") ;
