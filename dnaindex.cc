@@ -52,10 +52,6 @@
 template< typename G >
 void make_dense_word1( int w, uint32_t offs, Oligo dna, uint32_t acc, G consume_word )
 {
-	// std::cerr << __PRETTY_FUNCTION__ << std::endl ;
-	// std::cerr << "w = " << std::dec << w << ", offs = " << std::dec << offs 
-		// << ", dna = " << std::hex << dna << ", acc = " << std::hex << acc << std::endl ;
-
 	while( w ) {
 		// Loop over set bits in ambiguity codes.  Special cased and
 		// unrolled for speed.  Note that we need recursion, but we can
@@ -199,7 +195,6 @@ int main_( int argc, const char * const argv[] )
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 #endif
 
-	/*
 	// Second scan: we actually store the offsets now.
 	genome.scan_words( word_size, make_dense_word<store_word>, store_word( base, lists ), "Indexing" ) ;
 
@@ -211,7 +206,6 @@ int main_( int argc, const char * const argv[] )
 		if( !*p ) *p = last ;
 		else last = *p ;
 	}
-	*/
 
 	std::clog << "Writing " << argv[2] << "..." << std::endl ;
 	int fd = open( argv[2], O_RDWR | O_TRUNC | O_CREAT, 0644 ) ;
