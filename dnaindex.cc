@@ -50,7 +50,7 @@
  */
 
 template< typename G >
-void make_dense_word1( int w, unsigned offs, Oligo dna, unsigned acc, G consume_word )
+void make_dense_word1( int w, uint32_t offs, Oligo dna, uint32_t acc, G consume_word )
 {
 	// std::cerr << __PRETTY_FUNCTION__ << std::endl ;
 	// std::cerr << "w = " << std::dec << w << ", offs = " << std::dec << offs 
@@ -109,7 +109,7 @@ void make_dense_word1( int w, unsigned offs, Oligo dna, unsigned acc, G consume_
 }
 
 template< typename G >
-void make_dense_word( int w, unsigned offs, Oligo dna, G consume_word )
+void make_dense_word( int w, uint32_t offs, Oligo dna, G consume_word )
 {
 	make_dense_word1<G>( w, offs, dna, 0, consume_word ) ;
 }
@@ -120,7 +120,7 @@ class count_word {
 
 	public:
 		count_word( uint32_t *b ) : base(b) {}
-		void operator()( unsigned off, unsigned ix ) { ++base[ix] ; }
+		void operator()( uint32_t off, uint32_t ix ) { ++base[ix] ; }
 } ;
 
 class store_word {
@@ -130,10 +130,10 @@ class store_word {
 
 	public:
 		store_word( uint32_t *i1, uint32_t *i2 ) : index_1l(i1), index_2l(i2) {}
-		void operator()( unsigned off, unsigned ix )
+		void operator()( uint32_t off, uint32_t ix )
 		{ 
-			unsigned& p = index_1l[ ix ] ;
-			if( p ) index_2l[ --p ] = off ;
+			uint32_t& p = index_1l[ (uint64_t)ix ] ;
+			if( p ) index_2l[ (uint64_t)(--p) ] = off ;
 		}
 } ;
 
@@ -142,10 +142,10 @@ int main_( int argc, const char * const argv[] )
 	if( argc != 3 ) return 1 ;
 	CompactGenome genome( argv[1] ) ;
 
-	unsigned word_size =   10 ; // XXX
-	unsigned cutoff    = 1280 ; // XXX
+	unsigned word_size =    10 ; // XXX
+	unsigned cutoff    = 12800 ; // XXX
 
-	unsigned first_level_len = 1 << (2 * word_size) + 1 ;
+	uint64_t first_level_len = 1 << (2 * word_size) + 1 ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
 
 	uint32_t *base = (uint32_t*)malloc( 4 * first_level_len ) ;
@@ -178,13 +178,11 @@ int main_( int argc, const char * const argv[] )
 	// Whenever we decide to ignore some oligo because it occurs too
 	// often, we store the index 0.  An additional pass needs to replace
 	// the zeros by sensible values.
-	unsigned total = 0 ;
+	uint64_t total = 0 ;
 	for( uint32_t *p = base ; p != base + first_level_len ; ++p )
 	{
 		if( *p < cutoff ) {
-			unsigned total_ = total ;
 			total += *p ;
-			assert( total_ <= total ) ;		// this blows up on overflow
 			*p = total ;
 		}
 		else
@@ -201,28 +199,30 @@ int main_( int argc, const char * const argv[] )
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 #endif
 
+	/*
 	// Second scan: we actually store the offsets now.
 	genome.scan_words( word_size, make_dense_word<store_word>, store_word( base, lists ), "Indexing" ) ;
 
 	// need to fix 0-entries in 1L index
-	unsigned last = total ;
+	uint32_t last = total ;
 	for( uint32_t *p = base + first_level_len ; p != base ; )
 	{
 		--p ;
 		if( !*p ) *p = last ;
 		else last = *p ;
 	}
+	*/
 
 	std::clog << "Writing " << argv[2] << "..." << std::endl ;
 	int fd = open( argv[2], O_RDWR | O_TRUNC | O_CREAT, 0644 ) ;
 	throw_errno_if_minus1( fd, "opening", argv[2] ) ;
 
 	uint32_t sig = FixedIndex::signature ;
-	write( fd, &sig, 4 ) ;
-	write( fd, &first_level_len, 4 ) ;
-	write( fd, base, 4 * first_level_len ) ;
-	write( fd, &total, 4 ) ;
-	write( fd, lists, 4 * total ) ;
+	mywrite( fd, &sig, 4 ) ;
+	mywrite( fd, &first_level_len, 4 ) ;
+	mywrite( fd, base, 4 * first_level_len ) ;
+	mywrite( fd, &total, 4 ) ;
+	mywrite( fd, lists, 4 * total ) ;
 	close( fd ) ;
 
 	std::cout << "index \"" << argv[2] << "\" {\n"
@@ -234,4 +234,5 @@ int main_( int argc, const char * const argv[] )
 		<< "} ;\n" ;
 	return 0 ;
 }
+
 

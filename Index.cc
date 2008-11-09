@@ -19,10 +19,8 @@ CompactGenome::CompactGenome( const char *fp )
 	length = the_stat.st_size ;
 	void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
 	throw_errno_if_minus1( p, "mmapping", fp ) ;
-	base = (uint8_t*)p ;
+	base = (Ambicode*)p ;
 	
-	std::cerr << "genome base: " << p << std::endl ;
-
 	if( ((uint32_t*)base)[0] != signature ) 
 		throw fp + std::string(" does not have 'DNA0' signature") ;
 }
@@ -34,13 +32,13 @@ CompactGenome::~CompactGenome()
 }
 
 
-void CompactGenome::report( unsigned o, unsigned l, const char* msg ) {
+void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 	if( msg )
 		std::clog << '\r' << msg << ": at offset " << o << " (of " << 2*l
 			<< ", " << round((50.0*o)/l) << "%)\e[K" << std::flush ;
 }
 
-FixedIndex::FixedIndex( const char* fp, int w ) 
+FixedIndex::FixedIndex( const char* fp, unsigned w ) 
 	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w)
 {
 	fd = open( fp, O_RDONLY ) ;
@@ -68,7 +66,7 @@ FixedIndex::~FixedIndex()
 	if( fd != -1 ) close( fd ) ;
 }
 
-int FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) const 
+unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) const 
 {
 	assert( o < first_level_len ) ;
 
@@ -84,12 +82,12 @@ int FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) const
 	return base[o+1] - base[o] ;
 } 
 
-int FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) const
+unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
 	int s = 2 * wordsize - 2 ;
-	int filled = 0 ;
-	int total = 0 ;
+	unsigned filled = 0 ;
+	unsigned total = 0 ;
 	int32_t fraglen = dna.size() ;
 
 	for( int32_t offset = 0 ; offset != fraglen ; ++offset )

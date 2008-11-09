@@ -4,16 +4,18 @@
 #include <cerrno>
 #include <string>
 
-template< typename T >
-void throw_errno_if_minus1( T x, const char* a, const char* b = 0 )
-{ throw_errno_if_eq( x, (T)(-1), a, b ) ; }
+#include <unistd.h>
 
 template< typename T >
-void throw_errno_if_null( T x, const char* a, const char* b = 0 )
-{ throw_errno_if_eq( x, (T)0, a, b ) ; }
+T throw_errno_if_minus1( T x, const char* a, const char* b = 0 )
+{ return throw_errno_if_eq( x, (T)(-1), a, b ) ; }
 
 template< typename T >
-void throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
+T throw_errno_if_null( T x, const char* a, const char* b = 0 )
+{ return throw_errno_if_eq( x, (T)0, a, b ) ; }
+
+template< typename T >
+T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 {
 	if( x == y )
 	{
@@ -24,6 +26,21 @@ void throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 		msg.append( strerror( errno ) ).append( " while " ).append( a ) ;
 		if( b ) msg.append( " " ).append( b ) ;
 		throw msg ;
+	}
+	return x ;
+}
+
+// Would you believe it, write(2) sometimes decides to write less than
+// what was requested.  No idea why, but a loop around it solves it.  
+inline void mywrite( int fd, const void* buf, size_t count, const char* msg = 0 )
+{
+	while( count > 0 ) 
+	{
+		ssize_t w = write( fd, buf, count ) ;
+		if( w == -1 && errno == EINTR ) w = 0 ;
+		throw_errno_if_minus1( w, "writing", msg ) ;
+		count -= w ;
+		buf = (const char*)buf + w ;
 	}
 }
 

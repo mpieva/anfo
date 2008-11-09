@@ -7,10 +7,16 @@
 #include <string>
 #include <vector>
 
+#include <stdint.h>
 #include <sys/mman.h>
 
-typedef long long unsigned int Oligo ;
-typedef unsigned char uint8_t ;			// ???
+// Useful typedefs.  These are used mostly for their documentation
+// value, C++ unfortunately won't be able to check their differences
+// most of the time.
+
+typedef uint64_t Oligo ;
+typedef uint8_t  Nucleotide ;	// 0,1,2,3 == A,C,T,G
+typedef uint8_t  Ambicode ;		// 1,2,4,8 == A,C,T,G
 
 class CompactGenome
 {
@@ -22,7 +28,7 @@ class CompactGenome
 
 		// get nucleotide at position ix, relative to the beginning of
 		// the file
-		uint8_t operator[]( unsigned ix ) {
+		Ambicode operator[]( uint32_t ix ) {
 			uint8_t w = base[ix >> 1] ;
 			if( ix & 1 ) w >>= 4 ;
 			return w & 0xf ;
@@ -31,14 +37,11 @@ class CompactGenome
 		// scan over finite words of the dna; these may well contain
 		// ambiguity codes, but are guaranteed not to contain gaps
 		template< typename F, typename G >
-			void scan_words( int w, F mk_word, G consume_word, const char* msg = 0 ) ;
-
-		uint8_t deref( unsigned offset ) const
-		{ return (base[offset >> 1] >> (4 * (offset & 1))) & 0xf ; }
+			void scan_words( unsigned w, F mk_word, G consume_word, const char* msg = 0 ) ;
 
 	private:
 		uint8_t *base ;
-		unsigned length ;
+		uint32_t length ;
 		int fd ;
 
 		static void report( unsigned, unsigned, const char* ) ;
@@ -60,24 +63,24 @@ class FixedIndex
 	public:
 		enum { signature = 0x30584449u } ; // IDX0 
 
-		FixedIndex( const char* fp, int w ) ;
+		FixedIndex( const char* fp, unsigned w ) ;
 		~FixedIndex() ;
 
 		// direct lookup of an oligo, results are placed in the vector,
 		// the number of results is returned.
-		int lookup1( Oligo, std::vector<Seed>&, int32_t offset = 0 ) const ;
+		unsigned lookup1( Oligo, std::vector<Seed>&, int32_t offset = 0 ) const ;
 
 		// Lookup of a sequence.   The sequence is split into words as
 		// appropriate for the index, then each one of them is looked
 		// up.  This method can be implemented for any kind of index.
-		int lookup( const std::string& seq, std::vector<Seed>& ) const ;
+		unsigned lookup( const std::string& seq, std::vector<Seed>& ) const ;
 
 	private:
 		uint32_t *base, *secondary ;
-		unsigned first_level_len ;
-		unsigned length ;
+		uint32_t first_level_len ;
+		uint64_t length ;
 		int fd ;
-		short wordsize ;
+		unsigned wordsize ;
 } ;
 
 // Scan over the dna words in the genome.  Size of the words is limited
@@ -87,19 +90,19 @@ class FixedIndex
 // the MSB(!).  See make_dense_word for why that makes sense.  Unused
 // MSBs in words passed to mk_word contain junk.
 template< typename F, typename G >
-void CompactGenome::scan_words( int w, F mk_word, G consume_word, const char* msg ) {
-	assert( std::numeric_limits< Oligo >::digits >= 4 * w ) ;
+void CompactGenome::scan_words( unsigned w, F mk_word, G consume_word, const char* msg ) {
+	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
 #ifdef _BSD_SOURCE
 	madvise( base, length, MADV_SEQUENTIAL ) ;
 #endif
-	unsigned offs = 0 ;
+	uint32_t offs = 0 ;
 	Oligo dna = 0 ;
 
-	while( deref( offs ) != 0 ) ++offs ;		// first first gap
-	for( int i = 0 ; i != w ; ++i )				// fill first word
+	while( (*this)[ offs ] != 0 ) ++offs ;		// first first gap
+	for( unsigned i = 0 ; i != w ; ++i )				// fill first word
 	{
 		dna <<= 4 ;
-		dna |= deref( offs ) ;
+		dna |= (*this)[ offs ] ;
 		++offs ;
 	}
 
@@ -109,7 +112,7 @@ void CompactGenome::scan_words( int w, F mk_word, G consume_word, const char* ms
 		if( (offs & 0xfffff) == 0 ) report(offs,length,msg) ;
 
 		dna <<= 4 ;
-		dna |= deref( offs ) ;
+		dna |= (*this)[ offs ] ;
 		++offs ;
 
 		// throw away words containing gap symbols
@@ -117,7 +120,7 @@ void CompactGenome::scan_words( int w, F mk_word, G consume_word, const char* ms
 		// discontiguous words, but not if a "don't care" position is a
 		// gap.)
 		bool clean = true ;
-		for( int i = 0 ; i != w ; ++i )
+		for( unsigned i = 0 ; i != w ; ++i )
 			clean &= ((dna >> (4*i)) & 0xf) != 0 ;
 
 		if( clean ) mk_word( w, offs-w, dna, consume_word ) ;

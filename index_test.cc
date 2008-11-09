@@ -16,7 +16,7 @@ int main_( int argc, const char * const argv[] )
 	select_seeds( seeds, 2, 2, 20 ) ;
 	cout << seeds.size() << " clumps." << endl ;
 
-	for( int i = 0 ; i != seeds.size() ; ++i )
+	for( unsigned i = 0 ; i != seeds.size() ; ++i )
 		cout << seeds[i].offset << ' '
 			 << seeds[i].diagonal << ' ' 
 			 << seeds[i].size << endl ;
