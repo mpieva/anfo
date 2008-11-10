@@ -138,8 +138,8 @@ int main_( int argc, const char * const argv[] )
 	if( argc != 3 ) return 1 ;
 	CompactGenome genome( argv[1] ) ;
 
-	unsigned word_size =    10 ; // XXX
-	unsigned cutoff    = 12800 ; // XXX
+	unsigned word_size =     8 ; // XXX
+	unsigned cutoff    =     std::numeric_limits<unsigned>::max() ; // XXX
 
 	uint64_t first_level_len = 1 << (2 * word_size) + 1 ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;

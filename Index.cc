@@ -38,8 +38,8 @@ void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 			<< ", " << round((50.0*o)/l) << "%)\e[K" << std::flush ;
 }
 
-FixedIndex::FixedIndex( const char* fp, unsigned w ) 
-	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w)
+FixedIndex::FixedIndex( const char* fp, unsigned w, unsigned c ) 
+	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w), cutoff(c)
 {
 	fd = open( fp, O_RDONLY ) ;
 	throw_errno_if_minus1( fd, "opening", fp ) ;
@@ -73,6 +73,8 @@ unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) cons
 	Seed seed ;
 	seed.size = wordsize ;
 	seed.offset = offs ;
+
+	if( base[o+1] - base[o] >= cutoff ) return 0 ;
 
 	for( uint32_t p = base[o] ; p != base[o+1] ; ++p )
 	{

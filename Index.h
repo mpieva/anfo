@@ -63,7 +63,7 @@ class FixedIndex
 	public:
 		enum { signature = 0x30584449u } ; // IDX0 
 
-		FixedIndex( const char* fp, unsigned w ) ;
+		FixedIndex( const char* fp, unsigned w, unsigned cutoff = std::numeric_limits<unsigned>::max() ) ;
 		~FixedIndex() ;
 
 		// direct lookup of an oligo, results are placed in the vector,
@@ -81,6 +81,7 @@ class FixedIndex
 		uint64_t length ;
 		int fd ;
 		unsigned wordsize ;
+		unsigned cutoff ;
 } ;
 
 // Scan over the dna words in the genome.  Size of the words is limited
