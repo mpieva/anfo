@@ -13,36 +13,38 @@
  * A "compact genome" is a file encoding DNA as 4 bits per nucleotide.
  * The bits encode for A,C,T,G from LSB to MSB.  Combinations of bits
  * form ambiguity codes (0 is a gap, used as terminator, 15 is an N),
- * two left rotations reverse-complement a single nucleotide or a pair
- * of nucleotides.  In a byte, the first nucleotide occupies the 4 LSBs.
+ * two left rotations reverse-complement a single nucleotide.  In a
+ * byte, the first nucleotide occupies the 4 LSBs.
  *
  * The "compact genome" starts with the ACSII-signature "DNA0", followed
  * by the raw DNA.  Each contig is prepended with a single gap, then the
  * contigs are concatenated, then a final single gap is appended.  The
  * DNA is written out with two nucleotides per byte.  The final byte is
  * padded with a gap if necessary.  Note that every contig is always
- * preceded and succeeded by a gap.
+ * preceded and succeeded by a gap; this is done so we can mmap(2) a
+ * genome into memory and operate on pointers into it in the knowledge
+ * that every contig is terminated by a gap in either direction.
  *
- * An index of the contigs is written to stdout as follows:
- *
- * index := "genome" name "{" scaffold* "}" ";"
- * scaffold := "sequence" name "{" contig* "}" ";"
- * contig := "contig" "{" offset range "}" ";"
- * offset := "offset" uint32 ";"
- * range := "range" uint32 "-" uint32 ";"
- *
- * Where offset is the number of half-bytes to seek into the file to get
- * to the start of the contig, and the range is the place of the contig
- * in the original sequence.
+ * An index of the contigs and a description of the genome is packed
+ * into a message of type "Genome" (see metaindex.proto) and written to
+ * stdout in protobuf text format.
  */
 
+#include "metaindex.pb.h"
 #include "util.h"
 
-#include <iostream>
-#include <fstream>
-#include <cctype>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+#include <google/protobuf/text_format.h>
 
-static const unsigned max_num_n = 2 ;
+#include <popt.h>
+
+#include <cctype>
+#include <fstream>
+#include <iostream>
+
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 uint8_t decode_fna( char c ) {
 	switch( c ) {
@@ -79,53 +81,51 @@ class FastaDecoder
 		unsigned source_position ;
 		unsigned num_n  ;
 		uint8_t one_nt ;
-		std::ostream& dna ;
-		std::ostream& out ;
+		const unsigned max_num_n ;
+		bool verbose ;
+
+		std::ofstream& dna ;
+		metaindex::Genome *cur_genome ;
+		metaindex::Sequence *cur_sequence ;
+		metaindex::Contig *cur_contig ;
 		
 		
 	public:
-		FastaDecoder( unsigned p, std::ostream& dna_, std::ostream& out_ ) 
+		FastaDecoder( unsigned p, std::ofstream& dna_, metaindex::Genome *g_, unsigned maxn, bool v_ = false )
 			: state( &FastaDecoder::s_idle ), position( p ), num_n( 0 ), one_nt( 0 )
-			, dna( dna_ ), out( out_ ) {}
+			, max_num_n( maxn ), verbose( v_ ), dna( dna_ )
+			, cur_genome( g_ ), cur_sequence( 0 ), cur_contig( 0 )
+		{
+			dna.write( "DNA0", 4 ) ;
+		}
 
 		void step( char c ) { (this->*state)( c ) ; }
 
 		void begin_new_sequence()
 		{
 			source_position = 0 ;
-			out << "\tsequence \"" ; 
+			cur_sequence = cur_genome->add_sequence() ;
 		}
-		void finish_sequence() { out << "\t} ;\n" ; }
+		void finish_sequence() { cur_sequence = 0 ; }
 		void begin_new_contig() 
 		{ 
 			put_nt( '-' ) ;
 			num_n = 0 ;
-			out << "\t\tcontig {\n\t\t\toffset "
-				<< position << " ;\n\t\t\trange " 
-				<< source_position << " - " ; 
+			cur_contig = cur_sequence->add_contig() ;
+			cur_contig->set_offset( position ) ;
+			cur_contig->set_range_start( source_position ) ;
+			if( verbose )
+				std::clog << cur_sequence->name() << " @ " << source_position << std::endl ;
 		}
 		void finish_contig()
 		{ 
-			out << source_position << " ;\n\t\t} ;\n" ;
+			cur_contig->set_range_end( source_position ) ;
 		}
 		void finish_genome()
 		{
 			put_nt( '-' ) ;
-			out << "\ttotal_size " << position << "\n} ;\n" ;
+			cur_genome->set_total_size( position ) ;
 			if( position & 1 ) put_nt( '-' ) ;
-		}
-
-		void put_char_lit( char c )
-		{
-			char hexdigit[] = "0123456789ABCDEF" ;
-			if( c == '"' ) out << "\\\"" ;
-			else if( c == '\'' ) out << "\\\'" ;
-			else if( isprint( c ) ) out << c ;
-			else if( c == '\n' ) out << "\\n" ;
-			else if( c == '\t' ) out << "\\t" ;
-			else if( c == '\r' ) out << "\\r" ;
-			else if( c == '\0' ) out << "\\0" ;
-			else out << "\\x" << hexdigit[ c >> 4 ] << hexdigit[ c & 0xf ] ;
 		}
 
 		void put_nt( char c )
@@ -167,11 +167,10 @@ class FastaDecoder
 			if( !c ) finish_genome() ;
 			else if( std::isspace(c) || c == '\n' )
 			{
-				out << "\" {\n" ;
 				if( c == '\n' ) state = &FastaDecoder::s_seq_begin ;
 				else state = &FastaDecoder::s_info ;
 			}
-			else put_char_lit( c ) ;
+			else cur_sequence->mutable_name()->push_back( c ) ;
 		}
 
 		void s_info( char c )
@@ -259,15 +258,102 @@ class FastaDecoder
 
 
 
-int main_( int argc, const char * const argv[] )
+int main_( int argc, const char * argv[] )
 {
-	if( argc != 2 ) return 1 ;
-	std::ofstream dna_file( argv[1] ) ;
-	dna_file.write( "DNA0", 4 ) ;
-	std::cout << "genome \"" << argv[1] << "\" {\n" ;
-	FastaDecoder fd( 8, dna_file, std::cout ) ;
-	for( int c ; (c = std::cin.get()) != std::istream::traits_type::eof() ; ) fd.step( c ) ;
+	enum option_tags { opt_none, opt_version } ;
+
+	const char* output_file = 0 ;
+	const char* config_file = 0 ;
+	const char* description = 0 ;
+	const char* genome_name = 0 ;
+	int max_num_n = 2 ;
+	int verbose = 0 ;
+
+	struct poptOption options[] = {
+		{ "version", 'V', POPT_ARG_NONE,   0, opt_version, "print version number and exit", 0 },
+		{ "output",  'o', POPT_ARG_STRING, &output_file, opt_none, "write output to FILE", "FILE" },
+		{ "maxn",    'm', POPT_ARG_INT,    &max_num_n, opt_none, "treat N consecutive Ns as separator", "N" },
+		{ "config",  'c', POPT_ARG_STRING, &config_file, opt_none, "use FILE as configuration", "FILE" },
+		{ "genome",  'g', POPT_ARG_STRING, &genome_name, opt_none, "set genome name to NAME", "NAME" },
+		{ "description", 'd', POPT_ARG_STRING, &description, opt_none, "add TEXT as description to genome", "TEXT" },
+		{ "verbose", 'v', POPT_ARG_NONE,   &verbose, opt_none, "make more noise while working", 0 },
+		POPT_AUTOHELP POPT_TABLEEND
+	} ;
+
+	poptContext pc = poptGetContext( "fa2dna", argc, argv, options, 0 ) ;
+	poptSetOtherOptionHelp( pc, "[OPTION...] [FASTA-file...]" ) ;
+	poptReadDefaultConfig( pc, 0 ) ;
+
+	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
+	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
+	{
+		case opt_version:
+			std::cout << poptGetInvocationName(pc) << ", revision " << VERSION << std::endl ;
+			return 0 ;
+
+		default:
+			std::cerr << argv[0] << ": " << poptStrerror( rc ) 
+				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
+			return 1 ; 
+	}
+
+	if( !config_file ) throw "missing --config option" ;
+	if( !output_file ) throw "missing --output option" ;
+	if( !genome_name ) throw "missing --genome option" ;
+
+	metaindex::MetaIndex mi ;
+	int config_in = open( config_file, O_RDONLY ) ;
+	if( config_in != -1 || errno != ENOENT )
+	{
+		throw_errno_if_minus1( config_in, "reading config" ) ;
+		google::protobuf::io::FileInputStream fis( config_in ) ;
+		google::protobuf::TextFormat::Parse( &fis, &mi ) ;
+		close( config_in ) ;
+	}
+
+	metaindex::Genome *g = 0 ;
+	for( int i = 0 ; i != mi.genome_size() && !g ; ++i )
+		if( mi.genome(i).name() == genome_name )
+			g = mi.mutable_genome(i) ;
+	if( g ) g->clear_sequence() ; else g = mi.add_genome() ;
+
+	g->set_name( genome_name ) ;
+	g->set_filename( output_file ) ;
+	if( description ) g->set_description( description ) ;
+
+	std::ofstream output_stream( output_file ) ;
+	FastaDecoder fd( 8, output_stream, g, max_num_n, verbose ) ;
+	if( !poptPeekArg( pc ) ) 
+		for( int c ; (c = std::cin.get()) != std::istream::traits_type::eof() ; )
+			fd.step( c ) ;
+	
+	while( const char* arg = poptGetArg( pc ) )
+	{
+		if( strcmp(arg,"-") ) 
+		{
+			std::ifstream str( arg ) ;
+			for( int c ; (c = str.get()) != std::istream::traits_type::eof() ; )
+				fd.step( c ) ;
+		}
+		else
+			for( int c ; (c = std::cin.get()) != std::istream::traits_type::eof() ; )
+				fd.step( c ) ;
+	}
+
 	fd.step( 0 ) ;
+
+	std::string new_config_file = config_file ;
+	new_config_file.push_back('#') ;
+
+	int config_out = throw_errno_if_minus1(
+			creat( new_config_file.c_str(), 0644 ), "writing config" ) ;
+	google::protobuf::io::FileOutputStream fos( config_out ) ;
+	fos.SetCloseOnDelete( true ) ;
+	google::protobuf::TextFormat::Print( mi, &fos ) ;
+
+	throw_errno_if_minus1( 
+			rename( new_config_file.c_str(), config_file ),
+			"renaming config" ) ;
 	return 0 ;
 }
 

@@ -45,6 +45,6 @@ inline void mywrite( int fd, const void* buf, size_t count, const char* msg = 0 
 }
 
 
-int main( int argc, const char * const argv[] ) ;
+int main( int argc, const char * argv[] ) ;
 
 #endif

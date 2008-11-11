@@ -1,8 +1,8 @@
 #include <util.h>
 #include <iostream>
 
-int main_( int argc, const char * const argv[] ) ;
-int main( int argc, const char * const argv[] )
+extern int main_( int argc, const char * argv[] ) ;
+int main( int argc, const char * argv[] )
 {
 	try {
 		return main_( argc, argv ) ;

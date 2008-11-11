@@ -1,0 +1,66 @@
+package metaindex ;
+
+message Contig {
+    // number of half-bytes to seek into the genome file to get to the
+    // start of the contig
+    required uint32 offset = 1 ;
+	
+    // start of the contig in the original sequence, 0-based
+    required uint32 range_start = 2 ;
+
+    // one-past-the-end of the contig in original sequence, 0-based
+    required uint32 range_end = 3 ; 
+}
+
+message Sequence {
+    // sequence name (first word of header in FASTA file)
+    required string name = 1 ;
+
+    // description of sequence (rest of header in FASTA file)
+    optional string description = 2 ;
+
+    // contigs (stretches without many Ns)
+    repeated Contig contig = 3 ;
+}
+
+message Genome {
+    // internal handle for the genome (short name)
+    required string name = 1 ;
+
+    // path to file that stores the genome
+    required string filename = 2 ;
+
+    // description of the genome (most likely from command line)
+    optional string description = 3 ;
+
+    // sequences (typically one per chromosome)
+    repeated Sequence sequence = 4 ;
+
+    // total length in nucleotides, essentially the file size
+    optional int32 total_size = 5 ;
+}
+
+message CompactIndex {
+    // file that stores the index
+    required string filename = 1 ;
+
+    // name of the indexed genome
+    required string genome_name = 2 ;
+
+    // length of words (the k in k-mer)
+    required uint32 wordsize = 3 ;
+
+    // cutoff for overrepresented k-mers, if absent, all k-mers are
+    // indexed
+    optional uint32 cutoff = 4 ;
+
+    // total number of indexed k-mers (nearly equal to genome size
+    // in the absence of a cutoff)
+    optional uint32 indexsize = 5 ;
+}
+
+message MetaIndex {
+    repeated Genome genome = 1 ;
+    repeated CompactIndex compact_index = 2 ;
+}
+

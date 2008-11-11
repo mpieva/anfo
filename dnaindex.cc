@@ -1,5 +1,9 @@
 #include "Index.h"
 #include "util.h"
+#include "metaindex.pb.h"
+
+#include <google/protobuf/text_format.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
 
 #include <cassert>
 #include <iostream>
@@ -219,13 +223,25 @@ int main_( int argc, const char * const argv[] )
 	mywrite( fd, lists, 4 * total ) ;
 	close( fd ) ;
 
-	std::cout << "index \"" << argv[2] << "\" {\n"
-		<< "\tmethod compact_word_list ;\n"
-		<< "\tgenome \"" << argv[1] << "\" ;\n"
-		<< "\twordsize " << word_size << " ;\n"
-		<< "\tcutoff " << cutoff << " ;\n"
-		<< "\tindexsize " << total << " ;\n"
-		<< "} ;\n" ;
+	metaindex::MetaIndex mi ;
+	metaindex::CompactIndex *ci = mi.add_compact_index() ;
+	ci->set_filename( argv[2] ) ;
+	ci->set_genome_name( argv[1] ) ;
+	ci->set_wordsize( word_size ) ;
+	if( cutoff == std::numeric_limits<unsigned>::max() ) ci->clear_cutoff() ;
+	else ci->set_cutoff( cutoff ) ;
+	ci->set_indexsize( total ) ;
+
+	// std::cout << "index \"" << argv[2] << "\" {\n"
+		// << "\tmethod compact_word_list ;\n"
+		// << "\tgenome \"" << argv[1] << "\" ;\n"
+		// << "\twordsize " << word_size << " ;\n"
+		// << "\tcutoff " << cutoff << " ;\n"
+		// << "\tindexsize " << total << " ;\n"
+		// << "} ;\n" ;
+
+	google::protobuf::io::OstreamOutputStream oos( &std::cout ) ;
+	google::protobuf::TextFormat::Print( mi, &oos ) ;
 	return 0 ;
 }
 
