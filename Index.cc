@@ -1,5 +1,3 @@
-// XXX: the constructors leak when throwing an exception
-
 #include "Index.h"
 #include "util.h"
 
@@ -12,17 +10,26 @@
 CompactGenome::CompactGenome( const char *fp )
 	: base(0), length(0), fd(-1)
 {
-	fd = open( fp, O_RDONLY ) ;
-	throw_errno_if_minus1( fd, "opening", fp ) ;
-	struct stat the_stat ;
-	throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
-	length = the_stat.st_size ;
-	void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
-	throw_errno_if_minus1( p, "mmapping", fp ) ;
-	base = (Ambicode*)p ;
-	
-	if( ((uint32_t*)base)[0] != signature ) 
-		throw fp + std::string(" does not have 'DNA0' signature") ;
+	try
+	{
+		fd = open( fp, O_RDONLY ) ;
+		throw_errno_if_minus1( fd, "opening", fp ) ;
+		struct stat the_stat ;
+		throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
+		length = the_stat.st_size ;
+		void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
+		throw_errno_if_minus1( p, "mmapping", fp ) ;
+		base = (Ambicode*)p ;
+
+		if( ((uint32_t*)base)[0] != signature ) 
+			throw fp + std::string(" does not have 'DNA0' signature") ;
+	}
+	catch(...) 
+	{
+		if( base ) munmap( base, length ) ;
+		if( fd != -1 ) close( fd ) ;
+		throw ;
+	}
 }
 
 CompactGenome::~CompactGenome()
@@ -41,23 +48,32 @@ void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 FixedIndex::FixedIndex( const char* fp, unsigned w, unsigned c ) 
 	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w), cutoff(c)
 {
-	fd = open( fp, O_RDONLY ) ;
-	throw_errno_if_minus1( fd, "opening", fp ) ;
-	struct stat the_stat ;
-	throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
-	length = the_stat.st_size ;
-	void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
-	throw_errno_if_minus1( p, "mmapping", fp ) ;
-	base = (uint32_t*)p ;
+	try 
+	{
+		fd = open( fp, O_RDONLY ) ;
+		throw_errno_if_minus1( fd, "opening", fp ) ;
+		struct stat the_stat ;
+		throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
+		length = the_stat.st_size ;
+		void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
+		throw_errno_if_minus1( p, "mmapping", fp ) ;
+		base = (uint32_t*)p ;
 
-	std::cerr << "index base: " << p << std::endl ;
+		std::cerr << "index base: " << p << std::endl ;
 
-	if( base[0] != signature ) 
-		throw fp + std::string(" does not have 'IDX0' signature") ;
-		
-	first_level_len = base[1] ;
-	base += 2 ;
-	secondary = base + first_level_len + 1 ;
+		if( base[0] != signature ) 
+			throw fp + std::string(" does not have 'IDX0' signature") ;
+
+		first_level_len = base[1] ;
+		base += 2 ;
+		secondary = base + first_level_len + 1 ;
+	}
+	catch(...)
+	{
+		if( base ) munmap( base-2, length ) ;
+		if( fd != -1 ) close( fd ) ;
+		throw ;
+	}
 }
 
 FixedIndex::~FixedIndex() 

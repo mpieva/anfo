@@ -1,17 +1,3 @@
-#include "Index.h"
-#include "util.h"
-#include "metaindex.pb.h"
-
-#include <google/protobuf/text_format.h>
-#include <google/protobuf/io/zero_copy_stream_impl.h>
-
-#include <cassert>
-#include <iostream>
-#include <iomanip>
-
-#include <fcntl.h>
-#include <unistd.h>
-
 /*
  * Scans a dna file, creating an index of fixed-size words. 
  * We need a two-level index and want to keep it simple.  To this end,
@@ -53,8 +39,25 @@
  * random order is an exceptionally bad idea...
  */
 
+#include "Index.h"
+#include "util.h"
+#include "metaindex.pb.h"
+#include "conffile.h"
+
+#include <google/protobuf/text_format.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+
+#include <popt.h>
+
+#include <cassert>
+#include <iostream>
+#include <iomanip>
+
+#include <fcntl.h>
+#include <unistd.h>
+
 template< typename G >
-void make_dense_word1( int w, uint32_t offs, Oligo dna, uint32_t acc, G consume_word )
+void make_dense_word1( int w, uint32_t offs, Oligo dna, uint32_t acc, G& consume_word )
 {
 	while( w ) {
 		// Loop over set bits in ambiguity codes.  Special cased and
@@ -109,18 +112,29 @@ void make_dense_word1( int w, uint32_t offs, Oligo dna, uint32_t acc, G consume_
 }
 
 template< typename G >
-void make_dense_word( int w, uint32_t offs, Oligo dna, G consume_word )
+void make_dense_word( int w, uint32_t offs, Oligo dna, G& consume_word )
 {
 	make_dense_word1<G>( w, offs, dna, 0, consume_word ) ;
 }
 
 class count_word {
 	private:
-		uint32_t *base ;
-
 	public:
-		count_word( uint32_t *b ) : base(b) {}
-		void operator()( uint32_t off, uint32_t ix ) { ++base[ix] ; }
+		uint32_t *base ;
+		uint32_t cutoff ;
+		uint64_t total ;
+
+		count_word( uint32_t *b, uint32_t c ) : base(b), cutoff(c), total(0) {}
+		void operator()( uint32_t off, uint32_t ix ) {
+			uint32_t x = ++base[ix] ; 
+			if( x <= cutoff ) {
+				++total ;
+				if( x == cutoff ) total -= cutoff ;
+			}
+
+			if( std::numeric_limits<size_t>::max() / 4 <= total ) 
+				throw "Sorry, but a 64 bit machine is needed for this kind of index." ;
+		}
 } ;
 
 class store_word {
@@ -137,29 +151,70 @@ class store_word {
 		}
 } ;
 
-int main_( int argc, const char * const argv[] )
+int main_( int argc, const char * argv[] )
 {
-	if( argc != 3 ) return 1 ;
-	CompactGenome genome( argv[1] ) ;
+	enum option_tags { opt_none, opt_version } ;
 
-	unsigned word_size =     8 ; // XXX
-	unsigned cutoff    =     std::numeric_limits<unsigned>::max() ; // XXX
+	const char* output_file = 0 ;
+	const char* config_file = 0 ;
+	const char* description = 0 ;
+	const char* genome_name = 0 ;
 
-	uint64_t first_level_len = 1 << (2 * word_size) + 1 ;
+	unsigned wordsize = 10 ;
+	unsigned cutoff   = std::numeric_limits<unsigned>::max() ;
+	int      verbose  = 0 ;
+
+	struct poptOption options[] = {
+		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "print version number and exit", 0 },
+		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "write output to FILE", "FILE" },
+		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "use FILE as configuration", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "use genome named to NAME", "NAME" },
+		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "add TEXT as description to index", "TEXT" },
+		{ "wordsize",    's', POPT_ARG_INT,    &wordsize,    opt_none,    "index words of length SIZE", "SIZE" },
+		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "do not index words more frequent than LIM", "LIM" },
+		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "make more noise while working", 0 },
+		POPT_AUTOHELP POPT_TABLEEND
+	} ;
+
+	poptContext pc = poptGetContext( "dnaindex", argc, argv, options, 0 ) ;
+	poptSetOtherOptionHelp( pc, "[OPTION...]" ) ;
+	poptReadDefaultConfig( pc, 0 ) ;
+
+	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
+	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
+	{
+		case opt_version:
+			std::cout << poptGetInvocationName(pc) << ", revision " << VERSION << std::endl ;
+			return 0 ;
+
+		default:
+			std::cerr << argv[0] << ": " << poptStrerror( rc ) 
+				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
+			return 1 ; 
+	}
+
+	if( !config_file ) throw "missing --config option" ;
+	if( !output_file ) throw "missing --output option" ;
+	if( !genome_name ) throw "missing --genome option" ;
+
+	Config cfg( config_file ) ;
+	CompactGenome genome( cfg.find_genome( genome_name ).filename().c_str() ) ;
+
+	uint64_t first_level_len = 1 << (2 * wordsize) + 1 ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
 
 	uint32_t *base = (uint32_t*)malloc( 4 * first_level_len ) ;
 	throw_errno_if_null( base, "allocating first level index" ) ;
-#ifdef _BSD_SOURCE
 	madvise( base, 4*first_level_len, MADV_WILLNEED ) ;
-#endif
 
 	// we will scan over the dna twice: once to count occurences of
 	// words, once to actually store pointers.
 	
 	// First scan: only count words.  We'll have to go over the whole
 	// table again to convert counts into offsets.
-	genome.scan_words( word_size, make_dense_word<count_word>, count_word( base ), "Counting" ) ;
+	count_word cw( base, cutoff ) ;
+	genome.scan_words( wordsize, make_dense_word<count_word>, cw /*count_word( base, cutoff )*/, "Counting" ) ;
+	std::clog << "Need to store " << cw.total << " pointers." << std::endl ;
 
 #if 0
 	// This is temporary... make a histogram.
@@ -190,17 +245,14 @@ int main_( int argc, const char * const argv[] )
 			*p = 0 ;
 		}
 	}
-	std::clog << "Need to store " << total << " pointers." << std::endl ;
-	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len  + total ) ;
 
 	uint32_t *lists = (uint32_t*)malloc( 4 * total ) ;
 	throw_errno_if_null( lists, "allocated second level index" ) ;
-#ifdef _BSD_SOURCE
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
-#endif
 
 	// Second scan: we actually store the offsets now.
-	genome.scan_words( word_size, make_dense_word<store_word>, store_word( base, lists ), "Indexing" ) ;
+	store_word sw( base, lists ) ;
+	genome.scan_words( wordsize, make_dense_word<store_word>, sw, "Indexing" ) ;
 
 	// need to fix 0-entries in 1L index
 	uint32_t last = total ;
@@ -212,8 +264,7 @@ int main_( int argc, const char * const argv[] )
 	}
 
 	std::clog << "Writing " << argv[2] << "..." << std::endl ;
-	int fd = open( argv[2], O_RDWR | O_TRUNC | O_CREAT, 0644 ) ;
-	throw_errno_if_minus1( fd, "opening", argv[2] ) ;
+	int fd = throw_errno_if_minus1( creat( output_file, 0644 ), "opening", output_file ) ;
 
 	uint32_t sig = FixedIndex::signature ;
 	mywrite( fd, &sig, 4 ) ;
@@ -223,25 +274,15 @@ int main_( int argc, const char * const argv[] )
 	mywrite( fd, lists, 4 * total ) ;
 	close( fd ) ;
 
-	metaindex::MetaIndex mi ;
-	metaindex::CompactIndex *ci = mi.add_compact_index() ;
-	ci->set_filename( argv[2] ) ;
-	ci->set_genome_name( argv[1] ) ;
-	ci->set_wordsize( word_size ) ;
+	metaindex::CompactIndex *ci = cfg.find_or_create_compact_index( genome_name, wordsize ) ;
+	ci->set_filename( output_file ) ;
+	ci->set_genome_name( genome_name ) ;
+	ci->set_wordsize( wordsize ) ;
 	if( cutoff == std::numeric_limits<unsigned>::max() ) ci->clear_cutoff() ;
 	else ci->set_cutoff( cutoff ) ;
 	ci->set_indexsize( total ) ;
 
-	// std::cout << "index \"" << argv[2] << "\" {\n"
-		// << "\tmethod compact_word_list ;\n"
-		// << "\tgenome \"" << argv[1] << "\" ;\n"
-		// << "\twordsize " << word_size << " ;\n"
-		// << "\tcutoff " << cutoff << " ;\n"
-		// << "\tindexsize " << total << " ;\n"
-		// << "} ;\n" ;
-
-	google::protobuf::io::OstreamOutputStream oos( &std::cout ) ;
-	google::protobuf::TextFormat::Print( mi, &oos ) ;
+	cfg.write() ;
 	return 0 ;
 }
 

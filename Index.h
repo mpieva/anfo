@@ -18,6 +18,12 @@ typedef uint64_t Oligo ;
 typedef uint8_t  Nucleotide ;	// 0,1,2,3 == A,C,T,G
 typedef uint8_t  Ambicode ;		// 1,2,4,8 == A,C,T,G
 
+#ifndef _BSD_SOURCE
+inline int madvise( void*, size_t, int ) { return 0 ; }
+static const int MADV_SEQUENTIAL = 0 ;
+static const int MADV_WILLNEED = 0 ;
+#endif
+
 class CompactGenome
 {
 	public:
@@ -37,7 +43,7 @@ class CompactGenome
 		// scan over finite words of the dna; these may well contain
 		// ambiguity codes, but are guaranteed not to contain gaps
 		template< typename F, typename G >
-			void scan_words( unsigned w, F mk_word, G consume_word, const char* msg = 0 ) ;
+			void scan_words( unsigned w, F mk_word, G& consume_word, const char* msg = 0 ) ;
 
 	private:
 		uint8_t *base ;
@@ -91,11 +97,10 @@ class FixedIndex
 // the MSB(!).  See make_dense_word for why that makes sense.  Unused
 // MSBs in words passed to mk_word contain junk.
 template< typename F, typename G >
-void CompactGenome::scan_words( unsigned w, F mk_word, G consume_word, const char* msg ) {
+void CompactGenome::scan_words( unsigned w, F mk_word, G& consume_word, const char* msg ) {
 	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
-#ifdef _BSD_SOURCE
 	madvise( base, length, MADV_SEQUENTIAL ) ;
-#endif
+
 	uint32_t offs = 0 ;
 	Oligo dna = 0 ;
 
@@ -180,6 +185,8 @@ template < typename C > void combine_seeds( C& v )
 // XXX: This wants to be configurable.  Seeds on the same diagonal ±d
 // and not further apart than ±r are clumped.  A clump is good enough a
 // seed if the total match length of the seeds in it reaches m.
+//
+// XXX: It also doesn't work... needs to be revamped completely.
 template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t m )
 {
 	if( !v.empty() )

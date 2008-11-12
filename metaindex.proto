@@ -37,7 +37,7 @@ message Genome {
     repeated Sequence sequence = 4 ;
 
     // total length in nucleotides, essentially the file size
-    optional int32 total_size = 5 ;
+    optional uint32 total_size = 5 ;
 }
 
 message CompactIndex {

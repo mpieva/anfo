@@ -32,19 +32,13 @@
 
 #include "metaindex.pb.h"
 #include "util.h"
-
-#include <google/protobuf/io/zero_copy_stream_impl.h>
-#include <google/protobuf/text_format.h>
+#include "conffile.h"
 
 #include <popt.h>
 
 #include <cctype>
 #include <fstream>
 #include <iostream>
-
-#include <fcntl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
 uint8_t decode_fna( char c ) {
 	switch( c ) {
@@ -99,6 +93,18 @@ class FastaDecoder
 			dna.write( "DNA0", 4 ) ;
 		}
 
+		void finish() 
+		{
+			step( 0 ) ;
+			if( verbose ) std::clog << "\33[K" << std::flush ;
+		}
+
+		void consume( std::istream& s ) 
+		{
+			int c ;
+			while( (c = s.get()) != std::istream::traits_type::eof() ) step( c ) ;
+		}
+
 		void step( char c ) { (this->*state)( c ) ; }
 
 		void begin_new_sequence()
@@ -115,11 +121,15 @@ class FastaDecoder
 			cur_contig->set_offset( position ) ;
 			cur_contig->set_range_start( source_position ) ;
 			if( verbose )
-				std::clog << cur_sequence->name() << " @ " << source_position << std::endl ;
+				std::clog << cur_sequence->name() << " @ " << source_position
+					      << "\33[K\r" << std::flush ;
 		}
 		void finish_contig()
 		{ 
 			cur_contig->set_range_end( source_position ) ;
+			if( verbose )
+				std::clog << cur_sequence->name() << " @ " << source_position
+					      << "\33[K\r" << std::flush ;
 		}
 		void finish_genome()
 		{
@@ -270,13 +280,13 @@ int main_( int argc, const char * argv[] )
 	int verbose = 0 ;
 
 	struct poptOption options[] = {
-		{ "version", 'V', POPT_ARG_NONE,   0, opt_version, "print version number and exit", 0 },
-		{ "output",  'o', POPT_ARG_STRING, &output_file, opt_none, "write output to FILE", "FILE" },
-		{ "maxn",    'm', POPT_ARG_INT,    &max_num_n, opt_none, "treat N consecutive Ns as separator", "N" },
-		{ "config",  'c', POPT_ARG_STRING, &config_file, opt_none, "use FILE as configuration", "FILE" },
-		{ "genome",  'g', POPT_ARG_STRING, &genome_name, opt_none, "set genome name to NAME", "NAME" },
-		{ "description", 'd', POPT_ARG_STRING, &description, opt_none, "add TEXT as description to genome", "TEXT" },
-		{ "verbose", 'v', POPT_ARG_NONE,   &verbose, opt_none, "make more noise while working", 0 },
+		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "print version number and exit", 0 },
+		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "write output to FILE", "FILE" },
+		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "treat N consecutive Ns as separator", "N" },
+		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "use FILE as configuration", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "set genome name to NAME", "NAME" },
+		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "add TEXT as description to genome", "TEXT" },
+		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "make more noise while working", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -301,59 +311,30 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
 
-	metaindex::MetaIndex mi ;
-	int config_in = open( config_file, O_RDONLY ) ;
-	if( config_in != -1 || errno != ENOENT )
-	{
-		throw_errno_if_minus1( config_in, "reading config" ) ;
-		google::protobuf::io::FileInputStream fis( config_in ) ;
-		google::protobuf::TextFormat::Parse( &fis, &mi ) ;
-		close( config_in ) ;
-	}
+	Config cfg( config_file ) ;
+	metaindex::Genome *g = cfg.find_or_create_genome( genome_name ) ;
 
-	metaindex::Genome *g = 0 ;
-	for( int i = 0 ; i != mi.genome_size() && !g ; ++i )
-		if( mi.genome(i).name() == genome_name )
-			g = mi.mutable_genome(i) ;
-	if( g ) g->clear_sequence() ; else g = mi.add_genome() ;
-
+	g->clear_sequence() ;
 	g->set_name( genome_name ) ;
 	g->set_filename( output_file ) ;
 	if( description ) g->set_description( description ) ;
 
 	std::ofstream output_stream( output_file ) ;
 	FastaDecoder fd( 8, output_stream, g, max_num_n, verbose ) ;
-	if( !poptPeekArg( pc ) ) 
-		for( int c ; (c = std::cin.get()) != std::istream::traits_type::eof() ; )
-			fd.step( c ) ;
-	
+
+	if( !poptPeekArg( pc ) ) fd.consume( std::cin ) ;
 	while( const char* arg = poptGetArg( pc ) )
 	{
 		if( strcmp(arg,"-") ) 
 		{
 			std::ifstream str( arg ) ;
-			for( int c ; (c = str.get()) != std::istream::traits_type::eof() ; )
-				fd.step( c ) ;
+			fd.consume( str ) ;
 		}
-		else
-			for( int c ; (c = std::cin.get()) != std::istream::traits_type::eof() ; )
-				fd.step( c ) ;
+		else fd.consume( std::cin ) ;
 	}
 
-	fd.step( 0 ) ;
-
-	std::string new_config_file = config_file ;
-	new_config_file.push_back('#') ;
-
-	int config_out = throw_errno_if_minus1(
-			creat( new_config_file.c_str(), 0644 ), "writing config" ) ;
-	google::protobuf::io::FileOutputStream fos( config_out ) ;
-	fos.SetCloseOnDelete( true ) ;
-	google::protobuf::TextFormat::Print( mi, &fos ) ;
-
-	throw_errno_if_minus1( 
-			rename( new_config_file.c_str(), config_file ),
-			"renaming config" ) ;
+	fd.finish() ;
+	cfg.write() ;
 	return 0 ;
 }
 
