@@ -21,6 +21,9 @@ message Sequence {
 
     // contigs (stretches without many Ns)
     repeated Contig contig = 3 ;
+
+    // taxonomic id, if known and different from enclosing genome
+    optional uint32 taxid = 6 ;
 }
 
 message Genome {
@@ -38,6 +41,9 @@ message Genome {
 
     // total length in nucleotides, essentially the file size
     optional uint32 total_size = 5 ;
+
+    // taxonomic id, if known and applies to whole genome
+    optional uint32 taxid = 6 ;
 }
 
 message CompactIndex {

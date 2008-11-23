@@ -180,46 +180,90 @@ template < typename C > void combine_seeds( C& v )
 
 // How do we select seeds?  Seeds that are "close enough" should be
 // collapsed into a cluster, then the best seed from any cluster that
-// has enough seeds is used.  
+// has enough seeds is used.  Seeds remaining after this process will be
+// grouped at the beginning of their container, the rest is erased.
 //
-// XXX: This wants to be configurable.  Seeds on the same diagonal ±d
-// and not further apart than ±r are clumped.  A clump is good enough a
-// seed if the total match length of the seeds in it reaches m.
+// In a sense, this wants to be a single, configurable function.  Right
+// now configuration is simply done by three additional parameters:
+// Seeds on the same diagonal ±d and not further apart than ±r are
+// clumped.  A clump is good for an alignment if the total match length
+// of the seeds in it reaches m, and if so, its longest seed is actually
+// used.  We may need different parameters for input sequences of
+// different lengths or characteristics; that decision, however, has to
+// be deferrred to some higher abstraction level.
 //
-// XXX: It also doesn't work... needs to be revamped completely.
+// The container type used in the following must be a random access
+// container.  Either std::vector or std::deque should be fine.
 template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t m )
 {
 	if( !v.empty() )
 	{
 		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
-		typename C::iterator dest = v.begin(), e = v.end() ;
+		typename C::iterator clump_begin = v.begin(),
+				 input_end = v.end(), out = v.begin() ;
 
-		for( typename C::const_iterator a = v.begin() ; a != e ; )
+		// Start building a clump, assuming there's is still something
+		// to build from
+		while( clump_begin != input_end )
 		{
-			// find range of seeds that form a clump, this will be
-			// pointed to by [a,b).  Also calculate total seed length.
-			typename C::const_iterator b = a ;
-			uint32_t mlen = 0 ;
-			while( b != e && b->diagonal - a->diagonal <= d
-					&& abs( b->offset - a->offset ) <= r
-					&& (b->offset>=0) == (a->offset>=0) ) 
+			typename C::iterator clump_end = clump_begin + 1 ;
+			typename C::iterator last_touched = clump_end ;
+
+			// Still anything in the clump that may have unrecognized
+			// neighbors?
+			for( typename C::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
 			{
-				mlen += b->size ;
-				++b ;
+				// Decide whether open_in_clump and candidate are
+				// actually neighbors.  XXX: They are not if they end up
+				// in different contigs :XXX; else they are if their
+				// diagonals are dloser than ±d and their offsets are
+				// closer than ±r.
+				for( typename C::iterator candidate = clump_end ;
+						candidate != input_end &&
+						candidate->diagonal <= open_in_clump->diagonal + d ;
+						++candidate )
+				{
+					if( abs( candidate->offset - open_in_clump->offset ) <= r
+							&& (candidate->offset>=0) == (open_in_clump->offset>=0) ) 
+					{
+						// Include the candidate by swapping it with the
+						// first seed not in our clump and extending the
+						// clump.  Remember that we swapped, we may have
+						// messed up the sorting.
+						std::swap( *clump_end++, *candidate ) ;
+						if( candidate < last_touched ) last_touched = candidate ;
+					}
+				}
 			}
 
-			// if good enough, find the longest seed in the clump and
-			// keep it
-			if( mlen > m ) {
-				typename C::const_iterator c = a ;
-				for( typename C::const_iterator i = a ; i != b ; ++i )
-					if( i->size > c->size ) c = i ;
-
-				*dest = *c ; ++dest ;
+			// Okay, we have built our clump, but we left a mess behind
+			// it (between clump_end and last_touched).  Clean up the
+			// mess first.
+			if( clump_end < last_touched ) 
+				std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
+			
+			// The new clump sits between clump_begin and clump_end.  We
+			// will now reduce this to at most one "best" seed.
+			typename C::iterator best = clump_begin ;
+			uint32_t mlen = 0 ;
+			for( typename C::iterator cur = clump_begin ; cur != clump_end ; ++cur )
+			{
+				mlen += cur->size ;
+				if( cur->size > best->size ) best = cur ;
 			}
-			a = b ;
+
+			// The whole clump is good enough if the total match length
+			// reaches m.  If so, we keep its biggest seed by moving it
+			// to out, else we do nothing.
+			if( mlen >= m ) *out++ = *best ;
+
+			// Done with the clump.  Move to the next.
+			clump_begin = clump_end ;
 		}
-		v.erase( dest, e ) ;
+
+		// We updated the input vector from begin() to out, the rest is
+		// just junk that's left over.  Get rid of it.
+		v.erase( out, input_end ) ;
 	}
 }
 
