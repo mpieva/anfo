@@ -24,6 +24,24 @@ static const int MADV_SEQUENTIAL = 0 ;
 static const int MADV_WILLNEED = 0 ;
 #endif
 
+class DnaP
+{
+	private:
+		uint8_t const *base ;
+
+	public:
+		explicit DnaP( void const *p = 0 ) : base(static_cast<uint8_t const*>(p)) {}
+		Ambicode operator[]( uint32_t ix ) const {
+			uint8_t w = base[ix >> 1] ;
+			if( ix & 1 ) w >>= 4 ;
+			return w & 0xf ;
+		}
+		operator void const * () const { return base ; }
+		void assign( void const *p ) { base = static_cast<uint8_t const*>(p) ; }
+
+		void *unsafe_ptr() const { return const_cast<void*>( static_cast<const void*>( base ) ) ; }
+} ;
+
 class CompactGenome
 {
 	public:
@@ -32,13 +50,7 @@ class CompactGenome
 		CompactGenome( const char* fp ) ;
 		~CompactGenome() ;
 
-		// get nucleotide at position ix, relative to the beginning of
-		// the file
-		Ambicode operator[]( uint32_t ix ) {
-			uint8_t w = base[ix >> 1] ;
-			if( ix & 1 ) w >>= 4 ;
-			return w & 0xf ;
-		}
+		DnaP get_base() const { return base ; }
 
 		// scan over finite words of the dna; these may well contain
 		// ambiguity codes, but are guaranteed not to contain gaps
@@ -46,7 +58,7 @@ class CompactGenome
 			void scan_words( unsigned w, F mk_word, G& consume_word, const char* msg = 0 ) ;
 
 	private:
-		uint8_t *base ;
+		DnaP base ;
 		uint32_t length ;
 		int fd ;
 
@@ -99,16 +111,16 @@ class FixedIndex
 template< typename F, typename G >
 void CompactGenome::scan_words( unsigned w, F mk_word, G& consume_word, const char* msg ) {
 	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
-	madvise( base, length, MADV_SEQUENTIAL ) ;
+	madvise( base.unsafe_ptr(), length, MADV_SEQUENTIAL ) ;
 
 	uint32_t offs = 0 ;
 	Oligo dna = 0 ;
 
-	while( (*this)[ offs ] != 0 ) ++offs ;		// first first gap
+	while( base[ offs ] != 0 ) ++offs ;		// first first gap
 	for( unsigned i = 0 ; i != w ; ++i )				// fill first word
 	{
 		dna <<= 4 ;
-		dna |= (*this)[ offs ] ;
+		dna |= base[ offs ] ;
 		++offs ;
 	}
 
@@ -118,7 +130,7 @@ void CompactGenome::scan_words( unsigned w, F mk_word, G& consume_word, const ch
 		if( (offs & 0xfffff) == 0 ) report(offs,length,msg) ;
 
 		dna <<= 4 ;
-		dna |= (*this)[ offs ] ;
+		dna |= base[ offs ] ;
 		++offs ;
 
 		// throw away words containing gap symbols

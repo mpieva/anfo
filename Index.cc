@@ -8,7 +8,7 @@
 #include <sys/types.h>
 
 CompactGenome::CompactGenome( const char *fp )
-	: base(0), length(0), fd(-1)
+	: base(), length(0), fd(-1)
 {
 	try
 	{
@@ -19,14 +19,14 @@ CompactGenome::CompactGenome( const char *fp )
 		length = the_stat.st_size ;
 		void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", fp ) ;
-		base = (Ambicode*)p ;
+		base.assign( p ) ;
 
-		if( ((uint32_t*)base)[0] != signature ) 
+		if( ((uint32_t const*)(void const*)base)[0] != signature ) 
 			throw fp + std::string(" does not have 'DNA0' signature") ;
 	}
 	catch(...) 
 	{
-		if( base ) munmap( base, length ) ;
+		if( base ) munmap( base.unsafe_ptr(), length ) ;
 		if( fd != -1 ) close( fd ) ;
 		throw ;
 	}
@@ -34,7 +34,7 @@ CompactGenome::CompactGenome( const char *fp )
 
 CompactGenome::~CompactGenome()
 {
-	if( base ) munmap( base, length ) ;
+	if( base ) munmap( base.unsafe_ptr(), length ) ;
 	if( fd != -1 ) close( fd ) ;
 }
 

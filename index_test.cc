@@ -1,6 +1,7 @@
 #include "util.h"
 #include "Index.h"
 #include "conffile.h"
+#include "Align.h"
 
 using namespace std ;
 
@@ -34,6 +35,7 @@ int main_( int argc, const char * argv[] )
 			 << seeds[i].diagonal << ' ' 
 			 << seeds[i].size << endl ;
 
+	// quick hack to init alignments... XXX
 	return 0 ;
 }
 

@@ -2,7 +2,7 @@ svnversion := $(shell svnversion)
 version ?= $(svnversion)
 
 PROTOC ?= protoc
-LDLIBS += -lprotobuf -lpopt
+LDLIBS += -lprotobuf -lpopt -lJudy
 # CXXFLAGS += -O3 -Wall -MMD
 CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
 
