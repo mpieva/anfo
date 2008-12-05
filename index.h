@@ -1,7 +1,7 @@
 #ifndef INCLUDED_INDEX_H
 #define INCLUDED_INDEX_H
 
-#include "Sequence.h"
+#include "sequence.h"
 #include "util.h"
 
 #include <cassert>

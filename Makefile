@@ -12,7 +12,11 @@ DATABASES := hg18.dna chr21.dna chr21_10.idx hg18_10.idx
 all: $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := util.o Index.o metaindex.pb.o conffile.o
+OBJECTS := util.o index.o metaindex.pb.o conffile.o
+
+fa2dna: $(OBJECTS)
+dnaindex: $(OBJECTS)
+index_test: $(OBJECTS)
 
 hg18.dna: fa2dna
 	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -c index.txt -o $@ -v \
@@ -28,7 +32,7 @@ hg18_10.idx: hg18.dna dnaindex
 chr21_10.idx: chr21.dna dnaindex
 	./dnaindex -g chr21 -o $@ -c index.txt -v -s 10
 
-%: %.o $(OBJECTS)
+%: %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) $^ -o $@
  
 %.o: %.cc
@@ -45,5 +49,5 @@ chr21_10.idx: chr21.dna dnaindex
 
 clean:
 	-rm $(TARGETS)
-	-rm *.o *.pb.cc *.pb.h
+	-rm *.o *.d *.pb.cc *.pb.h
 

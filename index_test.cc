@@ -1,7 +1,7 @@
-#include "util.h"
-#include "Index.h"
+#include "align.h"
 #include "conffile.h"
-#include "Align.h"
+#include "index.h"
+#include "util.h"
 
 using namespace std ;
 

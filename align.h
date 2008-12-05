@@ -1,8 +1,14 @@
 #ifndef INCLUDED_ALIGN_H
 #define INCLUDED_ALIGN_H
 
+#include "index.h"
 #include "judy++.h"
-#include "Index.h"
+
+#include <deque>
+
+#if INT_BITS <= 32 
+#warning "I will compile, but this code won't work on a 32 bit machine"
+#endif
 
 /* Alignment by Dijkstra's Algorithm
  *

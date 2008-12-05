@@ -39,7 +39,7 @@
  * random order is an exceptionally bad idea...
  */
 
-#include "Index.h"
+#include "index.h"
 #include "util.h"
 #include "metaindex.pb.h"
 #include "conffile.h"
