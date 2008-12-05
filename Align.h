@@ -81,8 +81,9 @@ struct flat_alignment {
 
 	DnaP reference, query ;					// entry point
 	signed short ref_offs, query_offs ; 	// current positions
-	uint32_t score : 31 ;					// cost so far
+	uint32_t skew  :  1 ;					// initial offset for query
 	uint32_t state :  1 ;					// and state (left/right)
+	uint32_t score : 30 ;					// cost so far
 
 	// associated types: 
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)

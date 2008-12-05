@@ -4,7 +4,9 @@
 #include <cerrno>
 #include <string>
 
+#include <sys/mman.h>
 #include <unistd.h>
+
 
 template< typename T >
 T throw_errno_if_minus1( T x, const char* a, const char* b = 0 )
@@ -44,6 +46,12 @@ inline void mywrite( int fd, const void* buf, size_t count, const char* msg = 0 
 	}
 }
 
+#ifndef _BSD_SOURCE
+// fake for systems that don't provide madvise()
+inline int madvise( void*, size_t, int ) { return 0 ; }
+static const int MADV_SEQUENTIAL = 0 ;
+static const int MADV_WILLNEED = 0 ;
+#endif
 
 int main( int argc, const char * argv[] ) ;
 

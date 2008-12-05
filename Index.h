@@ -1,46 +1,14 @@
 #ifndef INCLUDED_INDEX_H
 #define INCLUDED_INDEX_H
 
+#include "Sequence.h"
+#include "util.h"
+
 #include <cassert>
 #include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
-
-#include <stdint.h>
-#include <sys/mman.h>
-
-// Useful typedefs.  These are used mostly for their documentation
-// value, C++ unfortunately won't be able to check their differences
-// most of the time.
-
-typedef uint64_t Oligo ;
-typedef uint8_t  Nucleotide ;	// 0,1,2,3 == A,C,T,G
-typedef uint8_t  Ambicode ;		// 1,2,4,8 == A,C,T,G
-
-#ifndef _BSD_SOURCE
-inline int madvise( void*, size_t, int ) { return 0 ; }
-static const int MADV_SEQUENTIAL = 0 ;
-static const int MADV_WILLNEED = 0 ;
-#endif
-
-class DnaP
-{
-	private:
-		uint8_t const *base ;
-
-	public:
-		explicit DnaP( void const *p = 0 ) : base(static_cast<uint8_t const*>(p)) {}
-		Ambicode operator[]( uint32_t ix ) const {
-			uint8_t w = base[ix >> 1] ;
-			if( ix & 1 ) w >>= 4 ;
-			return w & 0xf ;
-		}
-		operator void const * () const { return base ; }
-		void assign( void const *p ) { base = static_cast<uint8_t const*>(p) ; }
-
-		void *unsafe_ptr() const { return const_cast<void*>( static_cast<const void*>( base ) ) ; }
-} ;
 
 class CompactGenome
 {

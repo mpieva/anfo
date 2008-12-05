@@ -30,41 +30,16 @@
  * stdout in protobuf text format.
  */
 
-#include "metaindex.pb.h"
-#include "util.h"
 #include "conffile.h"
+#include "metaindex.pb.h"
+#include "sequence.h"
+#include "util.h"
 
 #include <popt.h>
 
 #include <cctype>
 #include <fstream>
 #include <iostream>
-
-uint8_t decode_fna( char c ) {
-	switch( c ) {
-		case 'a': case 'A': return 1 ;
-		case 'b': case 'B': return 1 ^ 0xf ;
-		case 'c': case 'C': return 2 ;
-		case 'd': case 'D': return 2 ^ 0xf ;
-		case 'g': case 'G': return 8 ;
-		case 'h': case 'H': return 8 ^ 0xf ;
-		case 't': case 'T': return 4 ;
-		case 'u': case 'U': return 4 ;
-		case 'v': case 'V': return 4 ^ 0xf ;
-
-		case 'n': case 'N': return 15 ;
-		case 'm': case 'M': return  3 ;
-		case 'k': case 'K': return 12 ;
-		case 'w': case 'W': return  5 ;
-		case 's': case 'S': return 10 ;
-		case 'r': case 'R': return  9 ;
-		case 'y': case 'Y': return  6 ;
-		default:            return  0 ;
-	}
-}
-
-inline bool encodes_nuc( char c ) { return decode_fna(c) != 0 ; }
-inline uint8_t to_mask( char c ) { return decode_fna(c) & 0xf ; }
 
 class FastaDecoder
 {
@@ -155,11 +130,11 @@ class FastaDecoder
 		{
 			if( position & 1 )
 			{
-				dna.put( (to_mask(c) << 4) | one_nt ) ;
+				dna.put( (to_ambicode(c) << 4) | one_nt ) ;
 			}
 			else
 			{
-				one_nt = to_mask(c) ;
+				one_nt = to_ambicode(c) ;
 			}
 			++position ;
 		}
