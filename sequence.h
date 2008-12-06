@@ -128,8 +128,6 @@ class PreparedSequence
 				last = to_ambicode( *p ) ;
 				if( *p ) ++p, ++n ;
 			}
-			std::clog << "recognized " << n << " bases" << std::endl ;
-
 			std::transform( forward_seq.rbegin(), forward_seq.rend(),
 					std::back_inserter( reverse_seq ), reverse_complement ) ;
 

@@ -84,7 +84,7 @@ struct flat_alignment {
 	DnaP reference, query ;					// entry point
 	signed short ref_offs, query_offs ; 	// current positions
 	uint32_t state :  1 ;					// and state (left/right)
-	uint32_t score : 31 ;					// cost so far
+	uint32_t penalty : 31 ;					// cost so far
 
 	// associated types: 
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)
@@ -98,13 +98,13 @@ struct flat_alignment {
 	typedef JudyL< JudyL< JudyL< JudyL< const flat_alignment* > > > > ClosedMap ;
 #endif
 
-	static int subst_mat( Ambicode a, Ambicode b ) {
+	static uint32_t subst_mat( Ambicode a, Ambicode b ) {
 		// this is a trivial one: any overlap gives a point, everything
 		// else costs.
-		return (a & b) != 0 ? 1 : -2 ;
+		return (a & b) != 0 ? 0 : 3 ;
 	}
-	static int gap_penalty() {
-		return -2 ;
+	static uint32_t gap_penalty() {
+		return 3 ;
 	}
 } ;
 
@@ -176,7 +176,7 @@ void greedy( flat_alignment& s )
 		}
 		else if( s.reference[s.ref_offs] == s.query[s.query_offs] )
 		{
-			s.score += flat_alignment::subst_mat( s.reference[s.ref_offs], s.query[s.query_offs] ) ;
+			s.penalty += flat_alignment::subst_mat( s.reference[s.ref_offs], s.query[s.query_offs] ) ;
 			if( s.state == 0 ) 
 			{
 				++s.ref_offs ;
@@ -204,18 +204,18 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	{
 		{
 			flat_alignment s1 = s ;
-			s1.score += flat_alignment::subst_mat( s1.reference[s1.ref_offs], s1.query[s1.query_offs] ) ;
+			s1.penalty += flat_alignment::subst_mat( s1.reference[s1.ref_offs], s1.query[s1.query_offs] ) ;
 			++s1.ref_offs ;
 			++s1.query_offs ;
 			f( s1 ) ;
 		}{
 			flat_alignment s2 = s ;
-			s2.score += flat_alignment::gap_penalty() ;
+			s2.penalty += flat_alignment::gap_penalty() ;
 			++s2.ref_offs ;
 			f( s2 ) ;
 		}{
 			flat_alignment s3 = s ;
-			s3.score += flat_alignment::gap_penalty() ;
+			s3.penalty += flat_alignment::gap_penalty() ;
 			++s3.query_offs ;
 			f( s3 ) ;
 		}
@@ -224,18 +224,18 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	{
 		{
 			flat_alignment s1 = s ;
-			s1.score += flat_alignment::subst_mat( s1.reference[s1.ref_offs], s1.query[s1.query_offs] ) ;
+			s1.penalty += flat_alignment::subst_mat( s1.reference[s1.ref_offs], s1.query[s1.query_offs] ) ;
 			--s1.ref_offs ;
 			--s1.query_offs ;
 			f( s1 ) ;
 		}{
 			flat_alignment s2 = s ;
-			s2.score += flat_alignment::gap_penalty() ;
+			s2.penalty += flat_alignment::gap_penalty() ;
 			--s2.ref_offs ;
 			f( s2 ) ;
 		}{
 			flat_alignment s3 = s ;
-			s3.score += flat_alignment::gap_penalty() ;
+			s3.penalty += flat_alignment::gap_penalty() ;
 			--s3.query_offs ;
 			f( s3 ) ;
 		}
@@ -245,7 +245,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 // a heap puts the largest(!) element at the top, so we want an
 // alignment with lower penalty to compare greater.
 bool operator < ( const flat_alignment& a, const flat_alignment& b )
-{ return a.score > b.score ; }
+{ return b.penalty < a.penalty ; }
 
 template< typename State > struct enter {
 	private: 
@@ -281,7 +281,7 @@ State find_cheapest( std::deque< State > &open_list )
 	while( !open_list.empty() )
 	{
 		State s = open_list.front() ;
-		// std::clog << s.score << ": " << s.ref_offs << 'x' << s.query_offs << std::endl ;
+		// std::clog << s.penalty << ": " << s.ref_offs << 'x' << s.query_offs << std::endl ;
 		std::pop_heap( open_list.begin(), open_list.end() ) ;
 		open_list.pop_back() ;
 

@@ -29,15 +29,7 @@ void revcom( std::string &s )
 
 int main_( int argc, const char * argv[] )
 {
-	/*
-	if( argc < 3 ) 
-	{
-		std::clog << "Usage: " << argv[0] << " <conffile> <genome> [<sequence>]" << std::endl ;
-		return 1 ;
-	}
-	*/
-
-	Config cfg( argc < 2 ? "index.txt" : argv[1] ) ;
+	Config cfg( argc < 2 ? "index.txt" : strcmp( argv[1], "R" ) ? argv[1] : "index.txt" ) ;
 	metaindex::CompactIndex cix = cfg.find_compact_index( argc < 3 ? "chr21" : argv[2] ) ;
 	std::cout << "Found index " << cix.filename() << " with wordsize " 
 		<< cix.wordsize() << " and " ;
@@ -47,18 +39,17 @@ int main_( int argc, const char * argv[] )
 	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
 
 	std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
-	revcom(s) ;
-	revcom(s) ;
+	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(s) ;
 
 	vector<Seed> seeds ;
 	ix.lookup( s, seeds ) ;
+
 	cout << "got " << seeds.size() << " seeds, combined into " ;
 	combine_seeds( seeds ) ;
 	cout << seeds.size() << " larger ones, clumped into " ;
 	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 24 ) ;
 	cout << seeds.size() << " clumps." << endl ;
 
-	// quick hack to init alignments... XXX
 	metaindex::Genome gdef = cfg.find_genome( cix.genome_name() ) ;
 	std::cout << "Found genome " << gdef.filename() << " of length "
 		<< gdef.total_size() << std::endl ;
@@ -69,17 +60,16 @@ int main_( int argc, const char * argv[] )
 	PreparedSequence ps( s.c_str() ) ;
 	std::deque< flat_alignment > ol ;
 
+	// quick hack to init alignments... XXX
 	for( std::vector<Seed>::const_iterator s = seeds.begin() ; s != seeds.end() ; ++s )
 	{
-		cout << s->offset << ' ' << s->diagonal << ' ' << s->size << endl ;
-
 		flat_alignment fa ;
 		fa.reference = g.get_base() + (int64_t)s->offset + (int64_t)s->diagonal ;
-		fa.query = s->offset >= 0 ? ps.forward() + (int64_t)s->offset : ps.reverse() - (int64_t)(s->offset + 1) ;
+		fa.query = s->offset >= 0 ? ps.forward() + (int64_t)s->offset : ps.reverse() - (int64_t)s->offset ;
 		fa.ref_offs = 0 ;
 		fa.query_offs = 0 ;
 		fa.state = 0 ;
-		fa.score = 0 ;
+		fa.penalty = 0 ;
 
 		ol.push_back( fa ) ;
 	}
@@ -87,7 +77,7 @@ int main_( int argc, const char * argv[] )
 	flat_alignment best = find_cheapest( ol ) ;
 
 	std::cout << "Done near " << best.reference - g.get_base()
-		      << " scoring " << best.score << std::endl ;
+		      << " costing " << best.penalty << std::endl ;
 
 	return 0 ;
 }

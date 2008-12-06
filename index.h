@@ -44,6 +44,11 @@ struct Seed
 	int32_t offset ;
 } ;
 
+inline std::ostream& operator << ( std::ostream& o, const Seed& s )
+{
+	return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
+}
+
 class FixedIndex 
 {
 	public:
@@ -142,7 +147,8 @@ template < typename C > void combine_seeds( C& v )
 		{
 			if( a->diagonal == s.diagonal )
 			{
-				if( a->offset - s.offset <= (int32_t)s.size ) {
+				if( (a->offset >= 0) == (s.offset >= 0) &&
+						a->offset - s.offset <= (int32_t)s.size ) {
 					uint32_t size_ = a->offset - s.offset + a->size ;
 					if( size_ > s.size ) s.size = size_ ;
 				}

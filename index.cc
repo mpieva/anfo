@@ -94,7 +94,7 @@ unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) cons
 
 	for( uint32_t p = base[o] ; p != base[o+1] ; ++p )
 	{
-		seed.diagonal = secondary[p] - offs ;
+		seed.diagonal = secondary[p] - (uint32_t)offs ;
 		v.push_back( seed ) ;
 	}
 	return base[o+1] - base[o] ;
@@ -103,6 +103,8 @@ unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) cons
 unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
+	Oligo mask = ~( ~0 << (wordsize * 2) ) ;
+
 	int s = 2 * wordsize - 2 ;
 	unsigned filled = 0 ;
 	unsigned total = 0 ;
@@ -111,7 +113,7 @@ unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) cons
 	for( int32_t offset = 0 ; offset != fraglen ; ++offset )
 	{
 		o_f >>= 2 ;
-		o_r = (o_r << 2) & ((1<<s)-1) ;
+		o_r = (o_r << 2) & mask ;
 		++filled ;
 
 		switch( dna[offset] )
@@ -124,8 +126,8 @@ unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) cons
 			default: filled = 0 ; break ;
 		}
 		if( filled >= wordsize ) 
-			total += lookup1( o_f, v, offset - wordsize + 1 ) 
-				   + lookup1( o_r, v, offset - wordsize + 1 - fraglen ) ;
+			total += lookup1( o_f, v,   offset - wordsize + 1 ) 
+				   + lookup1( o_r, v, - offset - wordsize     ) ;
 	}
 	return total ;
 }
