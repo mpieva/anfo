@@ -6,10 +6,6 @@
 
 #include <deque>
 
-#if INT_BITS <= 32 
-#warning "I will compile, but this code won't work on a 32 bit machine"
-#endif
-
 /* Alignment by Dijkstra's Algorithm
  *
  * The idea, in part already already realized in TWA, is to treat the
@@ -87,16 +83,20 @@ struct flat_alignment {
 
 	DnaP reference, query ;					// entry point
 	signed short ref_offs, query_offs ; 	// current positions
-	uint32_t skew  :  1 ;					// initial offset for query
 	uint32_t state :  1 ;					// and state (left/right)
-	uint32_t score : 30 ;					// cost so far
+	uint32_t score : 31 ;					// cost so far
 
 	// associated types: 
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)
 	// - map of closed nodes to ancestor states
 	//   (ClosedMap :: flat_alignment -> Maybe flat_alignment)
+#if SMALL_SYS
+	typedef JudyL< JudyL< JudyL< JudyL< Judy1 > > > > ClosedSet ;
+	typedef JudyL< JudyL< JudyL< JudyL< JudyL< const flat_alignment* > > > > > ClosedMap ;
+#else
 	typedef JudyL< JudyL< JudyL< Judy1 > > > ClosedSet ;
 	typedef JudyL< JudyL< JudyL< JudyL< const flat_alignment* > > > > ClosedMap ;
+#endif
 
 	static int subst_mat( Ambicode a, Ambicode b ) {
 		// this is a trivial one: any overlap gives a point, everything
@@ -116,55 +116,67 @@ void pop_top( std::deque< flat_alignment >& ol ) { std::pop_heap( ol.begin(), ol
 
 bool is_set_bit( flat_alignment::ClosedSet& cl, const flat_alignment& s )
 {
-	return cl.insert( (Word_t)s.reference.unsafe_ptr() )
-		     ->insert( (Word_t)s.query.unsafe_ptr() )
+	return cl.insert( s.reference.get() )
+		     ->insert( s.query.get() )
+#if SMALL_SYS
+			 ->insert( s.reference.high() << 16 | s.query.high() )
+#endif
 			 ->insert( s.ref_offs )
 			 ->test( s.query_offs | s.state << 16 ) ;
 }
 
 bool is_present( flat_alignment::ClosedMap& cl, const flat_alignment& s )
 {
-	return cl.insert( (Word_t)s.reference.unsafe_ptr() )
-		     ->insert( (Word_t)s.query.unsafe_ptr() )
+	return cl.insert( s.reference.get() )
+		     ->insert( s.query.get() )
+#if SMALL_SYS
+			 ->insert( s.reference.high() << 16 | s.query.high() )
+#endif
 			 ->insert( s.ref_offs )
 			 ->insert( s.query_offs | s.state << 16 ) ;
 }
 
 void set_bit( flat_alignment::ClosedSet& cl, const flat_alignment& s )
 {
-	cl.insert( (Word_t)s.reference.unsafe_ptr() )
-	  ->insert( (Word_t)s.query.unsafe_ptr() )
+	cl.insert( s.reference.get() )
+	  ->insert( s.query.get() )
+#if SMALL_SYS
+	  ->insert( s.reference.high() << 16 | s.query.high() )
+#endif
 	  ->insert( s.ref_offs )
 	  ->set( s.query_offs | s.state << 16 ) ;
 }
 
 void insert( flat_alignment::ClosedMap& cl, const flat_alignment& s, const flat_alignment *p )
 { 
-	*cl.insert( (Word_t)s.reference.unsafe_ptr() )
-	   ->insert( (Word_t)s.query.unsafe_ptr() )
+	*cl.insert( s.reference.get() )
+	   ->insert( s.query.get() )
+#if SMALL_SYS
+       ->insert( s.reference.high() << 16 | s.query.high() )
+#endif
 	   ->insert( s.ref_offs )
 	   ->insert( s.query_offs | s.state << 16 ) = p ;
 }
 
 bool finished( const flat_alignment& s ) {
-	return s.state == 1 
-		&& s.reference[ s.ref_offs ] == 0
-		&& s.query[ s.query_offs ] == 0 ;
+	return s.state == 1 &&
+		( s.reference[ s.ref_offs ] == 0 || s.query[ s.query_offs ] == 0 ) ;
 }
 
-template< typename F > void greedy( flat_alignment& s )
+void greedy( flat_alignment& s )
 {
 	for(;;) 
 	{
 		if( s.reference[s.ref_offs] == 0 || s.query[s.query_offs] == 0 ) 
 		{
 			if( s.state == 1 ) return ;
-			s.state = 0 ;
-			s.ref_offs = 0 ;
-			s.query_offs = 0 ;
+			s.state = 1 ;
+			s.ref_offs = -1 ;
+			s.query_offs = -1 ;
 		}
 		else if( s.reference[s.ref_offs] == s.query[s.query_offs] )
 		{
+			s.score += flat_alignment::subst_mat( s.reference[s.ref_offs], s.query[s.query_offs] ) ;
 			if( s.state == 0 ) 
 			{
 				++s.ref_offs ;
@@ -176,6 +188,7 @@ template< typename F > void greedy( flat_alignment& s )
 				--s.query_offs ;
 			}
 		}
+		else return ;
 	}
 }
 
@@ -268,6 +281,7 @@ State find_cheapest( std::deque< State > &open_list )
 	while( !open_list.empty() )
 	{
 		State s = open_list.front() ;
+		// std::clog << s.score << ": " << s.ref_offs << 'x' << s.query_offs << std::endl ;
 		std::pop_heap( open_list.begin(), open_list.end() ) ;
 		open_list.pop_back() ;
 

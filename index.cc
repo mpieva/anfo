@@ -17,11 +17,11 @@ CompactGenome::CompactGenome( const char *fp )
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
 		length = the_stat.st_size ;
-		void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
+		const void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", fp ) ;
-		base.assign( p ) ;
+		base.assign( (uint8_t*)p ) ;
 
-		if( ((uint32_t const*)(void const*)base)[0] != signature ) 
+		if( *((uint32_t const*)p) != signature ) 
 			throw fp + std::string(" does not have 'DNA0' signature") ;
 	}
 	catch(...) 

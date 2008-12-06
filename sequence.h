@@ -1,9 +1,17 @@
 #ifndef INCLUDED_SEQUENCE_H
 #define INCLUDED_SEQUENCE_H
 
+#include <climits>
+#include <iostream>
 #include <vector>
 
 #include <stdint.h>
+
+#if ULONG_MAX < 0x100000000
+#define SMALL_SYS 1
+#else
+#undef SMALL_SYS 
+#endif
 
 // Useful typedefs.  These are used mostly for their documentation
 // value, C++ unfortunately won't be able to check their differences
@@ -36,6 +44,14 @@ inline Ambicode to_ambicode( char c ) {
 	}
 }
 
+inline uint8_t reverse_complement( uint8_t xy )
+{
+	return (xy & 0x03) << 6 |
+		   (xy & 0x0c) << 2 |
+		   (xy & 0x30) >> 2 |
+		   (xy & 0xc0) >> 6 ;
+}
+
 inline bool encodes_nuc( char c ) { return to_ambicode(c) != 0 ; }
 
 // dumb pointer to DNA
@@ -50,31 +66,79 @@ class DnaP
 		int64_t p_ ;
 
 	public:
-		explicit DnaP( void const *p = 0, int off = 0 ) 
+		explicit DnaP( uint8_t *p = 0, int off = 0 ) 
 			: p_( (reinterpret_cast<int64_t>(p) << 1) + off ) {}
 
-		Ambicode operator[]( uint32_t ix ) const {
+		Ambicode operator[]( int64_t ix ) const {
 			int64_t p = p_ + ix ;
 			uint8_t w = *( reinterpret_cast<uint8_t*>(p >> 1) ) ;
 			if( p & 1 ) return (w >> 4) & 0xf ; else return w & 0xf ;
 		}
 
-		operator void const * () const { return reinterpret_cast<void*>( p_ ) ; }
+		operator bool() const { return p_ ; }
 
-		void assign( void const *p = 0, int off = 0 )
+		void assign( uint8_t *p = 0, int off = 0 )
 			{ p_ = (reinterpret_cast<int64_t>(p) << 1) + off ; }
 
-		void *unsafe_ptr() const { return reinterpret_cast<void*>( p_ >> 1 ) ; }
+		uint8_t *unsafe_ptr() const { return reinterpret_cast<uint8_t*>( p_ >> 1 ) ; }
+
+		DnaP &operator += ( int64_t o ) { p_ += o ; return *this ; }
+		DnaP &operator -= ( int64_t o ) { p_ += o ; return *this ; }
+
+		// hack to make this compatible with Judy arrays on both 32 and
+		// 64 bit machines
+#if SMALL_SYS
+		unsigned long get() const { return p_ & ULONG_MAX ; }
+		unsigned long high() const { return p_ >> sizeof( unsigned long ) * CHAR_BIT ; }
+#else
+		unsigned long get() const { return p_ ; }
+#endif
+
+		friend inline int64_t operator - ( DnaP a, DnaP b ) { return a.p_ - b.p_ ; }
 } ;
+
+inline DnaP operator + ( DnaP a, int64_t o ) { DnaP b = a ; return b += o ; }
+inline DnaP operator - ( DnaP a, int64_t o ) { DnaP b = a ; return b -= o ; }
 
 class PreparedSequence
 {
 	private:
-		std::vector< uint8_t > forward ;
-		std::vector< uint8_t > reverse ;
+		std::vector< uint8_t > forward_seq ;
+		std::vector< uint8_t > reverse_seq ;
 
+		DnaP forward_ ;
+		DnaP reverse_ ;
 	public:
-		PreparedSequence( const char* ) ;
+		PreparedSequence( const char* p ) 
+		{
+			// start out with a gap symbol
+			int n = 0 ;
+			for( Ambicode last = 0 ;; )
+			{
+				// this is intentional: we actually encode the final NUL
+				while( *p && !encodes_nuc( *p ) ) ++p ;
+				forward_seq.push_back( last | to_ambicode( *p ) << 4 ) ;
+				if( !*p ) break ;
+				++n ;
+				++p ;
+
+				// also intentional: if we hit the final NUL here, we
+				// encode it twice to achieve padding
+				while( *p && !encodes_nuc( *p ) ) ++p ;
+				last = to_ambicode( *p ) ;
+				if( *p ) ++p, ++n ;
+			}
+			std::clog << "recognized " << n << " bases" << std::endl ;
+
+			std::transform( forward_seq.rbegin(), forward_seq.rend(),
+					std::back_inserter( reverse_seq ), reverse_complement ) ;
+
+			forward_.assign( &forward_seq[0], 1 ) ; 
+			reverse_.assign( &reverse_seq[0], (n % 2) + 1 ) ;
+		}
+
+		DnaP forward() { return forward_ ; }
+		DnaP reverse() { return reverse_ ; }
 } ;
 
 #endif
