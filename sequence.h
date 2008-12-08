@@ -7,19 +7,40 @@
 
 #include <stdint.h>
 
-#if ULONG_MAX < 0x100000000
-#define SMALL_SYS 1
-#else
-#undef SMALL_SYS 
-#endif
+//! \brief Test macro whether this is a "small" system
+// A system is considered "small" for our purposes, if long has no more
+// than 32 bits.  This affects mainly the organization of Judy arrays.
+#define SMALL_SYS (ULONG_MAX < 0x100000000)
 
-// Useful typedefs.  These are used mostly for their documentation
-// value, C++ unfortunately won't be able to check their differences
+//! \defgroup typedefs Useful typedefs.
+// These typedefs are used mostly for their documentation value;  C++
+// unfortunately won't be able to check their differences
 // most of the time.
+// @{
 
+//! \brief Type used to store short DNA sequences.
+// Oligos are stored with two bits per bases where [0,1,2,3] mean
+// [A,C,T,G].  The two LSBs contain the first base, up to 32 bases can
+// be stored.
 typedef uint64_t Oligo ;
+
+//! \brief Type used to store a single nucleotide base.
+// We encode [A,C,T,G] as [0,1,2,3], same as in \c Oligo.
 typedef uint8_t  Nucleotide ;	// 0,1,2,3 == A,C,T,G
+
+//! \brief Type used to store ambiguity codes.
+// We encode [A,C,T,G] as [1,2,4,8].  A one shifted by the \c Nucleotide
+// code gives the approriate ambiguity code, other codes can be created
+// by combining bases with a logical OR.  Zero encodes a gap, 15 is an
+// N.
 typedef uint8_t  Ambicode ;		// 1,2,4,8 == A,C,T,G
+
+//! @}
+
+//! \brief Decodes a character to a nucleotide.
+// Takes an arbitrary character and determines the IUPAC ambiguity code
+// it stands for.  Small and capital letters are understood, everything
+// unrecognized becomes a gap.
 
 inline Ambicode to_ambicode( char c ) {
 	switch( c ) {
@@ -44,6 +65,8 @@ inline Ambicode to_ambicode( char c ) {
 	}
 }
 
+//! \brief Reverse-complements a pair of ambiguity codes.
+// \internal
 inline uint8_t reverse_complement( uint8_t xy )
 {
 	return (xy & 0x03) << 6 |
@@ -52,14 +75,17 @@ inline uint8_t reverse_complement( uint8_t xy )
 		   (xy & 0xc0) >> 6 ;
 }
 
+//! \brief Checks whether a character codes for a nucleotide.
+// This is euivalent to decoding the character and checking that it
+// doesn't encode a gap.
 inline bool encodes_nuc( char c ) { return to_ambicode(c) != 0 ; }
 
-// dumb pointer to DNA
-// A pointer with sub-byte precision is needed.  The assumption is that
-// this fits into 64 bits, which is true on any ix86_64 bit that doesn't
-// implement full 64bit addresses, and that will be all of them for
-// quite some time to come.
-
+//! Dumb pointer to DNA
+// A pointer with sub-byte precision is needed for our mmaped genomes.
+// The assumption here is that this fits into 64 bits, which is true on
+// any ix86_64 bit that doesn't implement full 64bit addresses, and that
+// will be all of them for quite some time to come.  It's also true on a
+// 32 bit system, obviously.
 class DnaP
 {
 	private:
@@ -100,13 +126,17 @@ class DnaP
 inline DnaP operator + ( DnaP a, int64_t o ) { DnaP b = a ; return b += o ; }
 inline DnaP operator - ( DnaP a, int64_t o ) { DnaP b = a ; return b -= o ; }
 
+//! Sequence transformed into same representation used for genomes.
+// We store the sequence in both forward and reverse direction so we can
+// eaily refer to either strand by a DnaP.  This doesn't save space, but
+// it does make the representation uniform.  Again, both sequences are
+// gap-terminated on either end.
 class PreparedSequence
 {
 	private:
 		std::vector< uint8_t > forward_seq ;
 		std::vector< uint8_t > reverse_seq ;
 
-		DnaP forward_ ;
 		DnaP reverse_ ;
 	public:
 		PreparedSequence( const char* p ) 
@@ -131,11 +161,10 @@ class PreparedSequence
 			std::transform( forward_seq.rbegin(), forward_seq.rend(),
 					std::back_inserter( reverse_seq ), reverse_complement ) ;
 
-			forward_.assign( &forward_seq[0], 1 ) ; 
 			reverse_.assign( &reverse_seq[0], (n % 2) + 1 ) ;
 		}
 
-		DnaP forward() { return forward_ ; }
+		DnaP forward() { return DnaP( &forward_seq[0], 1 ) ; }
 		DnaP reverse() { return reverse_ ; }
 } ;
 

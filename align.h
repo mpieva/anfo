@@ -47,17 +47,24 @@
  * possible with only one type of automaton running at the same time.
  */
 
-/* This automaton realizes two alignments (to the left and to the
+/*! \brief Automaton to align according to simple aDNA model
+ *
+ * This automaton realizes two alignments (to the left and to the
  * right of a seed) in sequence, allowing for affine gap penalties and
  * modelling ancient DNA by separate states for double stranded and
  * single stranded parts.
- * XXX: To be implemented.
+ * 
+ * \todo To be implemented for real.
  */
 struct simple_adna {} ;
 
-/* Extremely simple automaton for testing.  There are no internal
- * states, gap costs are linear, aDNA is not modelled, but the alignment
- * consists of two parts in series.
+/*! \brief Extremely simple automaton for testing.
+ *
+ * This automaton realizes the most trivial alignment possible.  It has
+ * no internal states, gap costs are linear, aDNA is not modelled, but
+ * the alignment consists of two parts in series.  Matching is also
+ * greedy.  The resulting alignment is suitable for testing and also to
+ * map sequences from the 454 instrument (due to the very common gaps).
  */
 
 struct flat_alignment {
@@ -98,14 +105,18 @@ struct flat_alignment {
 	typedef JudyL< JudyL< JudyL< JudyL< const flat_alignment* > > > > ClosedMap ;
 #endif
 
-	static uint32_t subst_mat( Ambicode a, Ambicode b ) {
-		// this is a trivial one: any overlap gives a point, everything
-		// else costs.
-		return (a & b) != 0 ? 0 : 3 ;
-	}
-	static uint32_t gap_penalty() {
-		return 3 ;
-	}
+	/*! \brief Trivial substitution matrix.
+	 *
+	 * Aligning two codes that have any overlap costs nothing, else it
+	 * costs 1.
+	 */
+	static uint32_t subst_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 1 ; }
+
+	/*! Trivial gap costs.
+	 *
+	 * A gap costs one, whether it is opened or extended.
+	 */
+	static uint32_t gap_penalty() { return 1 ; }
 } ;
 
 // basic operations (overloaded for different automata)
@@ -192,7 +203,7 @@ void greedy( flat_alignment& s )
 	}
 }
 
-// XXX this is all very ugly; need to abstract the gunk out of here.
+//! \todo this is all very ugly; need to abstract the gunk out of here.
 template< typename F > void forward( const flat_alignment& s, F f )
 {
 	// what to do?  
@@ -242,8 +253,12 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	}
 }
 
-// a heap puts the largest(!) element at the top, so we want an
-// alignment with lower penalty to compare greater.
+/*! \brief compares two simple alignments.
+ *
+ * Since we are building a heap and the STL heap puts the \em largest
+ * element at the top, we want an alignment with lower penalty to
+ * compare greater.
+ */
 bool operator < ( const flat_alignment& a, const flat_alignment& b )
 { return b.penalty < a.penalty ; }
 
@@ -273,7 +288,8 @@ template< typename State > struct enter_bt {
 } ;
 
 
-// Dijkstra's without backtracing
+/*! \brief Dijkstra's without backtracing.
+ */
 template< typename State >
 State find_cheapest( std::deque< State > &open_list )
 {
@@ -295,7 +311,13 @@ State find_cheapest( std::deque< State > &open_list )
 	throw "ran into a dead end" ;
 }
 
-// Dijkstra's with backtracing
+/*! \brief Dijkstra's with backtracing.
+ *
+ * See \c find_cheapest, but this implementation also does backtracing
+ * (at higher memory cost, naturally).  
+ *
+ * \todo Actually implement backtracing.
+ */
 template< typename State >
 void find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 {

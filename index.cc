@@ -127,7 +127,7 @@ unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) cons
 		}
 		if( filled >= wordsize ) 
 			total += lookup1( o_f, v,   offset - wordsize + 1 ) 
-				   + lookup1( o_r, v, - offset - wordsize     ) ;
+				   + lookup1( o_r, v, - offset                ) ;
 	}
 	return total ;
 }

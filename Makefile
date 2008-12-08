@@ -44,8 +44,11 @@ chr21_10.idx: chr21.dna dnaindex
 -include *.d
 
 .PRECIOUS: %.o %.cc %.h
-.PHONY: clean all
+.PHONY: clean all doc
 .SUFFIXES:
+
+doc:
+	doxygen
 
 clean:
 	-rm $(TARGETS)

@@ -38,7 +38,8 @@ int main_( int argc, const char * argv[] )
 
 	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
 
-	std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+	// std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+	std::string s = argc < 4 ? "AGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
 	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(s) ;
 
 	vector<Seed> seeds ;
@@ -60,17 +61,23 @@ int main_( int argc, const char * argv[] )
 	PreparedSequence ps( s.c_str() ) ;
 	std::deque< flat_alignment > ol ;
 
-	// quick hack to init alignments... XXX
+	// quick hack to init alignments... XXX: move this somewhere
+	// sensible... as soon as it works.
 	for( std::vector<Seed>::const_iterator s = seeds.begin() ; s != seeds.end() ; ++s )
 	{
+		std::clog << *s << std::endl ;
+
 		flat_alignment fa ;
 		fa.reference = g.get_base() + (int64_t)s->offset + (int64_t)s->diagonal ;
-		fa.query = s->offset >= 0 ? ps.forward() + (int64_t)s->offset : ps.reverse() - (int64_t)s->offset ;
+		fa.query = s->offset >= 0
+			? ps.forward() + (int64_t)s->offset
+			: ps.reverse() - (int64_t)s->offset ;
 		fa.ref_offs = 0 ;
 		fa.query_offs = 0 ;
 		fa.state = 0 ;
 		fa.penalty = 0 ;
 
+		greedy( fa ) ;
 		ol.push_back( fa ) ;
 	}
 	std::make_heap( ol.begin(), ol.end() ) ;
