@@ -65,6 +65,8 @@ inline Ambicode to_ambicode( char c ) {
 	}
 }
 
+inline char from_ambicode( Ambicode a ) { return "-ACMTWYHGRSVKDBN"[a] ; }
+
 //! \brief Reverse-complements a pair of ambiguity codes.
 // \internal
 inline uint8_t reverse_complement( uint8_t xy )
@@ -108,8 +110,12 @@ class DnaP
 
 		uint8_t *unsafe_ptr() const { return reinterpret_cast<uint8_t*>( p_ >> 1 ) ; }
 
-		DnaP &operator += ( int64_t o ) { p_ += o ; return *this ; }
-		DnaP &operator -= ( int64_t o ) { p_ += o ; return *this ; }
+		DnaP &operator += ( int64_t  o ) { p_ += o ; return *this ; }
+		DnaP &operator += ( uint32_t o ) { p_ += o ; return *this ; }
+		DnaP &operator += ( int32_t  o ) { p_ += o ; return *this ; }
+		DnaP &operator -= ( int64_t  o ) { p_ += o ; return *this ; }
+		DnaP &operator -= ( uint32_t o ) { p_ += o ; return *this ; }
+		DnaP &operator -= ( int32_t  o ) { p_ += o ; return *this ; }
 
 		// hack to make this compatible with Judy arrays on both 32 and
 		// 64 bit machines
@@ -120,11 +126,18 @@ class DnaP
 		unsigned long get() const { return p_ ; }
 #endif
 
-		friend inline int64_t operator - ( DnaP a, DnaP b ) { return a.p_ - b.p_ ; }
+		friend inline int64_t operator - ( const DnaP &a, const DnaP &b ) { return a.p_ - b.p_ ; }
+		friend inline std::ostream& operator << ( std::ostream& s, const DnaP &p )
+		{ return s << std::hex << p.p_ ; }
 } ;
 
-inline DnaP operator + ( DnaP a, int64_t o ) { DnaP b = a ; return b += o ; }
-inline DnaP operator - ( DnaP a, int64_t o ) { DnaP b = a ; return b -= o ; }
+inline DnaP operator + ( const DnaP& a, int64_t  o ) { DnaP b = a ; return b += o ; }
+inline DnaP operator + ( const DnaP& a, int32_t  o ) { DnaP b = a ; return b += o ; }
+inline DnaP operator + ( const DnaP& a, uint32_t o ) { DnaP b = a ; return b += o ; }
+inline DnaP operator - ( const DnaP& a, int64_t  o ) { DnaP b = a ; return b -= o ; }
+inline DnaP operator - ( const DnaP& a, int32_t  o ) { DnaP b = a ; return b -= o ; }
+inline DnaP operator - ( const DnaP& a, uint32_t o ) { DnaP b = a ; return b -= o ; }
+
 
 //! Sequence transformed into same representation used for genomes.
 // We store the sequence in both forward and reverse direction so we can

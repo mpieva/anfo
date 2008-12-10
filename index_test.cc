@@ -38,8 +38,8 @@ int main_( int argc, const char * argv[] )
 
 	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
 
-	// std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
-	std::string s = argc < 4 ? "AGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+	std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+	// std::string s = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
 	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(s) ;
 
 	vector<Seed> seeds ;
@@ -68,15 +68,18 @@ int main_( int argc, const char * argv[] )
 		std::clog << *s << std::endl ;
 
 		flat_alignment fa ;
-		fa.reference = g.get_base() + (int64_t)s->offset + (int64_t)s->diagonal ;
-		fa.query = s->offset >= 0
-			? ps.forward() + (int64_t)s->offset
-			: ps.reverse() - (int64_t)s->offset ;
-		fa.ref_offs = 0 ;
-		fa.query_offs = 0 ;
-		fa.state = 0 ;
-		fa.penalty = 0 ;
-
+		if( s->offset >= 0 ) {
+			fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
+			fa.query = ps.forward() + s->offset + s->size / 2 ;
+		}
+		else
+		{
+			// XXX I want to start in the middle of the seed.  Why
+			// does this not work on the reverse-complement strand?
+			fa.reference = g.get_base() + s->offset + s->diagonal ; // + s->size / 2 ;
+			fa.query = ps.reverse() - s->offset ; // + s->size / 2 ;
+		}
+		reset( fa ) ;
 		greedy( fa ) ;
 		ol.push_back( fa ) ;
 	}
@@ -85,6 +88,12 @@ int main_( int argc, const char * argv[] )
 
 	std::cout << "Done near " << best.reference - g.get_base()
 		      << " costing " << best.penalty << std::endl ;
+
+	std::deque< std::pair< flat_alignment, const flat_alignment* > > ol_ ;
+	reset( best ) ;
+	greedy( best ) ;
+	ol_.push_back( std::make_pair( best, (const flat_alignment*)0 ) ) ;
+	std::cout << find_cheapest( ol_ ) << std::endl ;
 
 	return 0 ;
 }
