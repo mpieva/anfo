@@ -67,6 +67,10 @@ inline Ambicode to_ambicode( char c ) {
 
 inline char from_ambicode( Ambicode a ) { return "-ACMTWYHGRSVKDBN"[a] ; }
 
+//! \brief Complement an ambiguity code.
+inline Ambicode complement( Ambicode w )
+{ return 0xf & (w << 2 | w >> 2) ; }
+
 //! \brief Reverse-complements a pair of ambiguity codes.
 // \internal
 inline uint8_t reverse_complement( uint8_t xy )
@@ -87,28 +91,56 @@ inline bool encodes_nuc( char c ) { return to_ambicode(c) != 0 ; }
 // The assumption here is that this fits into 64 bits, which is true on
 // any ix86_64 bit that doesn't implement full 64bit addresses, and that
 // will be all of them for quite some time to come.  It's also true on a
-// 32 bit system, obviously.
+// 32 bit system, obviously.  We also steal another bit to encode the
+// strand we're pointing to.
+//
+// To make arithmetic easier, the encoding is as follows:  The main
+// pointer is converted to an int64_t, it is then shifted left and the
+// sub-byte index (just one bit) is shifted in.  Then the sign in
+// inverted if and only if this is a pointer to the RC strand.  This way,
+// arithmetic works on both strands the same way.  To dereference a
+// pointer, the absolute value of the number is taken, interpreted as
+// signed 63 bit value, sign extended and reinterpreted as pointer.
 class DnaP
 {
 	private:
 		int64_t p_ ;
 
 	public:
-		explicit DnaP( uint8_t *p = 0, int off = 0 ) 
-			: p_( (reinterpret_cast<int64_t>(p) << 1) + off ) {}
+		//! constructs a DNA pointer
+		// The pointer is initialized from a pointer to bytes,
+		// understood to point to the ambiguity code in the 4 LSBs.  It
+		// is then converted to a reverse pointer and finally the offset
+		// is added, taking directionality into account.
+		// \param p pointer to ambiguity-encoded DNA
+		// \param complement set to true to make a pointer to the
+		//                   reverse-complemented strand
+		// \param off offset to add to the final pointer
+		explicit DnaP( uint8_t *p = 0, bool complement = false, int off = 0 ) 
+		{
+			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
+			if( complement ) p_ = -p_ ;
+			p_ += off ;
+		}
+
+		void assign( uint8_t *p = 0, bool complement = false, int off = 0 )
+		{
+			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
+			if( complement ) p_ = -p_ ;
+			p_ += off ;
+		}
 
 		Ambicode operator[]( int64_t ix ) const {
 			int64_t p = p_ + ix ;
-			uint8_t w = *( reinterpret_cast<uint8_t*>(p >> 1) ) ;
-			if( p & 1 ) return (w >> 4) & 0xf ; else return w & 0xf ;
+			uint8_t w = *( reinterpret_cast<uint8_t*>( (std::abs(p) << 1) >> 2 ) ) ;
+			w = 0xf & ( p & 1 ? w >> 4 : w ) ;
+			return p < 0 ? complement(w) : w ;  
 		}
 
 		operator bool() const { return p_ ; }
 
-		void assign( uint8_t *p = 0, int off = 0 )
-			{ p_ = (reinterpret_cast<int64_t>(p) << 1) + off ; }
-
-		uint8_t *unsafe_ptr() const { return reinterpret_cast<uint8_t*>( p_ >> 1 ) ; }
+		uint8_t *unsafe_ptr() const
+		{ return reinterpret_cast<uint8_t*>( (std::abs(p_) << 1) >> 2 ) ; }
 
 		DnaP &operator += ( int64_t  o ) { p_ += o ; return *this ; }
 		DnaP &operator += ( uint32_t o ) { p_ += o ; return *this ; }
@@ -147,10 +179,8 @@ inline DnaP operator - ( const DnaP& a, uint32_t o ) { DnaP b = a ; return b -= 
 class PreparedSequence
 {
 	private:
-		std::vector< uint8_t > forward_seq ;
-		std::vector< uint8_t > reverse_seq ;
+		std::vector< uint8_t > seq ;
 
-		DnaP reverse_ ;
 	public:
 		PreparedSequence( const char* p ) 
 		{
@@ -160,7 +190,7 @@ class PreparedSequence
 			{
 				// this is intentional: we actually encode the final NUL
 				while( *p && !encodes_nuc( *p ) ) ++p ;
-				forward_seq.push_back( last | to_ambicode( *p ) << 4 ) ;
+				seq.push_back( last | to_ambicode( *p ) << 4 ) ;
 				if( !*p ) break ;
 				++n ;
 				++p ;
@@ -171,15 +201,10 @@ class PreparedSequence
 				last = to_ambicode( *p ) ;
 				if( *p ) ++p, ++n ;
 			}
-			std::transform( forward_seq.rbegin(), forward_seq.rend(),
-					std::back_inserter( reverse_seq ), reverse_complement ) ;
-
-			// XXX: there's definitely an OB1 in here
-			reverse_.assign( &reverse_seq[0], (n % 2) + 1 ) ;
 		}
 
-		DnaP forward() { return DnaP( &forward_seq[0], 1 ) ; }
-		DnaP reverse() { return reverse_ ; }
+		DnaP forward() { return DnaP( &seq[0], false, 1 ) ; }
+		DnaP reverse() { return DnaP( &seq[0], true, -1 ) ; }
 } ;
 
 #endif

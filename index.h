@@ -33,10 +33,12 @@ class CompactGenome
 		static void report( unsigned, unsigned, const char* ) ;
 } ;
 
-// What do we need to know about a seed?  A size and two coordinates.
-// One is the start on the query sequence, the other we choose to be the
-// "diagonal", since seeds on the same or close diagonal will usually be
-// combined.  Offset is negative for rc'ed matches.
+//! \brief Representation of a seed.
+// A seed is described by a size and two coordinates.  One is the start
+// on the query sequence, the other we choose to be the "diagonal"
+// (difference between coordinates), since seeds on the same or close
+// diagonal will usually be combined.  Offset is negative for rc'ed
+// matches.
 struct Seed
 {
 	uint32_t diagonal ;
@@ -89,8 +91,8 @@ void CompactGenome::scan_words( unsigned w, F mk_word, G& consume_word, const ch
 	uint32_t offs = 0 ;
 	Oligo dna = 0 ;
 
-	while( base[ offs ] != 0 ) ++offs ;		// first first gap
-	for( unsigned i = 0 ; i != w ; ++i )				// fill first word
+	while( base[ offs ] != 0 ) ++offs ;		// find first gap
+	for( unsigned i = 0 ; i != w ; ++i )	// fill first word
 	{
 		dna <<= 4 ;
 		dna |= base[ offs ] ;

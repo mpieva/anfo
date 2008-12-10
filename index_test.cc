@@ -46,8 +46,8 @@ int main_( int argc, const char * argv[] )
 
 	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
 
-	std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
-	// std::string s = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
+	// std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+	std::string s = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
 	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(s) ;
 
 	vector<Seed> seeds ;
@@ -76,17 +76,17 @@ int main_( int argc, const char * argv[] )
 		std::clog << *s << std::endl ;
 
 		flat_alignment fa ;
-		if( s->offset >= 0 ) {
-			fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
-			fa.query = ps.forward() + s->offset + s->size / 2 ;
-		}
-		else
-		{
-			// XXX I want to start in the middle of the seed.  Why
-			// does this not work on the reverse-complement strand?
-			fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
-			fa.query = ps.reverse() - s->offset - s->size + 2 + s->size / 2 ;
-		}
+		fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
+		fa.query = ( s->offset >= 0 ? ps.forward() : ps.reverse() ) + s->offset + s->size / 2 ;
+
+			for( int i = 0 ; i != 30 ; ++i )
+				std::cout << from_ambicode(fa.reference[i]) ;
+			std::cout << std::endl ;
+
+			for( int i = 0 ; i != 30 ; ++i )
+				std::cout << from_ambicode(fa.query[i]) ;
+			std::cout << std::endl ;
+
 		reset( fa ) ;
 		greedy( fa ) ;
 		ol.push_back( fa ) ;

@@ -84,6 +84,8 @@ heap and live with the fact that it fill up with additional states that
 are never removed because they are simply too bad to ever be touched.
 
 \todo Find or create a priority search queue.  
+
+\todo Make lookup in nested Judy arrays work on constant arrays.
 */
 
 
@@ -388,6 +390,10 @@ State find_cheapest( std::deque< State > &open_list )
 
 typedef std::deque< std::pair< Ambicode, Ambicode > > Trace ;
 
+//! prints a backtrace in three-line format.
+// This is intended for debugging, it prints a backtraced alignment in
+// two lines of sequence and one "conservation" line.
+// \internal
 inline std::ostream& operator << ( std::ostream& s, const Trace& t )
 {
 	for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
@@ -479,7 +485,8 @@ Trace backtrace( flat_alignment::ClosedMap &cl, const flat_alignment *a )
 		t2.push_back( std::make_pair( x,y ) ) ;
 	}
 
-	t2.push_back( std::make_pair( 0,0 ) ) ;
+	// To see the crack between the two halves, use this:
+	// t2.push_back( std::make_pair( 0,0 ) ) ;
 
 	t1.insert( t1.end(), t2.rbegin(), t2.rend() ) ;
 	return t1 ;
@@ -501,8 +508,6 @@ find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 	while( !open_list.empty() )
 	{
 		std::pair< State, const State *> p = open_list.front() ;
-		// std::clog << p.first << ' ' << from_ambicode(p.first.reference[p.first.ref_offs])
-			// << '/' << from_ambicode(p.first.query[p.first.query_offs]) << std::endl ;
 		std::pop_heap( open_list.begin(), open_list.end() ) ;
 		open_list.pop_back() ;
 
