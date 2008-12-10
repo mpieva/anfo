@@ -113,9 +113,9 @@ class DnaP
 		DnaP &operator += ( int64_t  o ) { p_ += o ; return *this ; }
 		DnaP &operator += ( uint32_t o ) { p_ += o ; return *this ; }
 		DnaP &operator += ( int32_t  o ) { p_ += o ; return *this ; }
-		DnaP &operator -= ( int64_t  o ) { p_ += o ; return *this ; }
-		DnaP &operator -= ( uint32_t o ) { p_ += o ; return *this ; }
-		DnaP &operator -= ( int32_t  o ) { p_ += o ; return *this ; }
+		DnaP &operator -= ( int64_t  o ) { p_ -= o ; return *this ; }
+		DnaP &operator -= ( uint32_t o ) { p_ -= o ; return *this ; }
+		DnaP &operator -= ( int32_t  o ) { p_ -= o ; return *this ; }
 
 		// hack to make this compatible with Judy arrays on both 32 and
 		// 64 bit machines
@@ -174,6 +174,7 @@ class PreparedSequence
 			std::transform( forward_seq.rbegin(), forward_seq.rend(),
 					std::back_inserter( reverse_seq ), reverse_complement ) ;
 
+			// XXX: there's definitely an OB1 in here
 			reverse_.assign( &reverse_seq[0], (n % 2) + 1 ) ;
 		}
 

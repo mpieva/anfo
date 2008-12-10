@@ -479,6 +479,8 @@ Trace backtrace( flat_alignment::ClosedMap &cl, const flat_alignment *a )
 		t2.push_back( std::make_pair( x,y ) ) ;
 	}
 
+	t2.push_back( std::make_pair( 0,0 ) ) ;
+
 	t1.insert( t1.end(), t2.rbegin(), t2.rend() ) ;
 	return t1 ;
 }
@@ -499,7 +501,8 @@ find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 	while( !open_list.empty() )
 	{
 		std::pair< State, const State *> p = open_list.front() ;
-		std::clog << p.first << std::endl ;
+		// std::clog << p.first << ' ' << from_ambicode(p.first.reference[p.first.ref_offs])
+			// << '/' << from_ambicode(p.first.query[p.first.query_offs]) << std::endl ;
 		std::pop_heap( open_list.begin(), open_list.end() ) ;
 		open_list.pop_back() ;
 

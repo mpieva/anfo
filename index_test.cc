@@ -22,6 +22,14 @@ void revcom( std::string &s )
 			case 'C': s[i] = 'G' ; break ;
 			case 'G': s[i] = 'C' ; break ;
 			case 'T': s[i] = 'A' ; break ;
+			case 'M': s[i] = 'K' ; break ;
+			case 'K': s[i] = 'M' ; break ;
+			case 'Y': s[i] = 'R' ; break ;
+			case 'R': s[i] = 'Y' ; break ;
+			case 'B': s[i] = 'V' ; break ;
+			case 'H': s[i] = 'D' ; break ;
+			case 'D': s[i] = 'H' ; break ;
+			case 'V': s[i] = 'B' ; break ;
 		}
 	}
 }
@@ -76,8 +84,8 @@ int main_( int argc, const char * argv[] )
 		{
 			// XXX I want to start in the middle of the seed.  Why
 			// does this not work on the reverse-complement strand?
-			fa.reference = g.get_base() + s->offset + s->diagonal ; // + s->size / 2 ;
-			fa.query = ps.reverse() - s->offset ; // + s->size / 2 ;
+			fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
+			fa.query = ps.reverse() - s->offset - s->size + 2 + s->size / 2 ;
 		}
 		reset( fa ) ;
 		greedy( fa ) ;
