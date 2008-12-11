@@ -7,7 +7,7 @@ LDLIBS += -lprotobuf -lpopt -lJudy
 CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
 
 TARGETS := fa2dna dnaindex index_test 
-DATABASES := hg18.dna chr21.dna chr21_10.idx hg18_10.idx
+DATABASES := ../data/hg18.dna ../data/chr21.dna ../data/chr21_10.idx ../data/hg18_10.idx
 
 all: $(TARGETS)
 dbs: $(DATABASES)
@@ -18,19 +18,19 @@ fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)
 index_test: $(OBJECTS)
 
-hg18.dna: fa2dna
-	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -c index.txt -o $@ -v \
+../data/hg18.dna: fa2dna
+	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -c index.txt -o ../data/$@ -v \
 	    	/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr*.fa
 
-chr21.dna: fa2dna
-	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -c index.txt -o $@ -v \
+../data/chr21.dna: fa2dna
+	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -c index.txt -o ../data/$@ -v \
 		/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr21.fa
 
-hg18_10.idx: hg18.dna dnaindex
-	./dnaindex -g hg18 -o $@ -c index.txt -v -s 10
+../data/hg18_10.idx: ../data/hg18.dna dnaindex
+	./dnaindex -g hg18 -o ../data/$@ -c index.txt -v -s 10
 
-chr21_10.idx: chr21.dna dnaindex
-	./dnaindex -g chr21 -o $@ -c index.txt -v -s 10
+../data/chr21_10.idx: ../data/chr21.dna dnaindex
+	./dnaindex -g chr21 -o ../data/$@ -c index.txt -v -s 10
 
 %: %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) $^ -o $@
