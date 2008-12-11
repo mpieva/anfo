@@ -59,7 +59,7 @@ FixedIndex::FixedIndex( const char* fp, unsigned w, unsigned c )
 		throw_errno_if_minus1( p, "mmapping", fp ) ;
 		base = (uint32_t*)p ;
 
-		std::cerr << "index base: " << p << std::endl ;
+		// std::cerr << "index base: " << p << std::endl ;
 
 		if( base[0] != signature ) 
 			throw fp + std::string(" does not have 'IDX0' signature") ;

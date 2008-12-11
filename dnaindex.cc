@@ -197,8 +197,9 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
 
-	Config cfg( config_file ) ;
-	CompactGenome genome( cfg.find_genome( genome_name ).filename().c_str() ) ;
+	metaindex::MetaIndex mi ;
+	merge_text_config( config_file, mi ) ;
+	CompactGenome genome( find_genome( mi, genome_name ).filename().c_str() ) ;
 
 	uint64_t first_level_len = 1 << (2 * wordsize) + 1 ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
@@ -274,15 +275,15 @@ int main_( int argc, const char * argv[] )
 	mywrite( fd, lists, 4 * total ) ;
 	close( fd ) ;
 
-	metaindex::CompactIndex *ci = cfg.find_or_create_compact_index( genome_name, wordsize ) ;
-	ci->set_filename( output_file ) ;
-	ci->set_genome_name( genome_name ) ;
-	ci->set_wordsize( wordsize ) ;
-	if( cutoff == std::numeric_limits<unsigned>::max() ) ci->clear_cutoff() ;
-	else ci->set_cutoff( cutoff ) ;
-	ci->set_indexsize( total ) ;
+	metaindex::CompactIndex& ci = find_or_create_compact_index( mi, genome_name, wordsize ) ;
+	ci.set_filename( output_file ) ;
+	ci.set_genome_name( genome_name ) ;
+	ci.set_wordsize( wordsize ) ;
+	if( cutoff == std::numeric_limits<unsigned>::max() ) ci.clear_cutoff() ;
+	else ci.set_cutoff( cutoff ) ;
+	ci.set_indexsize( total ) ;
 
-	cfg.write() ;
+	write_text_config( config_file, mi ) ;
 	return 0 ;
 }
 

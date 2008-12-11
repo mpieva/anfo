@@ -54,13 +54,13 @@ class FastaDecoder
 		bool verbose ;
 
 		std::ofstream& dna ;
-		metaindex::Genome *cur_genome ;
+		metaindex::Genome& cur_genome ;
 		metaindex::Sequence *cur_sequence ;
 		metaindex::Contig *cur_contig ;
 		
 		
 	public:
-		FastaDecoder( unsigned p, std::ofstream& dna_, metaindex::Genome *g_, unsigned maxn, bool v_ = false )
+		FastaDecoder( unsigned p, std::ofstream& dna_, metaindex::Genome &g_, unsigned maxn, bool v_ = false )
 			: state( &FastaDecoder::s_idle ), position( p ), num_n( 0 ), one_nt( 0 )
 			, max_num_n( maxn ), verbose( v_ ), dna( dna_ )
 			, cur_genome( g_ ), cur_sequence( 0 ), cur_contig( 0 )
@@ -85,7 +85,7 @@ class FastaDecoder
 		void begin_new_sequence()
 		{
 			source_position = 0 ;
-			cur_sequence = cur_genome->add_sequence() ;
+			cur_sequence = cur_genome.add_sequence() ;
 		}
 		void finish_sequence() { cur_sequence = 0 ; }
 		void begin_new_contig() 
@@ -109,7 +109,7 @@ class FastaDecoder
 		void finish_genome()
 		{
 			put_nt( '-' ) ;
-			cur_genome->set_total_size( position ) ;
+			cur_genome.set_total_size( position ) ;
 			if( position & 1 ) put_nt( '-' ) ;
 		}
 
@@ -286,13 +286,14 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
 
-	Config cfg( config_file ) ;
-	metaindex::Genome *g = cfg.find_or_create_genome( genome_name ) ;
+	metaindex::MetaIndex mi ;
+	merge_text_config( config_file, mi ) ;
+	metaindex::Genome& g = find_or_create_genome( mi, genome_name ) ;
 
-	g->clear_sequence() ;
-	g->set_name( genome_name ) ;
-	g->set_filename( output_file ) ;
-	if( description ) g->set_description( description ) ;
+	g.clear_sequence() ;
+	g.set_name( genome_name ) ;
+	g.set_filename( output_file ) ;
+	if( description ) g.set_description( description ) ;
 
 	std::ofstream output_stream( output_file ) ;
 	FastaDecoder fd( 8, output_stream, g, max_num_n, verbose ) ;
@@ -309,7 +310,7 @@ int main_( int argc, const char * argv[] )
 	}
 
 	fd.finish() ;
-	cfg.write() ;
+	write_text_config( config_file, mi ) ;
 	return 0 ;
 }
 

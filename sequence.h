@@ -12,11 +12,12 @@
 // than 32 bits.  This affects mainly the organization of Judy arrays.
 #define SMALL_SYS (ULONG_MAX < 0x100000000)
 
-//! \defgroup typedefs Useful typedefs.
-// These typedefs are used mostly for their documentation value;  C++
-// unfortunately won't be able to check their differences
-// most of the time.
-// @{
+/*! \defgroup typedefs Useful typedefs
+ * These typedefs are used mostly for their documentation value;  C++
+ * unfortunately won't be able to check their differences
+ * most of the time.
+ *
+ * @{ */
 
 //! \brief Type used to store short DNA sequences.
 // Oligos are stored with two bits per bases where [0,1,2,3] mean
@@ -130,7 +131,8 @@ class DnaP
 			p_ += off ;
 		}
 
-		Ambicode operator[]( int64_t ix ) const {
+		Ambicode operator * () const { return (*this)[0] ; }
+		Ambicode operator [] ( int64_t ix ) const {
 			int64_t p = p_ + ix ;
 			uint8_t w = *( reinterpret_cast<uint8_t*>( (std::abs(p) << 1) >> 2 ) ) ;
 			w = 0xf & ( p & 1 ? w >> 4 : w ) ;
@@ -141,6 +143,9 @@ class DnaP
 
 		uint8_t *unsafe_ptr() const
 		{ return reinterpret_cast<uint8_t*>( (std::abs(p_) << 1) >> 2 ) ; }
+
+		DnaP &operator ++ () { p_++ ; return *this ; }
+		DnaP &operator -- () { p_-- ; return *this ; }
 
 		DnaP &operator += ( int64_t  o ) { p_ += o ; return *this ; }
 		DnaP &operator += ( uint32_t o ) { p_ += o ; return *this ; }
@@ -158,7 +163,10 @@ class DnaP
 		unsigned long get() const { return p_ ; }
 #endif
 
-		friend inline int64_t operator - ( const DnaP &a, const DnaP &b ) { return a.p_ - b.p_ ; }
+		friend inline int64_t operator -  ( const DnaP &a, const DnaP &b ) { return a.p_  - b.p_ ; }
+		friend inline bool    operator == ( const DnaP &a, const DnaP &b ) { return a.p_ == b.p_ ; }
+		friend inline bool    operator != ( const DnaP &a, const DnaP &b ) { return a.p_ != b.p_ ; }
+		
 		friend inline std::ostream& operator << ( std::ostream& s, const DnaP &p )
 		{ return s << std::hex << p.p_ ; }
 } ;
@@ -170,8 +178,25 @@ inline DnaP operator - ( const DnaP& a, int64_t  o ) { DnaP b = a ; return b -= 
 inline DnaP operator - ( const DnaP& a, int32_t  o ) { DnaP b = a ; return b -= o ; }
 inline DnaP operator - ( const DnaP& a, uint32_t o ) { DnaP b = a ; return b -= o ; }
 
+//! \brief Wrapper for easier output of gap-terminated sequences.
+// \internal
+struct Sequ
+{
+	Sequ( const DnaP p, int length = std::numeric_limits<int>::max() )
+		: p_(p), l_(length) {}
 
-//! Sequence transformed into same representation used for genomes.
+	DnaP p_ ;
+	int l_ ;
+} ;
+
+inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
+{
+	for( DnaP p = d.p_, q = d.p_ + d.l_ ; *p && p != q ; ++p )
+		s << from_ambicode( *p ) ;
+	return s ;
+}
+
+//! \brief Sequence transformed into same representation used for genomes.
 // We store the sequence in both forward and reverse direction so we can
 // eaily refer to either strand by a DnaP.  This doesn't save space, but
 // it does make the representation uniform.  Again, both sequences are

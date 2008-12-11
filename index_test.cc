@@ -5,7 +5,10 @@
 
 using namespace std ;
 
-void revcom( std::string &s )
+//! \brief Rev-complement ASCII-encoded sequence.
+// This shouldn't be needed, it's only here for debugging.
+// \internal
+void revcom( string &s )
 {
 	for( size_t i=0, j=s.size()-1 ; i<j ; ++i, --j )
 	{
@@ -37,71 +40,62 @@ void revcom( std::string &s )
 
 int main_( int argc, const char * argv[] )
 {
-	Config cfg( argc < 2 ? "index.txt" : strcmp( argv[1], "R" ) ? argv[1] : "index.txt" ) ;
-	metaindex::CompactIndex cix = cfg.find_compact_index( argc < 3 ? "chr21" : argv[2] ) ;
-	std::cout << "Found index " << cix.filename() << " with wordsize " 
-		<< cix.wordsize() << " and " ;
-	if( cix.has_cutoff() ) std::cout << "cutoff " << cix.cutoff() << '.' << std::endl ;
-	else std::cout << "no cutoff." << std::endl ;
+	metaindex::MetaIndex mi ;
+	merge_text_config( argc < 2 ? "index.txt" : strcmp( argv[1], "R" ) ? argv[1] : "index.txt", mi ) ;
+	metaindex::CompactIndex cix = find_compact_index( mi, argc < 3 ? "chr21" : argv[2] ) ;
+	metaindex::Genome gdef = find_genome( mi, cix.genome_name() ) ;
+
+	cout << "Found index " << cix.filename() << " with wordsize " << cix.wordsize() << " and " ;
+	if( cix.has_cutoff() ) cout << "cutoff " << cix.cutoff() << '.' ;
+	                  else cout << "no cutoff." ;
+	cout << "\nFound genome " << gdef.filename() << " of length " << gdef.total_size() << endl ;
 
 	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
+	CompactGenome g( gdef.filename().c_str() ) ;
 
-	// std::string s = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
-	std::string s = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
-	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(s) ;
+	// string sq = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+	string sq = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
+	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(sq) ;
 
 	vector<Seed> seeds ;
-	ix.lookup( s, seeds ) ;
+	ix.lookup( sq, seeds ) ;
 
 	cout << "got " << seeds.size() << " seeds, combined into " ;
 	combine_seeds( seeds ) ;
 	cout << seeds.size() << " larger ones, clumped into " ;
-	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 24 ) ;
+	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 12 ) ;
 	cout << seeds.size() << " clumps." << endl ;
 
-	metaindex::Genome gdef = cfg.find_genome( cix.genome_name() ) ;
-	std::cout << "Found genome " << gdef.filename() << " of length "
-		<< gdef.total_size() << std::endl ;
-
-	CompactGenome g( gdef.filename().c_str() ) ;
-	std::cout << "Loaded genome." << std::endl ;
-
-	PreparedSequence ps( s.c_str() ) ;
-	std::deque< flat_alignment > ol ;
+	PreparedSequence ps( sq.c_str() ) ;
+	deque< flat_alignment > ol ;
 
 	// quick hack to init alignments... XXX: move this somewhere
 	// sensible... as soon as it works.
-	for( std::vector<Seed>::const_iterator s = seeds.begin() ; s != seeds.end() ; ++s )
+	for( vector<Seed>::const_iterator s = seeds.begin() ; s != seeds.end() ; ++s )
 	{
-		std::clog << *s << std::endl ;
+		// clog << *s << endl ;
 
 		flat_alignment fa ;
 		fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
 		fa.query = ( s->offset >= 0 ? ps.forward() : ps.reverse() ) + s->offset + s->size / 2 ;
 
-			for( int i = 0 ; i != 30 ; ++i )
-				std::cout << from_ambicode(fa.reference[i]) ;
-			std::cout << std::endl ;
-
-			for( int i = 0 ; i != 30 ; ++i )
-				std::cout << from_ambicode(fa.query[i]) ;
-			std::cout << std::endl ;
+		// cout << Sequ( fa.reference, sq.length() ) << endl ;
+		// cout << Sequ( fa.query ) << endl ;
 
 		reset( fa ) ;
 		greedy( fa ) ;
 		ol.push_back( fa ) ;
 	}
-	std::make_heap( ol.begin(), ol.end() ) ;
+	make_heap( ol.begin(), ol.end() ) ;
 	flat_alignment best = find_cheapest( ol ) ;
 
-	std::cout << "Done near " << best.reference - g.get_base()
-		      << " costing " << best.penalty << std::endl ;
+	cout << "Done near " << best.reference - g.get_base() << " costing " << best.penalty << ':' << endl ;
 
-	std::deque< std::pair< flat_alignment, const flat_alignment* > > ol_ ;
+	deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
 	reset( best ) ;
 	greedy( best ) ;
-	ol_.push_back( std::make_pair( best, (const flat_alignment*)0 ) ) ;
-	std::cout << find_cheapest( ol_ ) << std::endl ;
+	ol_.push_back( make_pair( best, (const flat_alignment*)0 ) ) ;
+	cout << find_cheapest( ol_ ) << endl ;
 
 	return 0 ;
 }
