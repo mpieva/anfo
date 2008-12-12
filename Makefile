@@ -3,8 +3,8 @@ version ?= $(svnversion)
 
 PROTOC ?= protoc
 LDLIBS += -lprotobuf -lpopt -lJudy
-# CXXFLAGS += -O3 -Wall -MMD
-CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
+CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
+# CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
 
 TARGETS := fa2dna dnaindex index_test 
 DATABASES := ../data/hg18.dna ../data/chr21.dna ../data/chr21_10.idx ../data/hg18_10.idx
