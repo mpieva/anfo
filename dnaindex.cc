@@ -197,7 +197,7 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
 
-	metaindex::MetaIndex mi ;
+	metaindex::Config mi ;
 	merge_text_config( config_file, mi ) ;
 	CompactGenome genome( find_genome( mi, genome_name ).filename().c_str() ) ;
 
@@ -248,7 +248,7 @@ int main_( int argc, const char * argv[] )
 	}
 
 	uint32_t *lists = (uint32_t*)malloc( 4 * total ) ;
-	throw_errno_if_null( lists, "allocated second level index" ) ;
+	throw_errno_if_null( lists, "allocating second level index" ) ;
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 
 	// Second scan: we actually store the offsets now.

@@ -286,7 +286,7 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
 
-	metaindex::MetaIndex mi ;
+	metaindex::Config mi ;
 	merge_text_config( config_file, mi ) ;
 	metaindex::Genome& g = find_or_create_genome( mi, genome_name ) ;
 

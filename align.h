@@ -154,16 +154,40 @@ struct flat_alignment {
 	 */
 	static uint32_t subst_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 1 ; }
 
-	/*! Trivial gap costs.
+	/*! \brief trivial gap costs
 	 *
 	 * A gap costs one, whether it is opened or extended.
 	 */
 	static uint32_t gap_penalty() { return 1 ; }
+
+	flat_alignment() : reference(0), query(0), ref_offs(0), query_offs(0), state(0), penalty(0) {}
+
+	//! \brief prepares an alignment from a seed
+	//! Prepares an alignment from a genomic sequence, a sample sequence
+	//! and an appropriate seed.  The alignment starts in the middle of
+	//! the seed.
+	//!
+	//! \param g genome the seeds were prepared from
+	//! \param ps sample sequence in compact format
+	//! \param s the seed
+
+	flat_alignment( const CompactGenome& g, const PreparedSequence& ps, const Seed& s )
+		: reference( g.get_base() + s.offset + s.diagonal + s.size / 2 )
+		, query( ( s.offset >= 0 ? ps.forward() : ps.reverse() ) + s.offset + s.size / 2 )
+		, ref_offs(0), query_offs(0), state(0), penalty(0)
+	{
+		if( s.offset < 0 ) {
+			reference.reverse() ;
+			query.reverse() ;
+		}
+	}
+
+	operator const void * () const { return reference.unsafe_ptr() ; }
 } ;
 
 //! formats an intermediate alignment state to a stream.
-// This is useful mostly for debugging.
-// \internal 
+//! This is useful mostly for debugging.
+//! \internal 
 
 inline std::ostream& operator << ( std::ostream& s, const flat_alignment &fa )
 {
@@ -223,9 +247,9 @@ void insert( flat_alignment::ClosedMap& cl, const flat_alignment& s, const flat_
 }
 
 //! \brief resets alignment to initial state.
-// The internal state is reset, the penalty set to zero and the
-// reference and query positions to their initial values.  The alignment
-// can be repeated now.
+//! The internal state is reset, the penalty set to zero and the
+//! reference and query positions to their initial values.  The alignment
+//! can be repeated now.
 void reset( flat_alignment& fa )
 {
 	fa.ref_offs = 0 ;
@@ -240,11 +264,11 @@ bool finished( const flat_alignment& s ) {
 }
 
 //! \brief greedily extends an alignment.
-// This function simply extends an alignment as long at it finds
-// matches.  It is important that this is done in a way that leaves
-// enough traces if backtracing is desired.  Here we do this by never
-// changing state in greedy(), but only in forward().  greedy() just
-// advances two pointers synchronously.
+//! This function simply extends an alignment as long at it finds
+//! matches.  It is important that this is done in a way that leaves
+//! enough traces if backtracing is desired.  Here we do this by never
+//! changing state in greedy(), but only in forward().  greedy() just
+//! advances two pointers synchronously.
 void greedy( flat_alignment& s )
 {
 	while( s.query[s.query_offs] && s.reference[s.ref_offs] == s.query[s.query_offs] )
@@ -334,12 +358,21 @@ bool operator < ( const flat_alignment& a, const flat_alignment& b )
 template< typename State > struct enter {
 	private: 
 		std::deque< State > &o_ ;
+		typename State::ClosedSet *c_ ;
+		uint32_t mp_ ;
 	public:
-		enter( std::deque< State > &o ) : o_(o) {}
-		void operator()( State &s ) {
+		enter(
+				std::deque< State > &o,
+				uint32_t mp = std::numeric_limits<uint32_t>::max(),
+				typename State::ClosedSet *c = 0
+			 ) : o_(o), c_(c), mp_(mp) {}
+		void operator()( State s ) {
 			greedy( s ) ;
-			o_.push_back( s ) ;
-			std::push_heap( o_.begin(), o_.end() ) ;
+			if( (!c_ || !is_present( *c_, s )) && s.penalty <= mp_ )
+			{
+				o_.push_back( s ) ;
+				std::push_heap( o_.begin(), o_.end() ) ;
+			}
 		}
 } ;
 
@@ -348,10 +381,10 @@ template< typename State > struct enter_bt {
 		std::deque< std::pair< State, const State* > > &o_ ;
 		const State *s_ ;
 	public:
-		enter_bt( const State *s, std::deque< std::pair< State, const State* > > &o ) : o_(o), s_(s) {}
-		void operator()( State &s ) {
-			greedy( s ) ;
+		enter_bt( std::deque< std::pair< State, const State* > > &o, const State *s = 0 ) : o_(o), s_(s) {}
+		void operator()( const State &s ) {
 			o_.push_back( std::make_pair( s, s_ ) ) ;
+			greedy( o_.back().first ) ;
 			std::push_heap( o_.begin(), o_.end() ) ;
 		}
 } ;
@@ -367,9 +400,12 @@ template< typename State > struct enter_bt {
  * \param open_list Queue of open states, must form a heap and \c greedy
  *                  must have been called on each of its elements.
  * \return First state to be detected as finished().
+ *
+ * \todo Cut off alignment at some sensible threshold, return something
+ *       appropriate.
  */
 template< typename State >
-State find_cheapest( std::deque< State > &open_list )
+State find_cheapest( std::deque< State > &open_list, uint32_t max_penalty = std::numeric_limits<uint32_t>::max() )
 {
 	typename State::ClosedSet closed_list ;
 	while( !open_list.empty() )
@@ -381,19 +417,31 @@ State find_cheapest( std::deque< State > &open_list )
 		if( !is_present( closed_list, s ) ) 
 		{
 			set_bit( closed_list, s ) ;
-			if( finished( s ) ) return s ;
-			forward( s, enter<State>( open_list ) ) ;
+			if( finished( s ) )
+			{
+				int dups = 0 ;
+				for( size_t i = 0 ; i != open_list.size() ; ++i )
+					if( is_present( closed_list, open_list[i] ) ) ++dups ;
+
+				std::clog << "Finished alignment, open list contains "
+					<< open_list.size() << " nodes, " // << count( closed_list )
+					<< " nodes are closed, " << dups << " of which are still tracked."
+					<< std::endl ;
+				
+				return s ;
+			}
+			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
 	}
-	throw "ran into a dead end" ;
+	return State() ;
 }
 
 typedef std::deque< std::pair< Ambicode, Ambicode > > Trace ;
 
 //! prints a backtrace in three-line format.
-// This is intended for debugging, it prints a backtraced alignment in
-// two lines of sequence and one "conservation" line.
-// \internal
+//! This is intended for debugging, it prints a backtraced alignment in
+//! two lines of sequence and one "conservation" line.
+//! \internal
 inline std::ostream& operator << ( std::ostream& s, const Trace& t )
 {
 	for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
@@ -409,25 +457,25 @@ inline std::ostream& operator << ( std::ostream& s, const Trace& t )
 }
 
 //! \brief backtraces a simple alignment returning sequences
-//
-// This backtraces an alignment after it has been created by
-// find_cheapest() called with a backtracing structure.  Backtracing
-// works by looking at two intermediate states, the \em current one and
-// its \em predecessor.  In between those two states, exactly one
-// invocation of forward() and one of greedy() have happened.  To
-// backtrace, we first check in which direction we moved (depends on
-// which half of the alignment we were in).  Next, if both the reference
-// and the query offsets differ between states, we copy symbols from
-// both (this corresponds to the greedy extension or a mismatch).  If
-// only one differs, we copy one symbol and fill it up with a gap.
-// Depending on the direction we moved in, the pair is added at the
-// front or the end of the trace.  If the internal state changed, we
-// don't trace at all (we just jump).
-//
-// \param cl the ClosedMap that was used in find_cheapest()
-// \param a pointer to the alignment that needs to be traced
-// \return a trace, that is a sequence of pairs of Ambicodes
-// \internal
+//!
+//! This backtraces an alignment after it has been created by
+//! find_cheapest() called with a backtracing structure.  Backtracing
+//! works by looking at two intermediate states, the \em current one and
+//! its \em predecessor.  In between those two states, exactly one
+//! invocation of forward() and one of greedy() have happened.  To
+//! backtrace, we first check in which direction we moved (depends on
+//! which half of the alignment we were in).  Next, if both the reference
+//! and the query offsets differ between states, we copy symbols from
+//! both (this corresponds to the greedy extension or a mismatch).  If
+//! only one differs, we copy one symbol and fill it up with a gap.
+//! Depending on the direction we moved in, the pair is added at the
+//! front or the end of the trace.  If the internal state changed, we
+//! don't trace at all (we just jump).
+//!
+//! \param cl the ClosedMap that was used in find_cheapest()
+//! \param a pointer to the alignment that needs to be traced
+//! \return a trace, that is a sequence of pairs of Ambicodes
+//! \internal
 
 Trace backtrace( flat_alignment::ClosedMap &cl, const flat_alignment *a )
 {
@@ -496,8 +544,6 @@ Trace backtrace( flat_alignment::ClosedMap &cl, const flat_alignment *a )
  *
  * See \c find_cheapest, but this implementation also does backtracing
  * (at higher memory cost, naturally).  
- *
- * \todo Actually implement backtracing.
  */
 template< typename State >
 std::deque< std::pair< Ambicode, Ambicode > >
@@ -516,12 +562,31 @@ find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 			insert( closed_list, p.first, p.second ) ;
 			if( finished( p.first ) ) return backtrace( closed_list, &p.first ) ;
 			used_states.push_back( p.first ) ;
-			forward( p.first, enter_bt<State>( &used_states.back(), open_list ) ) ;
+			forward( p.first, enter_bt<State>( open_list, &used_states.back() ) ) ;
 		}
 	}
 	throw "ran into a dead end" ;
 }
 
+//! \brief initializes alignments from a list of seeds
+//!
+//! Each seed, no matter its quality, gives rise to a potential
+//! alignment.  A heap of alignments is updated; on return it can
+//! immediately be fed to find_cheapest().
+// 
+//! \param g Genome the seeds came from.
+//! \param ps Sequence to map in compact format.
+//! \param begin Iterator to first seed.
+//! \param end Iterator to last seed.
+//! \paral ol \c Open \c List to be updated.  Must form a heap (an empty
+//!           heap is fine).
+
+template< typename Aln, typename Iter >
+void setup_alignments( const CompactGenome& g, const PreparedSequence& ps,
+		Iter begin, const Iter& end, std::deque< Aln >& ol )
+{
+	for( ; begin != end ; ++begin ) (enter<Aln>( ol ))( Aln( g, ps, *begin ) ) ;
+}
 
 
 #endif

@@ -8,8 +8,9 @@
 #include <stdint.h>
 
 //! \brief Test macro whether this is a "small" system
-// A system is considered "small" for our purposes, if long has no more
-// than 32 bits.  This affects mainly the organization of Judy arrays.
+//!
+//! A system is considered "small" for our purposes, if long has no more
+//! than 32 bits.  This affects mainly the organization of Judy arrays.
 #define SMALL_SYS (ULONG_MAX < 0x100000000)
 
 /*! \defgroup typedefs Useful typedefs
@@ -20,28 +21,32 @@
  * @{ */
 
 //! \brief Type used to store short DNA sequences.
-// Oligos are stored with two bits per bases where [0,1,2,3] mean
-// [A,C,T,G].  The two LSBs contain the first base, up to 32 bases can
-// be stored.
+//!
+//! Oligos are stored with two bits per bases where [0,1,2,3] mean
+//! [A,C,T,G].  The two LSBs contain the first base, up to 32 bases can
+//! be stored.
 typedef uint64_t Oligo ;
 
 //! \brief Type used to store a single nucleotide base.
-// We encode [A,C,T,G] as [0,1,2,3], same as in \c Oligo.
+//!
+//! We encode [A,C,T,G] as [0,1,2,3], same as in \c Oligo.
 typedef uint8_t  Nucleotide ;	// 0,1,2,3 == A,C,T,G
 
 //! \brief Type used to store ambiguity codes.
-// We encode [A,C,T,G] as [1,2,4,8].  A one shifted by the \c Nucleotide
-// code gives the approriate ambiguity code, other codes can be created
-// by combining bases with a logical OR.  Zero encodes a gap, 15 is an
-// N.
+//!
+//! We encode [A,C,T,G] as [1,2,4,8].  A one shifted by the \c Nucleotide
+//! code gives the approriate ambiguity code, other codes can be created
+//! by combining bases with a logical OR.  Zero encodes a gap, 15 is an
+//! N.
 typedef uint8_t  Ambicode ;		// 1,2,4,8 == A,C,T,G
 
 //! @}
 
 //! \brief Decodes a character to a nucleotide.
-// Takes an arbitrary character and determines the IUPAC ambiguity code
-// it stands for.  Small and capital letters are understood, everything
-// unrecognized becomes a gap.
+//!
+//! Takes an arbitrary character and determines the IUPAC ambiguity code
+//! it stands for.  Small and capital letters are understood, everything
+//! unrecognized becomes a gap.
 
 inline Ambicode to_ambicode( char c ) {
 	switch( c ) {
@@ -73,7 +78,7 @@ inline Ambicode complement( Ambicode w )
 { return 0xf & (w << 2 | w >> 2) ; }
 
 //! \brief Reverse-complements a pair of ambiguity codes.
-// \internal
+//! \internal
 inline uint8_t reverse_complement( uint8_t xy )
 {
 	return (xy & 0x03) << 6 |
@@ -83,25 +88,25 @@ inline uint8_t reverse_complement( uint8_t xy )
 }
 
 //! \brief Checks whether a character codes for a nucleotide.
-// This is euivalent to decoding the character and checking that it
-// doesn't encode a gap.
+//! This is euivalent to decoding the character and checking that it
+//! doesn't encode a gap.
 inline bool encodes_nuc( char c ) { return to_ambicode(c) != 0 ; }
 
 //! Dumb pointer to DNA
-// A pointer with sub-byte precision is needed for our mmaped genomes.
-// The assumption here is that this fits into 64 bits, which is true on
-// any ix86_64 bit that doesn't implement full 64bit addresses, and that
-// will be all of them for quite some time to come.  It's also true on a
-// 32 bit system, obviously.  We also steal another bit to encode the
-// strand we're pointing to.
-//
-// To make arithmetic easier, the encoding is as follows:  The main
-// pointer is converted to an int64_t, it is then shifted left and the
-// sub-byte index (just one bit) is shifted in.  Then the sign in
-// inverted if and only if this is a pointer to the RC strand.  This way,
-// arithmetic works on both strands the same way.  To dereference a
-// pointer, the absolute value of the number is taken, interpreted as
-// signed 63 bit value, sign extended and reinterpreted as pointer.
+//! A pointer with sub-byte precision is needed for our mmaped genomes.
+//! The assumption here is that this fits into 64 bits, which is true on
+//! any ix86_64 bit that doesn't implement full 64bit addresses, and that
+//! will be all of them for quite some time to come.  It's also true on a
+//! 32 bit system, obviously.  We also steal another bit to encode the
+//! strand we're pointing to.
+//!
+//! To make arithmetic easier, the encoding is as follows:  The main
+//! pointer is converted to an int64_t, it is then shifted left and the
+//! sub-byte index (just one bit) is shifted in.  Then the sign in
+//! inverted if and only if this is a pointer to the RC strand.  This way,
+//! arithmetic works on both strands the same way.  To dereference a
+//! pointer, the absolute value of the number is taken, interpreted as
+//! signed 63 bit value, sign extended and reinterpreted as pointer.
 class DnaP
 {
 	private:
@@ -117,14 +122,14 @@ class DnaP
 		// \param complement set to true to make a pointer to the
 		//                   reverse-complemented strand
 		// \param off offset to add to the final pointer
-		explicit DnaP( uint8_t *p = 0, bool complement = false, int off = 0 ) 
+		explicit DnaP( const uint8_t *p = 0, bool complement = false, int off = 0 ) 
 		{
 			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
 			if( complement ) p_ = -p_ ;
 			p_ += off ;
 		}
 
-		void assign( uint8_t *p = 0, bool complement = false, int off = 0 )
+		void assign( const uint8_t *p = 0, bool complement = false, int off = 0 )
 		{
 			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
 			if( complement ) p_ = -p_ ;
@@ -140,6 +145,8 @@ class DnaP
 		}
 
 		operator bool() const { return p_ ; }
+
+		void reverse() { p_ = -p_ ; }
 
 		uint8_t *unsafe_ptr() const
 		{ return reinterpret_cast<uint8_t*>( (std::abs(p_) << 1) >> 2 ) ; }
@@ -179,7 +186,7 @@ inline DnaP operator - ( const DnaP& a, int32_t  o ) { DnaP b = a ; return b -= 
 inline DnaP operator - ( const DnaP& a, uint32_t o ) { DnaP b = a ; return b -= o ; }
 
 //! \brief Wrapper for easier output of gap-terminated sequences.
-// \internal
+//! \internal
 struct Sequ
 {
 	Sequ( const DnaP p, int length = std::numeric_limits<int>::max() )
@@ -205,12 +212,13 @@ class PreparedSequence
 {
 	private:
 		std::vector< uint8_t > seq ;
+		unsigned length_ ;
 
 	public:
 		PreparedSequence( const char* p ) 
 		{
 			// start out with a gap symbol
-			int n = 0 ;
+			unsigned n = 0 ;
 			for( Ambicode last = 0 ;; )
 			{
 				// this is intentional: we actually encode the final NUL
@@ -226,10 +234,12 @@ class PreparedSequence
 				last = to_ambicode( *p ) ;
 				if( *p ) ++p, ++n ;
 			}
+			length_ = n ;
 		}
 
-		DnaP forward() { return DnaP( &seq[0], false, 1 ) ; }
-		DnaP reverse() { return DnaP( &seq[0], true, -1 ) ; }
+		DnaP forward() const { return DnaP( &seq[0], false, 1 ) ; }
+		DnaP reverse() const { return DnaP( &seq[0], true, -1 ) ; }
+		unsigned length() const { return length_ ; }
 } ;
 
 #endif

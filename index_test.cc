@@ -40,7 +40,7 @@ void revcom( string &s )
 
 int main_( int argc, const char * argv[] )
 {
-	metaindex::MetaIndex mi ;
+	metaindex::Config mi ;
 	merge_text_config( argc < 2 ? "index.txt" : strcmp( argv[1], "R" ) ? argv[1] : "index.txt", mi ) ;
 	metaindex::CompactIndex cix = find_compact_index( mi, argc < 3 ? "chr21" : argv[2] ) ;
 	metaindex::Genome gdef = find_genome( mi, cix.genome_name() ) ;
@@ -56,37 +56,20 @@ int main_( int argc, const char * argv[] )
 	// string sq = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
 	string sq = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
 	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(sq) ;
+	PreparedSequence ps( sq.c_str() ) ;
 
 	vector<Seed> seeds ;
-	ix.lookup( sq, seeds ) ;
-
-	cout << "got " << seeds.size() << " seeds, combined into " ;
-	combine_seeds( seeds ) ;
-	cout << seeds.size() << " larger ones, clumped into " ;
+	int num_raw = ix.lookup( sq, seeds ) ;
+	int num_comb = seeds.size() ;
 	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 12 ) ;
-	cout << seeds.size() << " clumps." << endl ;
+	int num_clumps = seeds.size() ;
 
-	PreparedSequence ps( sq.c_str() ) ;
-	deque< flat_alignment > ol ;
+	cout << "got " << num_raw << " seeds, combined into " << num_comb
+		 << " larger ones, clumped into " << num_clumps << " clumps."
+		 << endl ;
 
-	// quick hack to init alignments... XXX: move this somewhere
-	// sensible... as soon as it works.
-	for( vector<Seed>::const_iterator s = seeds.begin() ; s != seeds.end() ; ++s )
-	{
-		// clog << *s << endl ;
-
-		flat_alignment fa ;
-		fa.reference = g.get_base() + s->offset + s->diagonal + s->size / 2 ;
-		fa.query = ( s->offset >= 0 ? ps.forward() : ps.reverse() ) + s->offset + s->size / 2 ;
-
-		// cout << Sequ( fa.reference, sq.length() ) << endl ;
-		// cout << Sequ( fa.query ) << endl ;
-
-		reset( fa ) ;
-		greedy( fa ) ;
-		ol.push_back( fa ) ;
-	}
-	make_heap( ol.begin(), ol.end() ) ;
+	deque<flat_alignment> ol ;
+	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
 	flat_alignment best = find_cheapest( ol ) ;
 
 	cout << "Done near " << best.reference - g.get_base() << " costing " << best.penalty << ':' << endl ;
@@ -94,7 +77,7 @@ int main_( int argc, const char * argv[] )
 	deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
 	reset( best ) ;
 	greedy( best ) ;
-	ol_.push_back( make_pair( best, (const flat_alignment*)0 ) ) ;
+	(enter_bt<flat_alignment>( ol_ ))( best ) ;
 	cout << find_cheapest( ol_ ) << endl ;
 
 	return 0 ;

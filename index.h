@@ -15,6 +15,7 @@ class CompactGenome
 	public:
 		static const uint32_t signature = 0x30414e44 ; // DNA0 
 
+		CompactGenome() : base(0), length(0), fd(0) {}
 		CompactGenome( const char* fp ) ;
 		~CompactGenome() ;
 
@@ -25,11 +26,15 @@ class CompactGenome
 		template< typename F, typename G >
 			void scan_words( unsigned w, F mk_word, G& consume_word, const char* msg = 0 ) ;
 
+		void swap( CompactGenome& g ) { std::swap( base, g.base ) ; std::swap( length, g.length ) ; std::swap( fd, g.fd ) ; }
+
 	private:
 		DnaP base ;
 		uint32_t length ;
 		int fd ;
 
+		//! \brief reports a position while scanning
+		//! \internal
 		static void report( unsigned, unsigned, const char* ) ;
 } ;
 
@@ -56,17 +61,30 @@ class FixedIndex
 	public:
 		enum { signature = 0x30584449u } ; // IDX0 
 
-		FixedIndex( const char* fp, unsigned w, unsigned cutoff = std::numeric_limits<unsigned>::max() ) ;
+		FixedIndex() : base(0), secondary(0), first_level_len(0), length(0), fd(0), wordsize(0) {}
+		FixedIndex( const char* fp, unsigned w ) ;
 		~FixedIndex() ;
 
 		// direct lookup of an oligo, results are placed in the vector,
 		// the number of results is returned.
-		unsigned lookup1( Oligo, std::vector<Seed>&, int32_t offset = 0 ) const ;
+		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0 ) const ;
 
 		// Lookup of a sequence.   The sequence is split into words as
 		// appropriate for the index, then each one of them is looked
 		// up.  This method can be implemented for any kind of index.
-		unsigned lookup( const std::string& seq, std::vector<Seed>& ) const ;
+		unsigned lookup( const std::string& seq, std::vector<Seed>&,
+				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
+
+		operator const void * () const { return base ; }
+
+		void swap( FixedIndex& i ) {
+			std::swap( base, i.base ) ;
+			std::swap( secondary, i.secondary ) ;
+			std::swap( first_level_len, i.first_level_len ) ;
+			std::swap( length, i.length ) ;
+			std::swap( fd, i.fd ) ;
+			std::swap( wordsize, i.wordsize ) ;
+		}
 
 	private:
 		uint32_t *base, *secondary ;
@@ -74,7 +92,6 @@ class FixedIndex
 		uint64_t length ;
 		int fd ;
 		unsigned wordsize ;
-		unsigned cutoff ;
 } ;
 
 // Scan over the dna words in the genome.  Size of the words is limited

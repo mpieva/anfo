@@ -3,20 +3,23 @@ version ?= $(svnversion)
 
 PROTOC ?= protoc
 LDLIBS += -lprotobuf -lpopt -lJudy
-CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
+LDFLAGS += -p
+CXXFLAGS += -O3 -Wall -p -MMD -DVERSION='"$(version)"'
+# CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
 
-TARGETS := fa2dna dnaindex index_test 
+TARGETS := fa2dna dnaindex index_test anfo-standalone
 DATABASES := ../data/hg18.dna ../data/chr21.dna ../data/chr21_10.idx ../data/hg18_10.idx
 
 all: $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := util.o index.o metaindex.pb.o conffile.o
+OBJECTS := util.o index.o metaindex.pb.o conffile.o output.pb.o
 
 fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)
 index_test: $(OBJECTS)
+anfo-standalone: $(OBJECTS)
 
 ../data/hg18.dna: fa2dna
 	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -c index.txt -o ../data/$@ -v \

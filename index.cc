@@ -45,8 +45,8 @@ void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 			<< ", " << round((50.0*o)/l) << "%)\e[K" << std::flush ;
 }
 
-FixedIndex::FixedIndex( const char* fp, unsigned w, unsigned c ) 
-	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w), cutoff(c)
+FixedIndex::FixedIndex( const char* fp, unsigned w )
+	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w)
 {
 	try 
 	{
@@ -82,7 +82,7 @@ FixedIndex::~FixedIndex()
 	if( fd != -1 ) close( fd ) ;
 }
 
-unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) const 
+unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, uint32_t cutoff, int32_t offs ) const 
 {
 	assert( o < first_level_len ) ;
 
@@ -100,7 +100,7 @@ unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, int32_t offs ) cons
 	return base[o+1] - base[o] ;
 } 
 
-unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) const
+unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v, uint32_t cutoff ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
 	Oligo mask = ~( ~0 << (wordsize * 2) ) ;
@@ -126,9 +126,10 @@ unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v ) cons
 			default: filled = 0 ; break ;
 		}
 		if( filled >= wordsize ) 
-			total += lookup1( o_f, v,   offset - wordsize + 1 ) 
-				   + lookup1( o_r, v, - offset                ) ;
+			total += lookup1( o_f, v, cutoff,   offset - wordsize + 1 ) 
+				   + lookup1( o_r, v, cutoff, - offset                ) ;
 	}
+	combine_seeds( v ) ;
 	return total ;
 }
 
