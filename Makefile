@@ -3,18 +3,19 @@ version ?= $(svnversion)
 
 PROTOC ?= protoc
 LDLIBS += -lprotobuf -lpopt -lJudy
-LDFLAGS += -p
-CXXFLAGS += -O3 -Wall -p -MMD -DVERSION='"$(version)"'
+# LDFLAGS += -p
+CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
 
 TARGETS := fa2dna dnaindex index_test anfo-standalone
-DATABASES := ../data/hg18.dna ../data/chr21.dna ../data/chr21_10.idx ../data/hg18_10.idx
+# DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
+DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna
 
 all: $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := util.o index.o metaindex.pb.o conffile.o output.pb.o
+OBJECTS := metaindex.pb.o output.pb.o util.o index.o conffile.o 
 
 fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)
@@ -22,18 +23,18 @@ index_test: $(OBJECTS)
 anfo-standalone: $(OBJECTS)
 
 ../data/hg18.dna: fa2dna
-	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -c index.txt -o ../data/$@ -v \
+	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -c $(@:.dna=.cfg) -o $@ -v \
 	    	/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr*.fa
 
 ../data/chr21.dna: fa2dna
-	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -c index.txt -o ../data/$@ -v \
+	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -c $(@:.dna=.cfg) -o $@ -v \
 		/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr21.fa
 
 ../data/hg18_10.idx: ../data/hg18.dna dnaindex
-	./dnaindex -g hg18 -o ../data/$@ -c index.txt -v -s 10
+	./dnaindex -o $@ -g $(<:.dna=.cfg) -c $(@:.idx=.cfg) -v -s 10
 
 ../data/chr21_10.idx: ../data/chr21.dna dnaindex
-	./dnaindex -g chr21 -o ../data/$@ -c index.txt -v -s 10
+	./dnaindex -o $@ -g $(<:.dna=.cfg) -c $(@:.idx=.cfg) -v -s 10
 
 %: %.o 
 	$(CXX) $(LDFLAGS) $(LDLIBS) $^ -o $@
@@ -46,7 +47,7 @@ anfo-standalone: $(OBJECTS)
 
 -include *.d
 
-.PRECIOUS: %.o %.cc %.h
+.PRECIOUS: %.o %.pb.cc %.pb.h
 .PHONY: clean all doc
 .SUFFIXES:
 

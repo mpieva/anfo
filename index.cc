@@ -7,35 +7,37 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-CompactGenome::CompactGenome( const char *fp )
-	: base(), length(0), fd(-1)
+CompactGenome::CompactGenome( const metaindex::Genome &g, int adv )
+	: base_(), length_(0), fd_(-1)
 {
 	try
 	{
-		fd = open( fp, O_RDONLY ) ;
-		throw_errno_if_minus1( fd, "opening", fp ) ;
+		const char *fp = g.filename().c_str() ;
+		fd_ = open( fp, O_RDONLY ) ;
+		throw_errno_if_minus1( fd_, "opening", fp ) ;
 		struct stat the_stat ;
-		throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
-		length = the_stat.st_size ;
-		const void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
+		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp ) ;
+		length_ = the_stat.st_size ;
+		void *p = mmap( 0, length_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", fp ) ;
-		base.assign( (uint8_t*)p ) ;
+		if( adv ) madvise( p, length_, adv ) ;
+		base_.assign( (uint8_t*)p ) ;
 
 		if( *((uint32_t const*)p) != signature ) 
 			throw fp + std::string(" does not have 'DNA0' signature") ;
 	}
 	catch(...) 
 	{
-		if( base ) munmap( base.unsafe_ptr(), length ) ;
-		if( fd != -1 ) close( fd ) ;
+		if( base_ ) munmap( (void*)base_.unsafe_ptr(), length_ ) ;
+		if( fd_ != -1 ) close( fd_ ) ;
 		throw ;
 	}
 }
 
 CompactGenome::~CompactGenome()
 {
-	if( base ) munmap( base.unsafe_ptr(), length ) ;
-	if( fd != -1 ) close( fd ) ;
+	if( base_ ) munmap( (void*)base_.unsafe_ptr(), length_ ) ;
+	if( fd_ != -1 ) close( fd_ ) ;
 }
 
 

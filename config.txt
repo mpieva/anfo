@@ -1,0 +1,17 @@
+load: "../data/chr21.cfg"
+load: "../data/hg18.cfg"
+load: "../data/chr21_10.cfg"
+
+policy {
+    use_compact_index {
+	genome_name: "chr21"
+	wordsize: 10
+	cutoff: 6400
+    }
+
+    repeat_threshold: 100000 
+    max_diag_skew: 2 
+    max_gap: 16
+    min_seed_len: 16
+    max_penalty_per_nuc: 150
+}

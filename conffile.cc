@@ -11,6 +11,12 @@
 using namespace std ;
 using namespace metaindex ;
 
+//! \todo Some of the functions involving file descriptors and/or
+//!       temporary files may cause filename clashes and or leaks.
+//!       Double check and make them exception safe.
+//!
+//! \todo Error handling is shaky.
+
 static void unfold_includes( Config &mi )
 {
 	for( int i = 0 ; i != mi.load_size() ; ++i )
@@ -53,13 +59,27 @@ void merge_binary_config( const string& filename, Config &mi )
 
 void write_text_config( const string& filename, const Config &mi )
 {
-	string new_file_name = '#' + filename + '#' ;
+	string new_file_name = filename + '#' ;
 	int config_out = throw_errno_if_minus1(
 			creat( new_file_name.c_str(), 0644 ), "writing config" ) ;
 	google::protobuf::io::FileOutputStream fos( config_out ) ;
 	fos.SetCloseOnDelete( true ) ;
 	google::protobuf::TextFormat::Print( mi, &fos ) ;
 
+	throw_errno_if_minus1( 
+			rename( new_file_name.c_str(), filename.c_str() ),
+			"renaming config" ) ;
+}
+
+void write_binary_config( const string& filename, const Config &mi )
+{
+	string new_file_name = filename + '#' ;
+	int config_out = throw_errno_if_minus1(
+			creat( new_file_name.c_str(), 0644 ), "writing config" ) ;
+	if( !mi.SerializeToFileDescriptor( config_out ) )
+		throw "problem writing " + filename ;
+
+	close( config_out ) ;
 	throw_errno_if_minus1( 
 			rename( new_file_name.c_str(), filename.c_str() ),
 			"renaming config" ) ;

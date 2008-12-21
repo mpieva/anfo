@@ -62,6 +62,18 @@ void merge_binary_config( const std::string& filename, metaindex::Config& mi ) ;
 //! \param mi pointer to configuration
 void write_text_config( const std::string& filename, const metaindex::Config& mi ) ;
 
+//! \brief writes a configuration in binary format.
+//! The configuration is written to a file in Google's native binary
+//! format.  A new file is always created and then moved to the correct
+//! name, overwriting any preexisting file.  If anything goes wrong, an
+//! exception is thrown.  Note that this not really the inverse of
+//! merge_text_config() or merge_binary_config(), since reading a config
+//! and then writing it unfolds the include options!
+//!
+//! \param filename filename of configuration file
+//! \param mi pointer to configuration
+void write_binary_config( const std::string& filename, const metaindex::Config& mi ) ;
+
 //! \brief finds a named genome.
 //! The metaindex is scanned for a genome exactly matching the supplied
 //! name.  If no genome is found, an exception is thrown.
@@ -76,6 +88,7 @@ const metaindex::Genome &find_genome( const metaindex::Config& mi, const std::st
 //! \param mi the configuration
 //! \param genome_name name to look for
 //! \return A reference to the genome config.
+//! \deprecated Was a stupid idea.
 metaindex::Genome& find_or_create_genome( metaindex::Config& mi, std::string genome_name ) ;
 
 //! \brief finds or creates a compact index.
@@ -86,6 +99,7 @@ metaindex::Genome& find_or_create_genome( metaindex::Config& mi, std::string gen
 //! \param genome_name name of the indexed genome
 //! \param wordsize length of indexed words
 //! \return reference to the index configuration
+//! \deprecated Bad idea anyway.
 metaindex::CompactIndex& find_or_create_compact_index(
 		metaindex::Config& mi, const std::string genome_name, unsigned wordsize ) ;
 

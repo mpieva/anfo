@@ -148,7 +148,10 @@ class DnaP
 
 		void reverse() { p_ = -p_ ; }
 
-		uint8_t *unsafe_ptr() const
+		//! \brief returns a pointer to the underlying storage.
+		//! \internal
+		//! If you call this function for anything, you're on your own.
+		const uint8_t *unsafe_ptr() const
 		{ return reinterpret_cast<uint8_t*>( (std::abs(p_) << 1) >> 2 ) ; }
 
 		DnaP &operator ++ () { p_++ ; return *this ; }

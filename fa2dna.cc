@@ -1,33 +1,40 @@
-/*
- * FASTA to DNA file converter
+/*!
+ * \page FASTA to DNA file converter
  *
- * Reads a FASTA file with one ore more DNA or RNA sequences possibly
- * containing ambiguity codes from stdin, writes it in a compact
- * representation under the filename given as first argument, and writes
- * a human readable index to stdout, which should be stored.
+ * \c fa2dna reads a set of FASTA files with one ore more DNA or RNA
+ * sequences, possibly containing ambiguity codes, from files or stdin,
+ * writes it in a compact representation into a new file and writes meta
+ * information into another file.
  *
  * We chop the genome into contigs.  Every sequence start also starts a
- * new contig, stretches of more than 2 Ns separate contigs and are not
- * stored.  Ambiguity codes are recognized.
+ * new contig, stretches of more than 2 Ns (configurable, but more Ns
+ * become nonsensical quite quickly) separate contigs and are not
+ * stored.  Ambiguity codes are recognized, and so is 'U' for uracil.
  *
  * A "compact genome" is a file encoding DNA as 4 bits per nucleotide.
- * The bits encode for A,C,T,G from LSB to MSB.  Combinations of bits
- * form ambiguity codes (0 is a gap, used as terminator, 15 is an N),
- * two left rotations reverse-complement a single nucleotide.  In a
- * byte, the first nucleotide occupies the 4 LSBs.
+ * The bits code for A,C,T,G from LSB to MSB.  Combinations of bits form
+ * ambiguity codes (0 is a gap, used as terminator only, 15 is an N),
+ * two left rotations therefore reverse-complement a single nucleotide.
+ * In a byte, the first nucleotide occupies the 4 LSBs.
  *
  * The "compact genome" starts with the ACSII-signature "DNA0", followed
  * by the raw DNA.  Each contig is prepended with a single gap, then the
  * contigs are concatenated, then a final single gap is appended.  The
- * DNA is written out with two nucleotides per byte.  The final byte is
+ * DNA is written out with two nucleotides per byte, and the final byte is
  * padded with a gap if necessary.  Note that every contig is always
- * preceded and succeeded by a gap; this is done so we can mmap(2) a
+ * preceded and succeeded by a gap; this is done so we can \c mmap a
  * genome into memory and operate on pointers into it in the knowledge
  * that every contig is terminated by a gap in either direction.
  *
  * An index of the contigs and a description of the genome is packed
- * into a message of type "Genome" (see metaindex.proto) and written to
- * stdout in protobuf text format.
+ * into a message of type "Genome" (see metaindex.proto) and a "Config"
+ * message containing only this genome definition is written out in
+ * binary protobuf format.
+ *
+ * \todo A genome may or may not contain information about taxonomy, and
+ *       this info may apply to the genome or just some sequences.  Add
+ *       support to either set a taxid or look it up in some sort of
+ *       data base.
  */
 
 #include "conffile.h"
@@ -41,37 +48,65 @@
 #include <fstream>
 #include <iostream>
 
+//! \brief decodes a FASTA file
+//!
+//! This class is a state machine that recognizes a FASTA file.
+//! Nucleotides are split into contigs and written out to an \c ostream,
+//! names and coordinates are remembered and can later be written to a
+//! config file.
+//!
+//! \todo The state machine is implemented using a pointer to member
+//!       functions.  This is straight-forward, but also a bit hard to
+//!       read and it may be slower than necessary.  This could be
+//!       enhanced by including a loop in each of the involved
+//!       functions.
+
 class FastaDecoder
 {
 	private:
-		void (FastaDecoder::*state)( char ) ;
+		void (FastaDecoder::*state_)( char ) ;
 
-		unsigned position ;
-		unsigned source_position ;
-		unsigned num_n  ;
-		uint8_t one_nt ;
-		const unsigned max_num_n ;
-		bool verbose ;
+		unsigned position_ ;
+		unsigned source_position_ ;
+		unsigned num_n_  ;
+		uint8_t one_nt_ ;
+		const unsigned max_n_ ;
+		bool verbose_ ;
 
-		std::ofstream& dna ;
-		metaindex::Genome& cur_genome ;
-		metaindex::Sequence *cur_sequence ;
-		metaindex::Contig *cur_contig ;
+		std::ostream& dna_ ;
+		metaindex::Genome& cur_genome_ ;
+		metaindex::Sequence *cur_sequence_ ;
+		metaindex::Contig *cur_contig_ ;
 		
 		
 	public:
-		FastaDecoder( unsigned p, std::ofstream& dna_, metaindex::Genome &g_, unsigned maxn, bool v_ = false )
-			: state( &FastaDecoder::s_idle ), position( p ), num_n( 0 ), one_nt( 0 )
-			, max_num_n( maxn ), verbose( v_ ), dna( dna_ )
-			, cur_genome( g_ ), cur_sequence( 0 ), cur_contig( 0 )
+		//! \brief sets up a fresh decoder
+		//! The decoder is initialized with an output stream, a genome
+		//! metadata structure and some parameters.  The output stream
+		//! is assumed to be empty, which means that a signature is
+		//! written first and all coordinates will be relative to the
+		//! current position.  The metadata should be properly
+		//! initialized, if it contains sequence definitions, they will
+		//! be lost.
+		//!
+		//! \param dna output stream for compact DNA data
+		//! \param genome metadata about genome, will be filled in
+		//! \param max_n maximum number of Ns in a row that is not a gap
+		//! \param verbose whether to produce progress reports to \c
+		//!        stderr
+		FastaDecoder( std::ostream& dna, metaindex::Genome &genome, unsigned maxn = 2, bool verbose = false )
+			: state_( &FastaDecoder::s_idle ), position_( 8 ), num_n_( 0 ), one_nt_( 0 )
+			, max_n_( maxn ), verbose_( verbose ), dna_( dna )
+			, cur_genome_( genome ), cur_sequence_( 0 ), cur_contig_( 0 )
 		{
-			dna.write( "DNA0", 4 ) ;
+			dna_.write( "DNA0", 4 ) ;
+			cur_genome_.clear_sequence() ;
 		}
 
 		void finish() 
 		{
 			step( 0 ) ;
-			if( verbose ) std::clog << "\33[K" << std::flush ;
+			if( verbose_ ) std::clog << "\33[K" << std::flush ;
 		}
 
 		void consume( std::istream& s ) 
@@ -80,70 +115,73 @@ class FastaDecoder
 			while( (c = s.get()) != std::istream::traits_type::eof() ) step( c ) ;
 		}
 
-		void step( char c ) { (this->*state)( c ) ; }
+		void step( char c ) { (this->*state_)( c ) ; }
+
+		void report() const {
+			if( verbose_ )
+				std::clog << cur_sequence_->name() << " @ " << source_position_
+					      << "\33[K\r" << std::flush ;
+		}
 
 		void begin_new_sequence()
 		{
-			source_position = 0 ;
-			cur_sequence = cur_genome.add_sequence() ;
+			source_position_ = 0 ;
+			cur_sequence_ = cur_genome_.add_sequence() ;
 		}
-		void finish_sequence() { cur_sequence = 0 ; }
+		void finish_sequence() { cur_sequence_ = 0 ; }
 		void begin_new_contig() 
 		{ 
 			put_nt( '-' ) ;
-			num_n = 0 ;
-			cur_contig = cur_sequence->add_contig() ;
-			cur_contig->set_offset( position ) ;
-			cur_contig->set_range_start( source_position ) ;
-			if( verbose )
-				std::clog << cur_sequence->name() << " @ " << source_position
-					      << "\33[K\r" << std::flush ;
+			num_n_ = 0 ;
+			cur_contig_ = cur_sequence_->add_contig() ;
+			cur_contig_->set_offset( position_ ) ;
+			cur_contig_->set_range_start( source_position_ ) ;
+			report() ;
 		}
 		void finish_contig()
 		{ 
-			cur_contig->set_range_end( source_position ) ;
-			if( verbose )
-				std::clog << cur_sequence->name() << " @ " << source_position
-					      << "\33[K\r" << std::flush ;
+			cur_contig_->set_range_end( source_position_ ) ;
+			report() ;
 		}
 		void finish_genome()
 		{
 			put_nt( '-' ) ;
-			cur_genome.set_total_size( position ) ;
-			if( position & 1 ) put_nt( '-' ) ;
+			cur_genome_.set_total_size( position_ ) ;
+			if( position_ & 1 ) put_nt( '-' ) ;
 		}
 
 		void put_nt( char c )
 		{
 			if( c == 'n' || c == 'N' ) 
 			{
-				++num_n ;
+				++num_n_ ;
 			}
 			else
 			{
-				for( ; num_n ; --num_n ) put_nt_( '-' ) ;
+				for( ; num_n_ ; --num_n_ ) put_nt_( '-' ) ;
 				put_nt_( c ) ;
 			}
 		}
 
 		void put_nt_( char c )
 		{
-			if( position & 1 )
+			if( position_ & 1 )
 			{
-				dna.put( (to_ambicode(c) << 4) | one_nt ) ;
+				dna_.put( (to_ambicode(c) << 4) | one_nt_ ) ;
 			}
 			else
 			{
-				one_nt = to_ambicode(c) ;
+				one_nt_ = to_ambicode(c) ;
 			}
-			++position ;
+			++position_ ;
+			if( !(position_ & 0xfffff ) ) report() ;
 		}
 
 		void s_idle( char c )
 		{
 			if( c == '>' ) {
 				begin_new_sequence() ;
-				state = &FastaDecoder::s_name ;
+				state_ = &FastaDecoder::s_name ;
 			}
 		}
 
@@ -152,43 +190,43 @@ class FastaDecoder
 			if( !c ) finish_genome() ;
 			else if( std::isspace(c) || c == '\n' )
 			{
-				if( c == '\n' ) state = &FastaDecoder::s_seq_begin ;
-				else state = &FastaDecoder::s_info ;
+				if( c == '\n' ) state_ = &FastaDecoder::s_seq_begin ;
+				else state_ = &FastaDecoder::s_info ;
 			}
-			else cur_sequence->mutable_name()->push_back( c ) ;
+			else cur_sequence_->mutable_name()->push_back( c ) ;
 		}
 
 		void s_info( char c )
 		{
 			if( !c ) finish_genome() ; 
-			else if( c == '\n' ) state = &FastaDecoder::s_seq_begin ;
+			else if( c == '\n' ) state_ = &FastaDecoder::s_seq_begin ;
 		}
 
 		void s_seq_begin( char c )
 		{
 			if( !c ) finish_genome() ;
-			else if( c == ';' ) state = &FastaDecoder::s_info ;
+			else if( c == ';' ) state_ = &FastaDecoder::s_info ;
 			else if( c == '>' ) {
 				begin_new_sequence() ;
-				state = &FastaDecoder::s_name ;
+				state_ = &FastaDecoder::s_name ;
 			}
 			else if( c == 'n' || c == 'N' ) {
-				if( num_n == max_num_n ) {
-					source_position += num_n+1 ;
-					num_n = 0 ;
-					state = &FastaDecoder::s_contig_gap ;
+				if( num_n_ == max_n_ ) {
+					source_position_ += num_n_+1 ;
+					num_n_ = 0 ;
+					state_ = &FastaDecoder::s_contig_gap ;
 				}
 				else
 				{
-					++source_position ;
+					++source_position_ ;
 					put_nt( c ) ;
 				}
 			}
 			else if( encodes_nuc( c ) ) {
 				begin_new_contig() ;
-				++source_position ;
+				++source_position_ ;
 				put_nt( c ) ;
-				state = &FastaDecoder::s_sequence ;
+				state_ = &FastaDecoder::s_sequence ;
 			}
 		}
 
@@ -199,21 +237,21 @@ class FastaDecoder
 				finish_sequence() ;
 				finish_genome() ;
 			}
-			else if( c == 'N' || c == 'n' && num_n == max_num_n ) {
+			else if( c == 'N' || c == 'n' && num_n_ == max_n_ ) {
 				finish_contig() ;
-				source_position += num_n+1 ;
-				num_n = 0 ;
-				state = &FastaDecoder::s_contig_gap ;
+				source_position_ += num_n_+1 ;
+				num_n_ = 0 ;
+				state_ = &FastaDecoder::s_contig_gap ;
 			}
 			else if( encodes_nuc( c ) ) {
-				++source_position ;
+				++source_position_ ;
 				put_nt( c ) ;
 			}
 			else if( c == '>' ) {
 				finish_contig() ;
 				finish_sequence() ;
 				begin_new_sequence() ;
-				state = &FastaDecoder::s_name ;
+				state_ = &FastaDecoder::s_name ;
 			}
 		}
 
@@ -226,16 +264,16 @@ class FastaDecoder
 			else if( c == '>' ) {
 				finish_sequence() ;
 				begin_new_sequence() ;
-				state = &FastaDecoder::s_name ;
+				state_ = &FastaDecoder::s_name ;
 			}
 			else if( encodes_nuc( c ) && c != 'n' && c != 'N' ) {
 				begin_new_contig() ;
-				++source_position ;
+				++source_position_ ;
 				put_nt( c ) ;
-				state = &FastaDecoder::s_sequence ;
+				state_ = &FastaDecoder::s_sequence ;
 			}
 			else if( c == 'n' || c == 'N' ) {
-				++source_position ;
+				++source_position_ ;
 			}
 		}
 } ;
@@ -255,13 +293,13 @@ int main_( int argc, const char * argv[] )
 	int verbose = 0 ;
 
 	struct poptOption options[] = {
-		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "print version number and exit", 0 },
-		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "write output to FILE", "FILE" },
-		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "treat N consecutive Ns as separator", "N" },
-		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "use FILE as configuration", "FILE" },
-		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "set genome name to NAME", "NAME" },
-		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "add TEXT as description to genome", "TEXT" },
-		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "make more noise while working", 0 },
+		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
+		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write DNA output to FILE", "FILE" },
+		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "Treat N consecutive Ns as separator", "N" },
+		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "Set genome name to NAME", "NAME" },
+		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to genome", "TEXT" },
+		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -287,16 +325,16 @@ int main_( int argc, const char * argv[] )
 	if( !genome_name ) throw "missing --genome option" ;
 
 	metaindex::Config mi ;
-	merge_text_config( config_file, mi ) ;
-	metaindex::Genome& g = find_or_create_genome( mi, genome_name ) ;
+	// merge_text_config( config_file, mi ) ;
+	metaindex::Genome& g = *mi.add_genome() ; // find_or_create_genome( mi, genome_name ) ;
 
-	g.clear_sequence() ;
+	// g.clear_sequence() ;
 	g.set_name( genome_name ) ;
 	g.set_filename( output_file ) ;
 	if( description ) g.set_description( description ) ;
 
 	std::ofstream output_stream( output_file ) ;
-	FastaDecoder fd( 8, output_stream, g, max_num_n, verbose ) ;
+	FastaDecoder fd( output_stream, g, max_num_n, verbose ) ;
 
 	if( !poptPeekArg( pc ) ) fd.consume( std::cin ) ;
 	while( const char* arg = poptGetArg( pc ) )
@@ -310,7 +348,7 @@ int main_( int argc, const char * argv[] )
 	}
 
 	fd.finish() ;
-	write_text_config( config_file, mi ) ;
+	write_binary_config( config_file, mi ) ;
 	return 0 ;
 }
 

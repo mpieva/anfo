@@ -49,6 +49,7 @@ inline void mywrite( int fd, const void* buf, size_t count, const char* msg = 0 
 #ifndef _BSD_SOURCE
 // fake for systems that don't provide madvise()
 inline int madvise( void*, size_t, int ) { return 0 ; }
+static const int MADV_NORMAL = 0 ;
 static const int MADV_SEQUENTIAL = 0 ;
 static const int MADV_WILLNEED = 0 ;
 #endif

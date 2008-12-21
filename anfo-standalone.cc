@@ -32,7 +32,7 @@ metaindex::Policy select_policy( const metaindex::Config &c, const PreparedSeque
 int main_( int argc, const char * argv[] )
 {
 	metaindex::Config mi ;
-	merge_text_config( "index.txt", mi ) ;
+	merge_text_config( "config.txt", mi ) ;
 
 	std::map< std::string, CompactGenome > genomes ;
 	std::map< std::string, std::map< int, FixedIndex > > indices ;
@@ -44,10 +44,7 @@ int main_( int argc, const char * argv[] )
 		{
 			const metaindex::CompactIndexSpec &ixs = mi.policy(i).use_compact_index(j) ;
 			CompactGenome &g = genomes[ ixs.genome_name() ] ;
-			if( !g.get_base() ) {
-				const metaindex::Genome &gdef = find_genome( mi, ixs.genome_name() ) ;
-				CompactGenome( gdef.filename().c_str() ).swap( g ) ;
-			}
+			if( !g.get_base() ) CompactGenome( find_genome( mi, ixs.genome_name() ) ).swap( g ) ;
 			FixedIndex &ix = indices[ ixs.genome_name() ][ ixs.wordsize() ] ;
 			if( !ix ) {
 				const metaindex::CompactIndex& cix = find_compact_index( mi, ixs.genome_name(), ixs.wordsize() ) ;

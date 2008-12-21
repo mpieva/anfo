@@ -4,34 +4,65 @@
 #include "sequence.h"
 #include "util.h"
 
+#include <metaindex.pb.h>
+
 #include <cassert>
 #include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
 
+//! \brief a genome as stored in a DNA file
+//! This class mmaps a DNA file and wraps it with a sensible interface.
 class CompactGenome
 {
 	public:
-		static const uint32_t signature = 0x30414e44 ; // DNA0 
+		//! \brief constructs an invalid genome
+		//! Genomes constructed in the default fashion are unusable;
+		//! however, this makes \c CompactGenome default constructible
+		//! for use in standard containers.
+		CompactGenome() : base_(0), length_(0), fd_(0) {}
 
-		CompactGenome() : base(0), length(0), fd(0) {}
-		CompactGenome( const char* fp ) ;
+		//! \brief makes accessible a file described by metadata
+		//! \param g genome definition as found in a configuration file
+		//! \param adv advise passed to \c madvise, if you anticipate
+		//!            specific use of the genome
+		CompactGenome( const metaindex::Genome &g, int adv = MADV_NORMAL ) ;
 		~CompactGenome() ;
 
-		DnaP get_base() const { return base ; }
+		DnaP get_base() const { return base_ ; }
 
-		// scan over finite words of the dna; these may well contain
-		// ambiguity codes, but are guaranteed not to contain gaps
-		template< typename F, typename G >
-			void scan_words( unsigned w, F mk_word, G& consume_word, const char* msg = 0 ) ;
+		//! \brief scan over finite words of the dna
+		//! Fixed size words in the genome are iterated.  The words may
+		//! well contain ambiguity codes, but are guaranteed not to
+		//! contain gaps.
+		//!
+		//! The functor objects in the following will be passed by
+		//! value.  Make sure they are tiny and that their function call
+		//! operators can be inlined.
+		//!
+		//! \param w word size, 4*w must not be more than there are bits
+		//!          in an unsigned long.
+		//! \param mk_word functor object called to transform a
+		//!                sequence of ambiguity codes into words of
+		//!                nucleotides
+		//! \param msg if set, switches on progress reports and is
+		//!            included in them
+		template< typename F > void scan_words( unsigned w, F mk_word, const char* msg = 0 ) ;
 
-		void swap( CompactGenome& g ) { std::swap( base, g.base ) ; std::swap( length, g.length ) ; std::swap( fd, g.fd ) ; }
+		void swap( CompactGenome& g )
+		{
+			std::swap( base_, g.base_ ) ;
+			std::swap( length_, g.length_ ) ;
+			std::swap( fd_, g.fd_ ) ;
+		}
 
 	private:
-		DnaP base ;
-		uint32_t length ;
-		int fd ;
+		DnaP base_ ;
+		uint32_t length_ ;
+		int fd_ ;
+
+		static const uint32_t signature = 0x30414e44 ; // DNA0 
 
 		//! \brief reports a position while scanning
 		//! \internal
@@ -98,31 +129,31 @@ class FixedIndex
 // to what fits into a (long long unsigned), typically 16.
 //
 // Words are encoded as four bits per nucleotide, first nucleotide in
-// the MSB(!).  See make_dense_word for why that makes sense.  Unused
+// the MSB(!).  See ::make_dense_word for why that makes sense.  Unused
 // MSBs in words passed to mk_word contain junk.
-template< typename F, typename G >
-void CompactGenome::scan_words( unsigned w, F mk_word, G& consume_word, const char* msg ) {
+template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, const char* msg )
+{
 	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
-	madvise( base.unsafe_ptr(), length, MADV_SEQUENTIAL ) ;
+	madvise( (void*)base_.unsafe_ptr(), length_, MADV_SEQUENTIAL ) ;
 
 	uint32_t offs = 0 ;
 	Oligo dna = 0 ;
 
-	while( base[ offs ] != 0 ) ++offs ;		// find first gap
+	while( base_[ offs ] != 0 ) ++offs ;		// find first gap
 	for( unsigned i = 0 ; i != w ; ++i )	// fill first word
 	{
 		dna <<= 4 ;
-		dna |= base[ offs ] ;
+		dna |= base_[ offs ] ;
 		++offs ;
 	}
 
-	report(offs,length,msg) ;
-	while( offs != 2 * length )
+	report(offs,length_,msg) ;
+	while( offs != 2 * length_ )
 	{
-		if( (offs & 0xfffff) == 0 ) report(offs,length,msg) ;
+		if( (offs & 0xfffff) == 0 ) report(offs,length_,msg) ;
 
 		dna <<= 4 ;
-		dna |= base[ offs ] ;
+		dna |= base_[ offs ] ;
 		++offs ;
 
 		// throw away words containing gap symbols
@@ -133,7 +164,7 @@ void CompactGenome::scan_words( unsigned w, F mk_word, G& consume_word, const ch
 		for( unsigned i = 0 ; i != w ; ++i )
 			clean &= ((dna >> (4*i)) & 0xf) != 0 ;
 
-		if( clean ) mk_word( w, offs-w, dna, consume_word ) ;
+		if( clean ) mk_word( w, offs-w, dna ) ;
 	}
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }

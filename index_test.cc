@@ -51,7 +51,7 @@ int main_( int argc, const char * argv[] )
 	cout << "\nFound genome " << gdef.filename() << " of length " << gdef.total_size() << endl ;
 
 	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
-	CompactGenome g( gdef.filename().c_str() ) ;
+	CompactGenome g( gdef ) ;
 
 	// string sq = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
 	string sq = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
