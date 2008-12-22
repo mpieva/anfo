@@ -86,6 +86,8 @@ are never removed because they are simply too bad to ever be touched.
 \todo Find or create a priority search queue.  
 
 \todo Make lookup in nested Judy arrays work on constant arrays.
+
+\todo Include penalty for unaligned tails of the query in score.
 */
 
 
@@ -107,33 +109,34 @@ struct simple_adna {} ;
  * the alignment consists of two parts in series.  Matching is also
  * greedy.  The resulting alignment is suitable for testing and also to
  * map sequences from the 454 instrument (due to the very common gaps).
+ * \see alignment_rep
  */
 
-struct flat_alignment {
-	// What to store for an alignment?  We'll ultimately need a place to
-	// set up on when doing backtracing; this will be within the seed.
-	// We can define that by just two DnaPs.  Only every second position in the
-	// genome can be represented by a plain pointer, but we can always
-	// choose such a position within the seed.  The same is true for the
-	// sequence itself, but we cannot choose freely here.  Instead,
-	// we'll store the sequence twice, if necessary.  A
-	// reverse-complemented copy of the sequence is made for reversed
-	// alignments; other wise they work the same way.  Sequences are
-	// self-delimiting, so the two pointers already define the alignment
-	// task---good!.  For the ongoing state, we need two offsets (one on
-	// each sequence) and a bit to know whether we're already in the
-	// second part.  We'll use signed shorts for the offsets; ±32k
-	// should be plenty for the intended application of a mapper.
-	// Furthermore, the score accumulated so far must be stored, and it
-	// is here where we bite off a bit.  That limits the score (cost,
-	// actually) to 2G (not really a limit), and we can store the whole
-	// state in 4 double words (16 byte in a 32-bit memory model, 32
-	// byte in a 64 bit memory model.
+//! \page alignment_rep Representation Of Alignments
+//!
+//! What to store for a (partial) alignment and how to do it?  We'll
+//! ultimately need a place to set up on when doing backtracing; this
+//! will be within the seed.  We can define that by just two pointers
+//! (one reversible, high-resolution DnaP for the reference, one QDnaP
+//! with quality scores for the query).  Sequences are self-delimiting,
+//! so the two pointers completely define the alignment task---good!.
+//! For the ongoing state, we need two offsets (one on each sequence)
+//! and at least a bit to know whether we're already in the second part.
+//! More complex alignment need to keep track of open gaps, aDNA state
+//! and possibly more.  We'll use signed shorts for the offsets; ±32k
+//! should be plenty for the intended application of a mapper.
+//! Furthermore, the score accumulated so far must be stored, and it is
+//! here where we bite off some bits for the state.  That limits the
+//! score (cost, actually) to 2G (not really a limit), and we can store
+//! the whole state in 4 double words (16 byte in a 32-bit memory model,
+//! 32 byte in a 64 bit memory model.
 
-	DnaP reference, query ;					// entry point
-	signed short ref_offs, query_offs ; 	// current positions
+struct flat_alignment {
+	DnaP reference ; 						// entry point
+	QDnaP query ;							// entry point
 	uint32_t state   :  1 ;					// and state (left/right)
 	uint32_t penalty : 31 ;					// cost so far
+	signed short ref_offs, query_offs ; 	// current positions
 
 	// associated types: 
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)
@@ -160,7 +163,7 @@ struct flat_alignment {
 	 */
 	static uint32_t gap_penalty() { return 1 ; }
 
-	flat_alignment() : reference(0), query(0), ref_offs(0), query_offs(0), state(0), penalty(0) {}
+	flat_alignment() : reference(0), query(0), state(0), penalty(0), ref_offs(0), query_offs(0) {}
 
 	//! \brief prepares an alignment from a seed
 	//! Prepares an alignment from a genomic sequence, a sample sequence
@@ -171,18 +174,18 @@ struct flat_alignment {
 	//! \param ps sample sequence in compact format
 	//! \param s the seed
 
-	flat_alignment( const CompactGenome& g, const PreparedSequence& ps, const Seed& s )
-		: reference( g.get_base() + s.offset + s.diagonal + s.size / 2 )
-		, query( ( s.offset >= 0 ? ps.forward() : ps.reverse() ) + s.offset + s.size / 2 )
-		, ref_offs(0), query_offs(0), state(0), penalty(0)
+	flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s )
+		: reference( g.get_base() + s.diagonal + s.offset + s.size / 2 )
+		, query( ps.start() + ( s.offset >= 0 ? s.offset + s.size / 2 : -s.offset - s.size/2 ) )
+		, state(0), penalty(0), ref_offs(0), query_offs(0)
 	{
-		if( s.offset < 0 ) {
-			reference.reverse() ;
-			query.reverse() ;
-		}
+		if( s.offset < 0 ) reference.reverse() ;
 	}
 
-	operator const void * () const { return reference.unsafe_ptr() ; }
+	operator const void * () const { return (const void *)reference ; }
+	Ambicode get_ref() const { return reference[ref_offs] ; }
+	Ambicode get_qry() const { return query[query_offs] ; }
+	uint8_t  get_qlt() const { return query.qual( query_offs ) ; }
 } ;
 
 //! formats an intermediate alignment state to a stream.
@@ -584,7 +587,7 @@ find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 //!           heap is fine).
 
 template< typename Aln, typename Iter >
-void setup_alignments( const CompactGenome& g, const PreparedSequence& ps,
+void setup_alignments( const CompactGenome& g, const QSequence& ps,
 		Iter begin, const Iter& end, std::deque< Aln >& ol )
 {
 	for( ; begin != end ; ++begin ) (enter<Aln>( ol ))( Aln( g, ps, *begin ) ) ;

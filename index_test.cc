@@ -5,9 +5,9 @@
 
 using namespace std ;
 
-//! \brief Rev-complement ASCII-encoded sequence.
-// This shouldn't be needed, it's only here for debugging.
-// \internal
+//! \brief Rev-complements ASCII-encoded sequence.
+//! This shouldn't be needed, it's only here for debugging.
+//! \internal
 void revcom( string &s )
 {
 	for( size_t i=0, j=s.size()-1 ; i<j ; ++i, --j )
@@ -41,7 +41,7 @@ void revcom( string &s )
 int main_( int argc, const char * argv[] )
 {
 	metaindex::Config mi ;
-	merge_text_config( argc < 2 ? "index.txt" : strcmp( argv[1], "R" ) ? argv[1] : "index.txt", mi ) ;
+	merge_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "config.txt" : argv[1], mi ) ;
 	metaindex::CompactIndex cix = find_compact_index( mi, argc < 3 ? "chr21" : argv[2] ) ;
 	metaindex::Genome gdef = find_genome( mi, cix.genome_name() ) ;
 
@@ -56,12 +56,12 @@ int main_( int argc, const char * argv[] )
 	// string sq = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
 	string sq = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
 	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(sq) ;
-	PreparedSequence ps( sq.c_str() ) ;
+	QSequence ps( sq.c_str() ) ;
 
 	vector<Seed> seeds ;
 	int num_raw = ix.lookup( sq, seeds ) ;
 	int num_comb = seeds.size() ;
-	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 12 ) ;
+	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 12, g.get_contig_map() ) ;
 	int num_clumps = seeds.size() ;
 
 	cout << "got " << num_raw << " seeds, combined into " << num_comb

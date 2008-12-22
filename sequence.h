@@ -114,14 +114,14 @@ class DnaP
 
 	public:
 		//! constructs a DNA pointer
-		// The pointer is initialized from a pointer to bytes,
-		// understood to point to the ambiguity code in the 4 LSBs.  It
-		// is then converted to a reverse pointer and finally the offset
-		// is added, taking directionality into account.
-		// \param p pointer to ambiguity-encoded DNA
-		// \param complement set to true to make a pointer to the
-		//                   reverse-complemented strand
-		// \param off offset to add to the final pointer
+		//! The pointer is initialized from a pointer to bytes,
+		//! understood to point to the ambiguity code in the 4 LSBs.  It
+		//! is then converted to a reverse pointer and finally the offset
+		//! is added, taking directionality into account.
+		//! \param p pointer to ambiguity-encoded DNA
+		//! \param complement set to true to make a pointer to the
+		//!                   reverse-complemented strand
+		//! \param off offset to add to the final pointer
 		explicit DnaP( const uint8_t *p = 0, bool complement = false, int off = 0 ) 
 		{
 			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
@@ -144,7 +144,7 @@ class DnaP
 			return p < 0 ? complement(w) : w ;  
 		}
 
-		operator bool() const { return p_ ; }
+		operator const void*() const { return (const void*)p_ ; }
 
 		void reverse() { p_ = -p_ ; }
 
@@ -188,6 +188,53 @@ inline DnaP operator - ( const DnaP& a, int64_t  o ) { DnaP b = a ; return b -= 
 inline DnaP operator - ( const DnaP& a, int32_t  o ) { DnaP b = a ; return b -= o ; }
 inline DnaP operator - ( const DnaP& a, uint32_t o ) { DnaP b = a ; return b -= o ; }
 
+class QDnaP
+{
+	private:
+		const uint16_t *p_ ;
+
+	public:
+		explicit QDnaP( const uint16_t *p = 0 ) : p_(p) {}
+
+		QDnaP &operator = ( const QDnaP& p ) { p_ = p.p_ ; return *this ; }
+
+		Ambicode operator * () const { return *p_ & 0xf ; }
+		uint8_t qual( size_t ix = 0 ) const { return p_[ix] >> 8 ; }
+
+		Ambicode operator [] ( size_t ix ) const { return p_[ix] & 0xf ; }
+
+		operator const void*() const { return p_ ; }
+
+		QDnaP &operator ++ () { p_++ ; return *this ; }
+		QDnaP &operator -- () { p_-- ; return *this ; }
+
+		QDnaP &operator += ( int64_t  o ) { p_ += o ; return *this ; }
+		QDnaP &operator += ( uint32_t o ) { p_ += o ; return *this ; }
+		QDnaP &operator += ( int32_t  o ) { p_ += o ; return *this ; }
+		QDnaP &operator -= ( int64_t  o ) { p_ -= o ; return *this ; }
+		QDnaP &operator -= ( uint32_t o ) { p_ -= o ; return *this ; }
+		QDnaP &operator -= ( int32_t  o ) { p_ -= o ; return *this ; }
+
+#if SMALL_SYS
+		unsigned long high() const { return 0 ; }
+#endif
+		unsigned long get() const { return (unsigned long)p_ ; }
+
+		friend inline size_t operator -  ( const QDnaP &a, const QDnaP &b ) { return a.p_  - b.p_ ; }
+		friend inline bool   operator == ( const QDnaP &a, const QDnaP &b ) { return a.p_ == b.p_ ; }
+		friend inline bool   operator != ( const QDnaP &a, const QDnaP &b ) { return a.p_ != b.p_ ; }
+		
+		friend inline std::ostream& operator << ( std::ostream& s, const QDnaP &p )
+		{ return s << std::hex << p.p_ ; }
+} ;
+
+inline QDnaP operator + ( const QDnaP& a, int64_t  o ) { QDnaP b = a ; return b += o ; }
+inline QDnaP operator + ( const QDnaP& a, int32_t  o ) { QDnaP b = a ; return b += o ; }
+inline QDnaP operator + ( const QDnaP& a, uint32_t o ) { QDnaP b = a ; return b += o ; }
+inline QDnaP operator - ( const QDnaP& a, int64_t  o ) { QDnaP b = a ; return b -= o ; }
+inline QDnaP operator - ( const QDnaP& a, int32_t  o ) { QDnaP b = a ; return b -= o ; }
+inline QDnaP operator - ( const QDnaP& a, uint32_t o ) { QDnaP b = a ; return b -= o ; }
+
 //! \brief Wrapper for easier output of gap-terminated sequences.
 //! \internal
 struct Sequ
@@ -206,43 +253,28 @@ inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
 	return s ;
 }
 
-//! \brief Sequence transformed into same representation used for genomes.
-// We store the sequence in both forward and reverse direction so we can
-// eaily refer to either strand by a DnaP.  This doesn't save space, but
-// it does make the representation uniform.  Again, both sequences are
-// gap-terminated on either end.
-class PreparedSequence
+//! \brief sequence with quality scores
+//! A sequence is stored as vector of ambiguity codes interleaved with
+//! raw quality scores.  A suitable pointer abstraction is provided.
+class QSequence
 {
 	private:
-		std::vector< uint8_t > seq ;
-		unsigned length_ ;
+		std::vector< uint16_t > seq ;
 
 	public:
-		PreparedSequence( const char* p ) 
+		QSequence( const char* p ) 
 		{
-			// start out with a gap symbol
-			unsigned n = 0 ;
-			for( Ambicode last = 0 ;; )
+			seq.push_back( 0 ) ;
+			for( ; *p ; ++p )
 			{
-				// this is intentional: we actually encode the final NUL
-				while( *p && !encodes_nuc( *p ) ) ++p ;
-				seq.push_back( last | to_ambicode( *p ) << 4 ) ;
-				if( !*p ) break ;
-				++n ;
-				++p ;
-
-				// also intentional: if we hit the final NUL here, we
-				// encode it twice to achieve padding
-				while( *p && !encodes_nuc( *p ) ) ++p ;
-				last = to_ambicode( *p ) ;
-				if( *p ) ++p, ++n ;
+				if( encodes_nuc( *p ) ) 
+					seq.push_back( 0x2800 | to_ambicode( *p ) ) ;
 			}
-			length_ = n ;
+			seq.push_back( 0 ) ;
 		}
-
-		DnaP forward() const { return DnaP( &seq[0], false, 1 ) ; }
-		DnaP reverse() const { return DnaP( &seq[0], true, -1 ) ; }
-		unsigned length() const { return length_ ; }
+					
+		const uint16_t *start() const { return &seq[1] ; }
+		unsigned length() const { return seq.size() - 2 ; }
 } ;
 
 #endif

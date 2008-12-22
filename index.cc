@@ -7,6 +7,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+using namespace metaindex ;
+using namespace std ; 
+
 CompactGenome::CompactGenome( const metaindex::Genome &g, int adv )
 	: base_(), length_(0), fd_(-1)
 {
@@ -24,7 +27,17 @@ CompactGenome::CompactGenome( const metaindex::Genome &g, int adv )
 		base_.assign( (uint8_t*)p ) ;
 
 		if( *((uint32_t const*)p) != signature ) 
-			throw fp + std::string(" does not have 'DNA0' signature") ;
+			throw fp + string(" does not have 'DNA0' signature") ;
+
+		for( int i = 0 ; i != g.sequence_size() ; ++i )
+		{
+			const Sequence &s = g.sequence(i) ;
+			for( int j = 0 ; j != s.contig_size() ; ++j )
+			{
+				const Contig &c = s.contig(j) ;
+				contig_map_[ c.offset() ] = make_pair( &s, &c ) ;
+			}
+		}
 	}
 	catch(...) 
 	{
@@ -43,8 +56,8 @@ CompactGenome::~CompactGenome()
 
 void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 	if( msg )
-		std::clog << '\r' << msg << ": at offset " << o << " (of " << 2*l
-			<< ", " << round((50.0*o)/l) << "%)\e[K" << std::flush ;
+		clog << '\r' << msg << ": at offset " << o << " (of " << 2*l
+			<< ", " << round((50.0*o)/l) << "%)\e[K" << flush ;
 }
 
 FixedIndex::FixedIndex( const char* fp, unsigned w )
@@ -64,7 +77,7 @@ FixedIndex::FixedIndex( const char* fp, unsigned w )
 		// std::cerr << "index base: " << p << std::endl ;
 
 		if( base[0] != signature ) 
-			throw fp + std::string(" does not have 'IDX0' signature") ;
+			throw fp + string(" does not have 'IDX0' signature") ;
 
 		first_level_len = base[1] ;
 		base += 2 ;
@@ -84,7 +97,15 @@ FixedIndex::~FixedIndex()
 	if( fd != -1 ) close( fd ) ;
 }
 
-unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, uint32_t cutoff, int32_t offs ) const 
+//! \brief directly looks up an oligo
+//! A single oligo is looked up and results are appended to a vector.
+//!
+//! \param o oligo to be looked up.
+//! \param v receiver for the resulting seeds
+//! \param cutoff disregard oligos more frequent than this
+//! \param offs offset value to be placed in the seeds
+//! \return number of seeds found
+unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs ) const 
 {
 	assert( o < first_level_len ) ;
 
@@ -101,6 +122,21 @@ unsigned FixedIndex::lookup1( Oligo o, std::vector<Seed>& v, uint32_t cutoff, in
 	}
 	return base[o+1] - base[o] ;
 } 
+
+
+//! \brief looks up a whole sequence
+//! The sequence is split into words as
+//! appropriate for the index, then each one of them is looked
+//! up.  This method can be implemented for any kind of index, whether
+//! based on fixed words or not
+//!
+//! \param dna sequence to search
+//! \param v receiver for resulting seeds
+//! \param cutoff disregard oligos more frequent than this
+//! \return number of seeds found
+//!
+//! \todo replace ASCII representation of sequence by ::QDnaP or similar
+//! \todo move cutoff parameter somewhere else to improve modularity
 
 unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v, uint32_t cutoff ) const
 {

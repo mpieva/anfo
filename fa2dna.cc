@@ -325,10 +325,8 @@ int main_( int argc, const char * argv[] )
 	if( !genome_name ) throw "missing --genome option" ;
 
 	metaindex::Config mi ;
-	// merge_text_config( config_file, mi ) ;
-	metaindex::Genome& g = *mi.add_genome() ; // find_or_create_genome( mi, genome_name ) ;
+	metaindex::Genome& g = *mi.add_genome() ;
 
-	// g.clear_sequence() ;
 	g.set_name( genome_name ) ;
 	g.set_filename( output_file ) ;
 	if( description ) g.set_description( description ) ;

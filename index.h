@@ -9,13 +9,24 @@
 #include <cassert>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 //! \brief a genome as stored in a DNA file
 //! This class mmaps a DNA file and wraps it with a sensible interface.
 class CompactGenome
 {
+	public:
+		typedef std::map< uint32_t, std::pair< const metaindex::Sequence*, const metaindex::Contig* > > ContigMap ;
+
+	private:
+		DnaP base_ ;
+		uint32_t length_ ;
+		int fd_ ;
+		ContigMap contig_map_ ;
+
 	public:
 		//! \brief constructs an invalid genome
 		//! Genomes constructed in the default fashion are unusable;
@@ -37,12 +48,17 @@ class CompactGenome
 		//! well contain ambiguity codes, but are guaranteed not to
 		//! contain gaps.
 		//!
+		//! Words are encoded as four bits per nucleotide, first nucleotide in
+		//! the MSB(!).  See ::make_dense_word for why that makes sense.  Unused
+		//! MSBs in words passed to mk_word contain junk, do not rely on
+		//! them.
+		//!
 		//! The functor objects in the following will be passed by
 		//! value.  Make sure they are tiny and that their function call
 		//! operators can be inlined.
 		//!
 		//! \param w word size, 4*w must not be more than there are bits
-		//!          in an unsigned long.
+		//!          in an unsigned long long.
 		//! \param mk_word functor object called to transform a
 		//!                sequence of ambiguity codes into words of
 		//!                nucleotides
@@ -55,13 +71,12 @@ class CompactGenome
 			std::swap( base_, g.base_ ) ;
 			std::swap( length_, g.length_ ) ;
 			std::swap( fd_, g.fd_ ) ;
+			std::swap( contig_map_, g.contig_map_ ) ;
 		}
 
-	private:
-		DnaP base_ ;
-		uint32_t length_ ;
-		int fd_ ;
+		const ContigMap &get_contig_map() const { return contig_map_ ; }
 
+	private:
 		static const uint32_t signature = 0x30414e44 ; // DNA0 
 
 		//! \brief reports a position while scanning
@@ -70,11 +85,12 @@ class CompactGenome
 } ;
 
 //! \brief Representation of a seed.
-// A seed is described by a size and two coordinates.  One is the start
-// on the query sequence, the other we choose to be the "diagonal"
-// (difference between coordinates), since seeds on the same or close
-// diagonal will usually be combined.  Offset is negative for rc'ed
-// matches.
+//! A seed is described by a size and two coordinates.  One is the start
+//! on the query sequence, the other we choose to be the "diagonal"
+//! (difference between coordinates), since seeds on the same or close
+//! diagonal will usually be combined.  Offset is negative for rc'ed
+//! matches, in this case its magnitude is the actual offset from the
+//! end of the sequence.
 struct Seed
 {
 	uint32_t diagonal ;
@@ -96,13 +112,7 @@ class FixedIndex
 		FixedIndex( const char* fp, unsigned w ) ;
 		~FixedIndex() ;
 
-		// direct lookup of an oligo, results are placed in the vector,
-		// the number of results is returned.
 		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0 ) const ;
-
-		// Lookup of a sequence.   The sequence is split into words as
-		// appropriate for the index, then each one of them is looked
-		// up.  This method can be implemented for any kind of index.
 		unsigned lookup( const std::string& seq, std::vector<Seed>&,
 				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
 
@@ -125,12 +135,6 @@ class FixedIndex
 		unsigned wordsize ;
 } ;
 
-// Scan over the dna words in the genome.  Size of the words is limited
-// to what fits into a (long long unsigned), typically 16.
-//
-// Words are encoded as four bits per nucleotide, first nucleotide in
-// the MSB(!).  See ::make_dense_word for why that makes sense.  Unused
-// MSBs in words passed to mk_word contain junk.
 template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, const char* msg )
 {
 	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
@@ -139,7 +143,7 @@ template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, co
 	uint32_t offs = 0 ;
 	Oligo dna = 0 ;
 
-	while( base_[ offs ] != 0 ) ++offs ;		// find first gap
+	while( base_[ offs ] != 0 ) ++offs ;	// find first gap
 	for( unsigned i = 0 ; i != w ; ++i )	// fill first word
 	{
 		dna <<= 4 ;
@@ -169,14 +173,9 @@ template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, co
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }
 
-// Combine short, adjacent seeds into longer ones.  The exact policy for
-// that isn't quite clear yet, but what is clear is that we can always
-// combine directly adjacent seeds.  It is also guaranteed that no such
-// seeds span multiple contigs, so this is absolutely safe.
-//
-// How to do this?  We sort seeds first by diagonal index, then by
-// offset.  Seeds are adjacent iff they have the same diagonal index and
-// their offsets differ by no more than the word size.
+//! \brief compares seeds first by diagonal, then by offset
+//! \internal
+//! Functor object passed to std::sort in various places.
 struct compare_diag_then_offset {
 	bool operator()( const Seed& a, const Seed& b ) {
 		if( a.diagonal < b.diagonal ) return true ;
@@ -185,6 +184,17 @@ struct compare_diag_then_offset {
 	}
 } ;
 
+//! \brief Combines short, adjacent seeds into longer ones.
+//! The exact policy for aggregating seeds isn't quite clear yet, but
+//! what is clear is that we can always combine directly adjacent or
+//! overlapping seeds.  It is also guaranteed that no such seeds span
+//! multiple contigs, so this is absolutely safe.
+//!
+//! How to do this?  We sort seeds first by diagonal index, then by
+//! offset.  Seeds are adjacent iff they have the same diagonal index and
+//! their offsets differ by no more than the seed size.
+//!
+//! \param v container of seeds, will be modifed in place.
 template < typename C > void combine_seeds( C& v ) 
 {
 	if( !v.empty() )
@@ -214,54 +224,67 @@ template < typename C > void combine_seeds( C& v )
 	}
 }
 
-// How do we select seeds?  Seeds that are "close enough" should be
-// collapsed into a cluster, then the best seed from any cluster that
-// has enough seeds is used.  Seeds remaining after this process will be
-// grouped at the beginning of their container, the rest is erased.
-//
-// In a sense, this wants to be a single, configurable function.  Right
-// now configuration is simply done by three additional parameters:
-// Seeds on the same diagonal ±d and not further apart than ±r are
-// clumped.  A clump is good for an alignment if the total match length
-// of the seeds in it reaches m, and if so, its longest seed is actually
-// used.  We may need different parameters for input sequences of
-// different lengths or characteristics; that decision, however, has to
-// be deferrred to some higher abstraction level.
-//
-// The container type used in the following must be a random access
-// container.  Either std::vector or std::deque should be fine.
-template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t m )
+//! \brief aggregates and selects seeds
+//! How to select seeds isn't finalized, however, the following seems to
+//! be reasonable:  Seeds that are "close enough" should be collapsed
+//! into a clump, then the best seed from any clump that has enough
+//! seeds is used.  Seeds remaining after this process will be grouped
+//! at the beginning of their container, the rest is erased.
+//!
+//! Configuration of this function is simply done by three additional
+//! parameters: Seeds on the same diagonal ±d and not further apart than
+//! ±r are clumped.  A clump is good enough for an alignment if the
+//! total match length of the seeds in it reaches m, and if so, its
+//! longest seed is actually used.  We may need different parameters for
+//! input sequences of different lengths or characteristics; that
+//! decision, however, has to be deferrred to some higher abstraction
+//! level.
+//!
+//! The container type used in the following must be a random access
+//! container.  Either std::vector or std::deque should be fine.
+//!
+//! \param v container of seeds, will be modified in place.
+//! \param d maximum number of gaps between seeds to be clumped
+//! \param r maximum unseeded length between seeds to be clumped
+//! \param m minimum total seed length in a good clump
+//! \param cm contig map from indexed genome
+template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t m,
+		const CompactGenome::ContigMap &cm )
 {
-	if( !v.empty() )
+	std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
+	typename C::iterator clump_begin = v.begin(),
+			 input_end = v.end(), out = v.begin() ;
+
+	// Start building a clump, assuming there's is still something
+	// to build from
+	while( clump_begin != input_end )
 	{
-		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
-		typename C::iterator clump_begin = v.begin(),
-				 input_end = v.end(), out = v.begin() ;
+		typename C::iterator clump_end = clump_begin + 1 ;
+		typename C::iterator last_touched = clump_end ;
 
-		// Start building a clump, assuming there's is still something
-		// to build from
-		while( clump_begin != input_end )
+		// Still anything in the clump that may have unrecognized
+		// neighbors?
+		for( typename C::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
 		{
-			typename C::iterator clump_end = clump_begin + 1 ;
-			typename C::iterator last_touched = clump_end ;
-
-			// Still anything in the clump that may have unrecognized
-			// neighbors?
-			for( typename C::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
+			// Decide whether open_in_clump and candidate are actually
+			// neighbors.  They are not if they end up in different
+			// contigs; else they are if their diagonals are dloser than
+			// ±d and their offsets are closer than ±r.
+			for( typename C::iterator candidate = clump_end ;
+					candidate != input_end &&
+					candidate->diagonal <= open_in_clump->diagonal + d ;
+					++candidate )
 			{
-				// Decide whether open_in_clump and candidate are
-				// actually neighbors.  XXX: They are not if they end up
-				// in different contigs :XXX; else they are if their
-				// diagonals are dloser than ±d and their offsets are
-				// closer than ±r.
-				for( typename C::iterator candidate = clump_end ;
-						candidate != input_end &&
-						candidate->diagonal <= open_in_clump->diagonal + d ;
-						++candidate )
+				if( abs( candidate->offset - open_in_clump->offset ) <= r
+						&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
 				{
-					if( abs( candidate->offset - open_in_clump->offset ) <= r
-							&& (candidate->offset>=0) == (open_in_clump->offset>=0) ) 
-					{
+					CompactGenome::ContigMap::const_iterator low = cm.lower_bound(
+							open_in_clump->offset + open_in_clump->diagonal + open_in_clump->size ) ;
+					CompactGenome::ContigMap::const_iterator high = cm.upper_bound(
+							candidate->offset + candidate->diagonal ) ;
+
+					// make sure no contig start is in between
+					if( low == high ) {
 						// Include the candidate by swapping it with the
 						// first seed not in our clump and extending the
 						// clump.  Remember that we swapped, we may have
@@ -271,36 +294,36 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 					}
 				}
 			}
-
-			// Okay, we have built our clump, but we left a mess behind
-			// it (between clump_end and last_touched).  Clean up the
-			// mess first.
-			if( clump_end < last_touched ) 
-				std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
-			
-			// The new clump sits between clump_begin and clump_end.  We
-			// will now reduce this to at most one "best" seed.
-			typename C::iterator best = clump_begin ;
-			uint32_t mlen = 0 ;
-			for( typename C::iterator cur = clump_begin ; cur != clump_end ; ++cur )
-			{
-				mlen += cur->size ;
-				if( cur->size > best->size ) best = cur ;
-			}
-
-			// The whole clump is good enough if the total match length
-			// reaches m.  If so, we keep its biggest seed by moving it
-			// to out, else we do nothing.
-			if( mlen >= m ) *out++ = *best ;
-
-			// Done with the clump.  Move to the next.
-			clump_begin = clump_end ;
 		}
 
-		// We updated the input vector from begin() to out, the rest is
-		// just junk that's left over.  Get rid of it.
-		v.erase( out, input_end ) ;
+		// Okay, we have built our clump, but we left a mess behind
+		// it (between clump_end and last_touched).  Clean up the
+		// mess first.
+		if( clump_end < last_touched ) 
+			std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
+
+		// The new clump sits between clump_begin and clump_end.  We
+		// will now reduce this to at most one "best" seed.
+		typename C::iterator best = clump_begin ;
+		uint32_t mlen = 0 ;
+		for( typename C::iterator cur = clump_begin ; cur != clump_end ; ++cur )
+		{
+			mlen += cur->size ;
+			if( cur->size > best->size ) best = cur ;
+		}
+
+		// The whole clump is good enough if the total match length
+		// reaches m.  If so, we keep its biggest seed by moving it
+		// to out, else we do nothing.
+		if( mlen >= m ) *out++ = *best ;
+
+		// Done with the clump.  Move to the next.
+		clump_begin = clump_end ;
 	}
+
+	// We updated the input vector from begin() to out, the rest is
+	// just junk that's left over.  Get rid of it.
+	v.erase( out, input_end ) ;
 }
 
 #endif

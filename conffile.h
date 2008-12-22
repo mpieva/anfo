@@ -82,27 +82,6 @@ void write_binary_config( const std::string& filename, const metaindex::Config& 
 //! \return A reference to the genome config.
 const metaindex::Genome &find_genome( const metaindex::Config& mi, const std::string genome_name ) ;
 
-//! \brief finds or creates a named genome.
-//! The metaindex is scanned for a genome exactly matching the supplied
-//! name.  If no genome is found, an empty one is generated instead.
-//! \param mi the configuration
-//! \param genome_name name to look for
-//! \return A reference to the genome config.
-//! \deprecated Was a stupid idea.
-metaindex::Genome& find_or_create_genome( metaindex::Config& mi, std::string genome_name ) ;
-
-//! \brief finds or creates a compact index.
-//! Looks for a compact index for the given named genome with the given
-//! wordsize.  If none is found, a new one is created, but it still has
-//! to be filled in.
-//! \param mi the configuration
-//! \param genome_name name of the indexed genome
-//! \param wordsize length of indexed words
-//! \return reference to the index configuration
-//! \deprecated Bad idea anyway.
-metaindex::CompactIndex& find_or_create_compact_index(
-		metaindex::Config& mi, const std::string genome_name, unsigned wordsize ) ;
-
 //! \brief finds any index for a given genome
 //! Looks for a compact index for the named genome.  The first index
 //! with the right word size is returned.  If the requested word size is
@@ -115,6 +94,6 @@ metaindex::CompactIndex& find_or_create_compact_index(
 const metaindex::CompactIndex& find_compact_index(
 		const metaindex::Config& mi, const std::string genome_name, unsigned wordsize = 0 ) ; 
 
-//! }@
+//! @}
 #endif
 

@@ -15,7 +15,8 @@ using namespace metaindex ;
 //!       temporary files may cause filename clashes and or leaks.
 //!       Double check and make them exception safe.
 //!
-//! \todo Error handling is shaky.
+//! \todo Error handling is shaky.  (How the fuck am I supposed to find
+//!       out whether parsing worked at all?)
 
 static void unfold_includes( Config &mi )
 {
@@ -30,14 +31,11 @@ void merge_text_config( const string& filename, Config &mi )
 {
 	Config c ;
 	int config_in = open( filename.c_str(), O_RDONLY ) ;
-	if( config_in != -1 || errno != ENOENT )
-	{
-		throw_errno_if_minus1( config_in, "reading config" ) ;
-		google::protobuf::io::FileInputStream fis( config_in ) ;
-		if( !google::protobuf::TextFormat::Parse( &fis, &c ) )
-			throw "parse error reading " + filename ;
-		close( config_in ) ;
-	}
+	throw_errno_if_minus1( config_in, "reading config" ) ;
+	google::protobuf::io::FileInputStream fis( config_in ) ;
+	if( !google::protobuf::TextFormat::Parse( &fis, &c ) )
+		throw "parse error reading " + filename ;
+	close( config_in ) ;
 	unfold_includes( c ) ;
 	mi.MergeFrom( c ) ;
 }
@@ -46,13 +44,10 @@ void merge_binary_config( const string& filename, Config &mi )
 {
 	Config c ;
 	int config_in = open( filename.c_str(), O_RDONLY ) ;
-	if( config_in != -1 || errno != ENOENT )
-	{
-		throw_errno_if_minus1( config_in, "reading config" ) ;
-		if( !c.ParseFromFileDescriptor( config_in ) )
-			throw "unmarshal error reading " + filename ;
-		close( config_in ) ;
-	}
+	throw_errno_if_minus1( config_in, "reading config" ) ;
+	if( !c.ParseFromFileDescriptor( config_in ) )
+		throw "unmarshal error reading " + filename ;
+	close( config_in ) ;
 	unfold_includes( c ) ;
 	mi.MergeFrom( c ) ;
 }
@@ -91,24 +86,6 @@ const Genome& find_genome( const Config &mi, const string genome_name )
 		if( mi.genome(i).name() == genome_name )
 			return mi.genome(i) ;
 	throw "don't know about genome " + genome_name ;
-}
-
-Genome& find_or_create_genome( Config &mi, const string genome_name )
-{
-	for( int i = 0 ; i != mi.genome_size() ; ++i )
-		if( mi.genome(i).name() == genome_name )
-			return *mi.mutable_genome(i) ;
-	return *mi.add_genome() ;
-}
-
-CompactIndex& find_or_create_compact_index(
-		Config &mi, const string genome_name, unsigned wordsize )
-{
-	for( int i = 0 ; i != mi.compact_index_size() ; ++i )
-		if( mi.compact_index(i).genome_name() == genome_name 
-				&& mi.compact_index(i).wordsize() == wordsize )
-			return *mi.mutable_compact_index(i) ;
-	return *mi.add_compact_index() ;
 }
 
 const CompactIndex& find_compact_index( const

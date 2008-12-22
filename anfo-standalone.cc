@@ -16,7 +16,7 @@
 
 using namespace std ;
 
-metaindex::Policy select_policy( const metaindex::Config &c, const PreparedSequence &ps )
+metaindex::Policy select_policy( const metaindex::Config &c, const QSequence &ps )
 {
 	metaindex::Policy p ;
 	for( int i = 0 ; i != c.policy_size() ; ++i )
@@ -53,15 +53,6 @@ int main_( int argc, const char * argv[] )
 		}
 	}
 
-
-
-	// cout << "Found index " << cix.filename() << " with wordsize " << cix.wordsize() << " and " ;
-	// if( cix.has_cutoff() ) cout << "cutoff " << cix.cutoff() << '.' ;
-	                  // else cout << "no cutoff." ;
-	// cout << "\nFound genome " << gdef.filename() << " of length " << gdef.total_size() << endl ;
-
-	// CompactGenome g( gdef.filename().c_str() ) ;
-
 	int config_out = throw_errno_if_minus1( creat( "output.tab", 0644 ), "writing output" ) ;
 	google::protobuf::io::FileOutputStream fos( config_out ) ;
 	fos.SetCloseOnDelete( true ) ;
@@ -81,10 +72,8 @@ int main_( int argc, const char * argv[] )
 			seq.append( line ) ;
 		}
 
-		PreparedSequence ps( seq.c_str() ) ;
-		const metaindex::Policy&      p    = select_policy( mi, ps ) ;
-		// const metaindex::CompactInde& cix  = find_compact_index( mi, mi.compact_index(0) ;
-		// const metaindex::Genome&      gdef = find_genome( mi, cix.genome_name() ) ;
+		QSequence ps( seq.c_str() ) ;
+		const metaindex::Policy& p = select_policy( mi, ps ) ;
 
 		deque<flat_alignment> ol ;
 		for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
@@ -95,7 +84,8 @@ int main_( int argc, const char * argv[] )
 			int num_raw = indices[ cis.genome_name() ][ cis.wordsize() ].lookup( seq, seeds,
 					cis.has_cutoff() ? cis.cutoff() : std::numeric_limits<uint32_t>::max() ) ;
 			int num_comb = seeds.size() ;
-			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len() ) ;
+			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(),
+					genomes[ cis.genome_name() ].get_contig_map() ) ;
 			int num_clumps = seeds.size() ;
 
 			cout << name << ": got " << num_raw << " seeds, combined into "
@@ -133,8 +123,6 @@ int main_( int argc, const char * argv[] )
 		}
 
 		google::protobuf::TextFormat::Print( r, &fos ) ;
-
-		// cout <<  << endl ;
 	}
 	return 0 ;
 }

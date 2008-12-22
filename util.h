@@ -32,8 +32,9 @@ T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 	return x ;
 }
 
-// Would you believe it, write(2) sometimes decides to write less than
-// what was requested.  No idea why, but a loop around it solves it.  
+//! \brief near drop-in for write(2)
+//! Would you believe it, write(2) sometimes decides to write less than
+//! what was requested.  No idea why, but a loop around it solves it.  
 inline void mywrite( int fd, const void* buf, size_t count, const char* msg = 0 )
 {
 	while( count > 0 ) 

@@ -1,4 +1,4 @@
-/*! \brief DNA indexer
+/*! \page DNA indexer
  *
  * Scans a dna file, creating an index of fixed-size words. 
  * We need a two-level index and want to keep it simple.  To this end,
@@ -133,6 +133,7 @@ template< typename G > mk_dense_word<G> make_dense_word( G g ) { return mk_dense
 //! This is passed as a worker to CompactGenome::scan_words, it only
 //! counts the words and stores the counts in what later becomes the
 //! first level index.
+//! \internal
 class count_word {
 	private:
 	public:
@@ -153,6 +154,11 @@ class count_word {
 		}
 } ;
 
+//! \brief stores words in an index
+//! This is passed as a worker to CompactGenome::scan_words, it stores
+//! the words in the second level index, which must have been correctly
+//! allocated beforehand.
+//! \internal
 class store_word {
 	private:
 		uint32_t *index_1l_ ;

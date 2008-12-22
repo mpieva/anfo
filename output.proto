@@ -1,0 +1,44 @@
+package output ;
+
+message Hit {
+    // sequence that was hit.  must encode genome.
+    required string refseq = 1 ;
+
+    // offset where it was hit, negative to denote RC'd strand
+    required sint32 offset = 2 ;
+
+    // most specific taxid, if known at all
+    optional int32 taxid = 3 ;
+
+    // score of the alignment, for the time being in no particular unit
+    required sint32 score = 4 ;
+
+    // the alignment itself as pair of strings // XXX: find more compact
+    // encoding
+    required string ref = 5 ;
+    required string qry = 6 ;
+}
+
+message Result {
+    // sequence identifier, can be left out iff it is implicit, e.g.
+    // from being contained in a database where the id is the key
+    optional string seqid = 1 ;
+
+    // the sequence itself, if so desired (ASCII encoding)
+    optional string sequence = 2 ;
+
+    // best hit, if any
+    optional Hit best_hit = 3 ;
+}
+
+message Output {
+    // Hrm, put any amount of metadata here.  Subject to further
+    // refinement...
+
+    // one of the genomes that was matched against
+    repeated string genome = 16 ; 
+
+    // result from mapping one sequence
+    repeated Result result = 1 ;
+}
+

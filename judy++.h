@@ -21,8 +21,8 @@ to pass it around.
 #include <string>
 
 //! \brief Judy Set
-// This class keeps a set of \c Word_t.  Straight-forward wrapper around
-// Judy1 arrays with some cleanup.
+//! This class keeps a set of \c Word_t.  Straight-forward wrapper around
+//! Judy1 arrays with some cleanup.
 class Judy1
 {
 	private:
@@ -48,23 +48,23 @@ class Judy1
 		int unset( Word_t index ) { return Judy1Unset( &arr, index, 0 ) ; }
 
 		//! \brief finds the first set bit
-		// Finds the first set bit with a key greater or equal to \c
-		// index.  Sets \c index to the found key, else returns an error
-		// code.
+		//! Finds the first set bit with a key greater or equal to \c
+		//! index.  Sets \c index to the found key, else returns an error
+		//! code.
 		int first( Word_t &index ) const { return Judy1First( arr, &index, 0 ) ; }
 
 		//! \brief finds the next set bit
-		// Finds the first set bit with a key greater than \c index.
-		// Sets \c index to the found key, else returns an error code.
+		//! Finds the first set bit with a key greater than \c index.
+		//! Sets \c index to the found key, else returns an error code.
 		int next( Word_t &index ) const { return Judy1Next( arr, &index, 0 ) ; }
 
 		//! \brief tells how many bytes are used by this array
 		int mem_used() const { return Judy1MemUsed( arr ) ; }
 
 		//! \brief counts set bits in a range
-		// Counts how many bits are set with a key greater or equal to
-		// \c i1 and less than or equal to \c i2.  Default is to count
-		// everything.
+		//! Counts how many bits are set with a key greater or equal to
+		//! \c i1 and less than or equal to \c i2.  Default is to count
+		//! everything.
 		int count( Word_t i1 = 0, Word_t i2 = (Word_t)(-1) ) const { return Judy1Count( arr, i1, i2, 0 ) ; }
 
 		//! \brief tests whether a bit is set.
@@ -72,9 +72,9 @@ class Judy1
 } ;
 
 //! \brief Judy Map
-// This class maps a \c Word_t to an object that fits into a word.  In
-// practice, that means a pointer, an integer or another Judy array.
-// Objects are cleanly constructed and destructed.
+//! This class maps a \c Word_t to an object that fits into a word.  In
+//! practice, that means a pointer, an integer or another Judy array.
+//! Objects are cleanly constructed and destructed.
 template< typename value > class JudyL
 {
 	private:
@@ -88,7 +88,7 @@ template< typename value > class JudyL
 		~JudyL() { clear() ; }
 
 		//! \brief clears the array
-		// All elements are deleted before deleting the array itself.
+		//! All elements are deleted before deleting the array itself.
 		void clear() {
 			Word_t w = 0 ;
 			for( value *v = first( w ) ; v ; v = next( w ) ) v->~value() ;
@@ -116,8 +116,8 @@ template< typename value > class JudyL
 } ;
 
 //! \brief Judy String Map
-// Maps a string to an object that fits into a word, quite similar to
-// JudyL.
+//! Maps a string to an object that fits into a word, quite similar to
+//! JudyL.
 template< typename value > struct JudyS
 {
 	void *arr ;
@@ -178,4 +178,6 @@ template< typename value > struct JudyS
 			return new (JudySLIns( &arr, (uint8_t*)index.c_str(), 0 )) value() ; 
 	}
 } ;
+
+//! @}
 #endif
