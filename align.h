@@ -399,6 +399,8 @@ template< typename State > struct enter_bt {
  *
  * \param open_list Queue of open states, must form a heap and \c greedy
  *                  must have been called on each of its elements.
+ * \param max_penalty Penalty at which alignments are no longer
+ *                    interesting.
  * \return First state to be detected as finished().
  *
  * \todo Cut off alignment at some sensible threshold, return something
@@ -578,7 +580,7 @@ find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 //! \param ps Sequence to map in compact format.
 //! \param begin Iterator to first seed.
 //! \param end Iterator to last seed.
-//! \paral ol \c Open \c List to be updated.  Must form a heap (an empty
+//! \param ol \c Open \c List to be updated.  Must form a heap (an empty
 //!           heap is fine).
 
 template< typename Aln, typename Iter >

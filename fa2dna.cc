@@ -91,7 +91,7 @@ class FastaDecoder
 		//!
 		//! \param dna output stream for compact DNA data
 		//! \param genome metadata about genome, will be filled in
-		//! \param max_n maximum number of Ns in a row that is not a gap
+		//! \param maxn maximum number of Ns in a row that is not a gap
 		//! \param verbose whether to produce progress reports to \c
 		//!        stderr
 		FastaDecoder( std::ostream& dna, metaindex::Genome &genome, unsigned maxn = 2, bool verbose = false )

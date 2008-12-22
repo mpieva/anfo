@@ -115,6 +115,6 @@ metaindex::CompactIndex& find_or_create_compact_index(
 const metaindex::CompactIndex& find_compact_index(
 		const metaindex::Config& mi, const std::string genome_name, unsigned wordsize = 0 ) ; 
 
-// }@
+//! }@
 #endif
 

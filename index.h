@@ -66,7 +66,7 @@ class CompactGenome
 
 		//! \brief reports a position while scanning
 		//! \internal
-		static void report( unsigned, unsigned, const char* ) ;
+		static void report( uint32_t, uint32_t, const char* ) ;
 } ;
 
 //! \brief Representation of a seed.
