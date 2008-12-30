@@ -70,9 +70,9 @@ int main_( int argc, const char * argv[] )
 
 	deque<flat_alignment> ol ;
 	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-	flat_alignment best = find_cheapest( ol ) ;
+	flat_alignment best = find_cheapest( ol, INT_MAX, true ) ;
 
-	cout << "Done near " << best.reference - g.get_base() << " costing " << best.penalty << ':' << endl ;
+	cout << "Done near " << best.reference.abs() - g.get_base() << " costing " << best.penalty << ':' << endl ;
 
 	deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
 	reset( best ) ;

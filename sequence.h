@@ -147,6 +147,7 @@ class DnaP
 		operator const void*() const { return (const void*)p_ ; }
 
 		void reverse() { p_ = -p_ ; }
+		DnaP abs() const { DnaP q ; q.p_ = std::abs(p_) ; return q ; }
 
 		//! \brief returns a pointer to the underlying storage.
 		//! \internal
@@ -260,6 +261,8 @@ class QSequence
 {
 	private:
 		std::vector< uint16_t > seq ;
+		std::string name ;
+		std::string description ;
 
 	public:
 		QSequence( const char* p ) 
@@ -273,7 +276,7 @@ class QSequence
 			seq.push_back( 0 ) ;
 		}
 					
-		const uint16_t *start() const { return &seq[1] ; }
+		QDnaP start() const { return QDnaP( &seq[1] ) ; }
 		unsigned length() const { return seq.size() - 2 ; }
 } ;
 

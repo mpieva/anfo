@@ -71,6 +71,29 @@ class Judy1
 		int test( Word_t index ) const { return Judy1Test( arr, index, 0 ) ; }
 } ;
 
+//! \brief proxy returned from lookup functions
+//! This acts as a pointer to a stored value.  It has an
+//! operator[] that simply propagates to the refrenced value, if
+//! any, else constructs an empty result.  This is useful to
+//! chain lookup in nested arrays.
+template< typename value > class const_ref 
+{
+	private:
+		const value *p_ ;
+	public:
+		explicit const_ref( value *p = 0 ) : p_(p) {}
+		const value* operator -> () const { return p_ ; }
+		const value& operator * () const { return *p_ ; }
+		// operator const value* () const { return p_ ; }
+		bool operator ! () const { return !p_ ; }
+} ;
+
+
+bool operator , ( const const_ref<Judy1> &r, Word_t i ) { return !!r && r->test(i) ; }
+
+template< typename value > const_ref< typename value::value_type > operator , ( const const_ref<value> &r, Word_t i ) 
+{ if( !r ) return const_ref< typename value::value_type >() ; else return r->lookup( i ) ; }
+
 //! \brief Judy Map
 //! This class maps a \c Word_t to an object that fits into a word.  In
 //! practice, that means a pointer, an integer or another Judy array.
@@ -84,6 +107,8 @@ template< typename value > class JudyL
 		void operator = ( const JudyL& ) ; // not implemented
 
 	public:
+		typedef value value_type ;
+
 		JudyL() : arr(0) {} 
 		~JudyL() { clear() ; }
 
@@ -102,18 +127,38 @@ template< typename value > class JudyL
 			else return new (JudyLIns( &arr, index, 0 )) value() ;
 		}
 
-		value *first(  Word_t& index ) { return (value*)JudyLFirst( arr, &index, 0 ) ; }
-		value *next(   Word_t& index ) { return (value*)JudyLNext( arr, &index, 0 ) ; }
-		value *last(   Word_t& index ) { return (value*)JudyLLast( arr, &index, 0 ) ; }
-		value *get(    Word_t  index ) { return (value*)JudyLGet( arr, index, 0 ) ; }
+		value *first(  Word_t& index ) const { return (value*)JudyLFirst( arr, &index, 0 ) ; }
+		value *next(   Word_t& index ) const { return (value*)JudyLNext( arr, &index, 0 ) ; }
+		value *last(   Word_t& index ) const { return (value*)JudyLLast( arr, &index, 0 ) ; }
 
-		int remove( Word_t index ) { if( value *v = get( index ) ) v->~value() ; return JudyLDel( &arr, index, 0 ) ; }
+		const_ref<value> lookup( Word_t index ) const { return const_ref<value>( (value*)JudyLGet( arr, index, 0 ) ) ; }
+
+		int remove( Word_t index ) { if( const_ref<value> v = (*this)[ index ] ) v->~value() ; return JudyLDel( &arr, index, 0 ) ; }
 		int mem_used() const { return JudyLMemUsed( arr ) ; }
 		int count( Word_t i1 = 0, Word_t i2 = (Word_t)(-1) ) const { return JudyLCount( arr, i1, i2, 0 ) ; }
 
 		//! tests whether the array is empty
-		bool empty() { Word_t i = 0 ; return !JudyLFirst( arr, &i, 0 ) ; }
+		bool empty() const { Word_t i = 0 ; return !JudyLFirst( arr, &i, 0 ) ; }
 } ;
+
+template< typename value >
+const_ref< value > operator , ( const JudyL<value> &j, Word_t i )
+{ return j.lookup( i ) ; }
+
+int64_t deep_count( const Judy1 &j ) { return j.count() ; }
+int64_t deep_count( const JudyL<Judy1> &j ) {
+	Word_t w = 0 ; 
+	int64_t c = 0 ;
+	for( const Judy1 *v = j.first( w ) ; v ; v = j.next( w ) ) c += deep_count(*v) ;
+	return c ;
+}	
+template< typename T > int64_t deep_count( const JudyL< JudyL<T> > &j ) {
+	Word_t w = 0 ; 
+	int64_t c = 0 ;
+	for( const JudyL<T> *v = j.first( w ) ; v ; v = j.next( w ) ) c += deep_count(*v) ;
+	return c ;
+}	
+
 
 //! \brief Judy String Map
 //! Maps a string to an object that fits into a word, quite similar to

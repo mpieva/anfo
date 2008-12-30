@@ -85,8 +85,6 @@ are never removed because they are simply too bad to ever be touched.
 
 \todo Find or create a priority search queue.  
 
-\todo Make lookup in nested Judy arrays work on constant arrays.
-
 \todo Include penalty for unaligned tails of the query in score.
 */
 
@@ -205,26 +203,22 @@ flat_alignment get_top( const std::deque< flat_alignment >& ol ) { return ol.fro
 
 void pop_top( std::deque< flat_alignment >& ol ) { std::pop_heap( ol.begin(), ol.end() ) ; ol.pop_back() ; }
 
-bool is_present( flat_alignment::ClosedSet& cl, const flat_alignment& s )
+bool is_present( const flat_alignment::ClosedSet& cl, const flat_alignment& s )
 {
-	return cl.insert( s.reference.get() )
-		     ->insert( s.query.get() )
+	return cl, s.reference.get(), s.query.get(),
 #if SMALL_SYS
-			 ->insert( s.reference.high() << 16 | s.query.high() )
+			   s.reference.high() << 16 | s.query.high(),
 #endif
-			 ->insert( s.ref_offs )
-			 ->test( s.query_offs | s.state << 16 ) ;
+			   s.ref_offs, s.query_offs | s.state << 16 ;
 }
 
-const flat_alignment **lookup( flat_alignment::ClosedMap& cl, const flat_alignment& s )
+const_ref<const flat_alignment*> lookup( const flat_alignment::ClosedMap& cl, const flat_alignment& s )
 {
-	return cl.insert( s.reference.get() )
-		     ->insert( s.query.get() )
+	return cl, s.reference.get(), s.query.get(),
 #if SMALL_SYS
-			 ->insert( s.reference.high() << 16 | s.query.high() )
+			   s.reference.high() << 16 | s.query.high(),
 #endif
-			 ->insert( s.ref_offs )
-			 ->get( s.query_offs | s.state << 16 ) ;
+			   s.ref_offs, s.query_offs | s.state << 16 ;
 }
 
 void set_bit( flat_alignment::ClosedSet& cl, const flat_alignment& s )
@@ -382,13 +376,23 @@ template< typename State > struct enter {
 template< typename State > struct enter_bt {
 	private: 
 		std::deque< std::pair< State, const State* > > &o_ ;
+		typename State::ClosedMap *c_ ;
 		const State *s_ ;
+		uint32_t mp_ ;
 	public:
-		enter_bt( std::deque< std::pair< State, const State* > > &o, const State *s = 0 ) : o_(o), s_(s) {}
-		void operator()( const State &s ) {
-			o_.push_back( std::make_pair( s, s_ ) ) ;
-			greedy( o_.back().first ) ;
-			std::push_heap( o_.begin(), o_.end() ) ;
+		enter_bt(
+				std::deque< std::pair< State, const State* > > &o,
+				uint32_t mp = std::numeric_limits<uint32_t>::max(),
+				typename State::ClosedMap *c = 0,
+				const State *s = 0
+				) : o_(o), c_(c), s_(s), mp_(mp) {}
+		void operator()( State s ) {
+			greedy( s ) ;
+			if( (!c_ || !lookup( *c_, s )) && s.penalty <= mp_ )
+			{
+				o_.push_back( std::make_pair( s, s_ ) ) ;
+				std::push_heap( o_.begin(), o_.end() ) ;
+			}
 		}
 } ;
 
@@ -405,12 +409,12 @@ template< typename State > struct enter_bt {
  * \param max_penalty Penalty at which alignments are no longer
  *                    interesting.
  * \return First state to be detected as finished().
- *
- * \todo Cut off alignment at some sensible threshold, return something
- *       appropriate.
  */
 template< typename State >
-State find_cheapest( std::deque< State > &open_list, uint32_t max_penalty = std::numeric_limits<uint32_t>::max() )
+State find_cheapest( 
+		std::deque< State > &open_list, 
+		uint32_t max_penalty = std::numeric_limits<uint32_t>::max(),
+		bool report_success = false )
 {
 	typename State::ClosedSet closed_list ;
 	while( !open_list.empty() )
@@ -428,10 +432,11 @@ State find_cheapest( std::deque< State > &open_list, uint32_t max_penalty = std:
 				for( size_t i = 0 ; i != open_list.size() ; ++i )
 					if( is_present( closed_list, open_list[i] ) ) ++dups ;
 
-				std::clog << "Finished alignment, open list contains "
-					<< open_list.size() << " nodes, " // << count( closed_list )
-					<< " nodes are closed, " << dups << " of which are still tracked."
-					<< std::endl ;
+				if( report_success ) std::clog
+						<< "Finished alignment, open list contains "
+						<< open_list.size() << " nodes, " << deep_count( closed_list )
+						<< " nodes are closed, " << dups << " of which are still tracked."
+						<< std::endl ;
 				
 				return s ;
 			}
@@ -482,7 +487,7 @@ inline std::ostream& operator << ( std::ostream& s, const Trace& t )
 //! \return a trace, that is a sequence of pairs of Ambicodes
 //! \internal
 
-Trace backtrace( flat_alignment::ClosedMap &cl, const flat_alignment *a )
+Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 {
 	// Only trace back second state here, this ends up at the front of
 	// the alignment, but we add stuff to the back as we generate it in
@@ -551,8 +556,9 @@ Trace backtrace( flat_alignment::ClosedMap &cl, const flat_alignment *a )
  * (at higher memory cost, naturally).  
  */
 template< typename State >
-std::deque< std::pair< Ambicode, Ambicode > >
-find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
+Trace find_cheapest(
+		std::deque< std::pair< State, const State *> > &open_list,
+		uint32_t max_penalty = std::numeric_limits<uint32_t>::max() ) 
 {
 	typename State::ClosedMap closed_list ;
 	std::deque< State > used_states ;
@@ -567,10 +573,10 @@ find_cheapest( std::deque< std::pair< State, const State *> > &open_list )
 			insert( closed_list, p.first, p.second ) ;
 			if( finished( p.first ) ) return backtrace( closed_list, &p.first ) ;
 			used_states.push_back( p.first ) ;
-			forward( p.first, enter_bt<State>( open_list, &used_states.back() ) ) ;
+			forward( p.first, enter_bt<State>( open_list, max_penalty, &closed_list, &used_states.back() ) ) ;
 		}
 	}
-	throw "ran into a dead end" ;
+	return Trace() ;
 }
 
 //! \brief initializes alignments from a list of seeds

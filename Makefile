@@ -12,7 +12,7 @@ TARGETS := fa2dna dnaindex index_test anfo-standalone
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna
 
-all: $(TARGETS)
+all: tags $(TARGETS)
 dbs: $(DATABASES)
 
 OBJECTS := metaindex.pb.o output.pb.o util.o index.o conffile.o 
@@ -53,6 +53,9 @@ anfo-standalone: $(OBJECTS)
 
 doc:
 	doxygen
+
+tags: *.cc *.h
+	ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
 
 clean:
 	-rm $(TARGETS)
