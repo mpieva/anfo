@@ -113,7 +113,7 @@ class FixedIndex
 		~FixedIndex() ;
 
 		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0 ) const ;
-		unsigned lookup( const std::string& seq, std::vector<Seed>&,
+		unsigned lookup( const QSequence& seq, std::vector<Seed>&,
 				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
 
 		operator const void * () const { return base ; }

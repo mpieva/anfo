@@ -59,7 +59,7 @@ int main_( int argc, const char * argv[] )
 	QSequence ps( sq.c_str() ) ;
 
 	vector<Seed> seeds ;
-	int num_raw = ix.lookup( sq, seeds ) ;
+	int num_raw = ix.lookup( ps, seeds ) ;
 	int num_comb = seeds.size() ;
 	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 12, g.get_contig_map() ) ;
 	int num_clumps = seeds.size() ;

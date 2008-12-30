@@ -15,7 +15,7 @@ DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := metaindex.pb.o output.pb.o util.o index.o conffile.o 
+OBJECTS := metaindex.pb.o output.pb.o util.o index.o conffile.o sequence.o
 
 fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)

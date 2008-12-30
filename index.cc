@@ -135,10 +135,9 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 //! \param cutoff disregard oligos more frequent than this
 //! \return number of seeds found
 //!
-//! \todo replace ASCII representation of sequence by ::QDnaP or similar
 //! \todo move cutoff parameter somewhere else to improve modularity
 
-unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v, uint32_t cutoff ) const
+unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_t cutoff ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
 	Oligo mask = ~( ~0 << (wordsize * 2) ) ;
@@ -146,7 +145,7 @@ unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v, uint3
 	int s = 2 * wordsize - 2 ;
 	unsigned filled = 0 ;
 	unsigned total = 0 ;
-	int32_t fraglen = dna.size() ;
+	int32_t fraglen = dna.length() ;
 
 	for( int32_t offset = 0 ; offset != fraglen ; ++offset )
 	{
@@ -156,11 +155,10 @@ unsigned FixedIndex::lookup( const std::string& dna, std::vector<Seed>& v, uint3
 
 		switch( dna[offset] )
 		{
-			case 'a': case 'A': o_f |= 0 << s ; o_r |= 2 ; break ;
-			case 'c': case 'C': o_f |= 1 << s ; o_r |= 3 ; break ;
-			case 'u': case 'U':
-			case 't': case 'T': o_f |= 2 << s ; o_r |= 0 ; break ;
-			case 'g': case 'G': o_f |= 3 << s ; o_r |= 1 ; break ;
+			case 1: o_f |= 0 << s ; o_r |= 2 ; break ;
+			case 2: o_f |= 1 << s ; o_r |= 3 ; break ;
+			case 4: o_f |= 2 << s ; o_r |= 0 ; break ;
+			case 8: o_f |= 3 << s ; o_r |= 1 ; break ;
 			default: filled = 0 ; break ;
 		}
 		if( filled >= wordsize ) 

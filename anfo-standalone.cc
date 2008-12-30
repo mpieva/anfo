@@ -16,6 +16,18 @@
 
 using namespace std ;
 
+//! \page Standalone ANFO executable
+//! This is work in progress; it may morph into an ANFO executable to be
+//! run directly from the command line.  Right now it reads a FASTA or
+//! FASTQ file and maps it against whatever index is configured.
+//!
+//! \todo The mapper produces internal coordinates, these have to be
+//!       mapped back to real sequences and coordinates.
+//! \todo We want an E-value...
+//! \todo Commandline is missing, all this is very inflexible.
+//! \todo We want more than just the best match.  Think about a sensible
+//!       way to configure this.
+
 metaindex::Policy select_policy( const metaindex::Config &c, const QSequence &ps )
 {
 	metaindex::Policy p ;
@@ -58,21 +70,9 @@ int main_( int argc, const char * argv[] )
 	fos.SetCloseOnDelete( true ) ;
 
 	std::ifstream inp( "input.fa" ) ;
-	while( inp )
+	QSequence ps ;
+	while( read_fastq( inp, ps ) )
 	{
-		std::string name, seq, line ;
-		while( inp && inp.peek() != '>' ) inp.ignore( INT_MAX, '\n' ) ;
-		inp.get() ;
-		inp >> name ;
-		inp.ignore( INT_MAX, '\n' ) ;
-
-		while( inp && inp.peek() != '>' ) 
-		{
-			getline( inp, line ) ;
-			seq.append( line ) ;
-		}
-
-		QSequence ps( seq.c_str() ) ;
 		const metaindex::Policy& p = select_policy( mi, ps ) ;
 
 		deque<flat_alignment> ol ;
@@ -81,14 +81,14 @@ int main_( int argc, const char * argv[] )
 			const metaindex::CompactIndexSpec &cis = p.use_compact_index(i) ;
 
 			vector<Seed> seeds ;
-			int num_raw = indices[ cis.genome_name() ][ cis.wordsize() ].lookup( seq, seeds,
+			int num_raw = indices[ cis.genome_name() ][ cis.wordsize() ].lookup( ps, seeds,
 					cis.has_cutoff() ? cis.cutoff() : std::numeric_limits<uint32_t>::max() ) ;
 			int num_comb = seeds.size() ;
 			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(),
 					genomes[ cis.genome_name() ].get_contig_map() ) ;
 			int num_clumps = seeds.size() ;
 
-			cout << name << ": got " << num_raw << " seeds, combined into "
+			cout << ps.get_name() << ": got " << num_raw << " seeds, combined into "
 				 << num_comb << " larger ones, clumped into " << num_clumps
 				 << " clumps." << endl ;
 
@@ -111,7 +111,7 @@ int main_( int argc, const char * argv[] )
 		Trace t = find_cheapest( ol_ ) ;
 
 		output::Result r ;
-		r.set_seqid( name ) ;
+		r.set_seqid( ps.get_name() ) ;
 		output::Hit *h = r.mutable_best_hit() ;
 		// XXX: h->set_refseq( gdef.name() ) ;
 		// XXX: h->set_offset( best.reference  + best.ref_offs - g.get_base() ) ;

@@ -2,7 +2,7 @@
 #define INCLUDED_SEQUENCE_H
 
 #include <climits>
-#include <iostream>
+#include <istream>
 #include <vector>
 
 #include <stdint.h>
@@ -265,7 +265,13 @@ class QSequence
 		std::string description ;
 
 	public:
-		QSequence( const char* p ) 
+		QSequence() : seq(), name(), description() 
+		{
+			seq.push_back(0) ; 
+			seq.push_back(0) ; 
+		}
+
+		QSequence( const char* p ) : seq(), name(), description()
 		{
 			seq.push_back( 0 ) ;
 			for( ; *p ; ++p )
@@ -278,7 +284,27 @@ class QSequence
 					
 		QDnaP start() const { return QDnaP( &seq[1] ) ; }
 		unsigned length() const { return seq.size() - 2 ; }
+
+		const std::string &get_name() const { return name ; }
+		const std::string &get_descr() const { return description ; } 
+
+		Ambicode operator [] ( size_t ix ) const { return seq[1+ix] & 0xf ; }
+		uint8_t qual( size_t ix ) const { return seq[1+ix] >> 8 ; }
+		void qual( size_t ix, uint8_t q ) { seq[1+ix] = seq[1+ix] & 0xff | (uint16_t)q << 8 ; }
+
+		friend std::istream& read_fastq( std::istream& s, QSequence& qs ) ;
 } ;
+
+//! \brief reads a sequence from a FASTA or FASTQ file
+//! To unify both formats (well-defined or not...) this function accepts
+//! both '@' and '>' as header delimiter.  Any lines starting ';' and
+//! following the header are treated as extended description.  Quality
+//! score can be either ASCII (U Rockefeller idiocy) or 33-based raw
+//! phred-like values (Sanger standard).  If they are 64-based
+//! (Solexa idiocy), you're hosed...
+//!
+//! \todo Find an automatic solution for Solexa idiocy.
+std::istream& read_fastq( std::istream& s, QSequence& qs ) ;
 
 #endif
 
