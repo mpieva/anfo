@@ -76,6 +76,17 @@ class CompactGenome
 
 		const ContigMap &get_contig_map() const { return contig_map_ ; }
 
+		//! \brief translates a DNA pointer back to sequence coordinates
+		//! If the DNA pointer points into this genome, it is translated
+		//! to the name of the sequence and the offset into it.  The
+		//! strand is disregarded, the result is the same regardless of
+		//! the direction the pointer would be moving in.
+		//! \param pos position to be translated
+		//! \param sequ_id is assigned the name of the found sequence
+		//! \param offset is assigned the offset after translation
+		//! \return true iff the pointer could be translated
+		bool translate_back( DnaP pos, std::string& sequ_id, uint32_t& offset ) const ;
+
 	private:
 		static const uint32_t signature = 0x30414e44 ; // DNA0 
 

@@ -40,7 +40,7 @@ message Genome {
     repeated Sequence sequence = 4 ;
 
     // total length in nucleotides, essentially the file size
-    optional uint32 total_size = 5 ;
+    required uint32 total_size = 5 ;
 
     // taxonomic id, if known and applies to whole genome
     optional uint32 taxid = 6 ;

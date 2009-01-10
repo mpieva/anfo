@@ -38,6 +38,7 @@ CompactGenome::CompactGenome( const metaindex::Genome &g, int adv )
 				contig_map_[ c.offset() ] = make_pair( &s, &c ) ;
 			}
 		}
+		contig_map_[ g.total_size() ] = make_pair( (const Sequence*)0, (const Contig*)0 ) ;
 	}
 	catch(...) 
 	{
@@ -99,12 +100,14 @@ FixedIndex::~FixedIndex()
 
 //! \brief directly looks up an oligo
 //! A single oligo is looked up and results are appended to a vector.
+//! Seeds that occur too often can be ignored, but for statistical
+//! purposes, they are always counted in the result.
 //!
 //! \param o oligo to be looked up.
 //! \param v receiver for the resulting seeds
-//! \param cutoff disregard oligos more frequent than this
+//! \param cutoff discard oligos more frequent than this
 //! \param offs offset value to be placed in the seeds
-//! \return number of seeds found
+//! \return number of seeds found, including repetitive ones
 unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs ) const 
 {
 	assert( o < first_level_len ) ;
@@ -113,12 +116,13 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 	seed.size = wordsize ;
 	seed.offset = offs ;
 
-	if( base[o+1] - base[o] >= cutoff ) return 0 ;
-
-	for( uint32_t p = base[o] ; p != base[o+1] ; ++p )
+	if( base[o+1] - base[o] < cutoff )
 	{
-		seed.diagonal = secondary[p] - (uint32_t)offs ;
-		v.push_back( seed ) ;
+		for( uint32_t p = base[o] ; p != base[o+1] ; ++p )
+		{
+			seed.diagonal = secondary[p] - (uint32_t)offs ;
+			v.push_back( seed ) ;
+		}
 	}
 	return base[o+1] - base[o] ;
 } 
@@ -167,5 +171,21 @@ unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_
 	}
 	combine_seeds( v ) ;
 	return total ;
+}
+
+bool CompactGenome::translate_back( DnaP pos, std::string& sequ_id, uint32_t& offset ) const 
+{
+	ContigMap::const_iterator high = contig_map_.upper_bound( pos.abs() - base_ ) ;
+	if( pos.abs() < base_ ) return false ; // before start
+	if( high == contig_map_.end() ) return false ; // after end
+	--high ;
+
+	// uint32_t offset = high->first ;
+	const metaindex::Sequence *sequ = high->second.first ;
+	const metaindex::Contig *contig = high->second.second ;
+
+	sequ_id = sequ->name() ;
+	offset = pos.abs() - base_ - contig->offset() + contig->range_start() ;
+	return true ;
 }
 

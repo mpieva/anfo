@@ -1,5 +1,8 @@
 #include <sequence.h>
+#include <cmath>
 #include <sstream>
+
+using namespace std ;
 
 static inline bool seq_continues( std::istream& s )
 { return s && s.peek() != '@' && s.peek() != '>' && s.peek() != '+' ; }
@@ -23,7 +26,12 @@ static inline bool all_acsii_qscores( const std::string& s )
 	return true ;
 }
 
-std::istream& read_fastq( std::istream& s, QSequence& qs )
+static inline int sol_to_phred( int sol )
+{
+	return 0.5 + 10.0/log(10.0) * log( 1.0 + exp( sol*log(10.0)/10.0 ) ) ;
+}
+
+istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 {
 	qs.seq.clear() ;
 	qs.seq.push_back( 0 ) ;
@@ -33,7 +41,7 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 	// description
 	s.get() ;
 	s >> qs.name ;
-	std::getline( s, qs.description ) ;
+	getline( s, qs.description ) ;
 
 	// If at this point we have a valid stream, we definitely have a
 	// sequence.  Bail out if reading the header failed.
@@ -43,7 +51,7 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 	while( descr_follows(s) ) 
 	{
 		s.get() ;
-		std::string line ;
+		string line ;
 		getline( s, line ) ;
 		qs.description.push_back( '\n' ) ;
 		qs.description += line ;
@@ -52,7 +60,7 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 	// read sequence while it continues
 	while( seq_continues(s) )
 	{
-		std::string line ;
+		string line ;
 		getline( s, line ) ;
 		for( size_t i = 0 ; i != line.size() ; ++i )
 			qs.seq.push_back( 0x2800 | to_ambicode( line[i] ) ) ;
@@ -60,32 +68,19 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 	qs.seq.push_back( 0 ) ;
 
 	// if quality follows...
-	// XXX any hint how to see if it's a Solexa file?
 	if( s && s.peek() == '+' )
 	{
-		// don't care for the delimiter, but get name and description
-		// (again)
+		// don't care for the delimiter, but skip name and description
 		s.get() ;
-		std::string descr_, name_ ;
+		string descr_, name_ ;
 		if( s.peek() != '\n' ) s >> name_ ;
-		std::getline( s, descr_ ) ;
+		getline( s, descr_ ) ;
 
-		// if more description follows, read it in, dropping the delimiter
-		while( descr_follows(s) ) 
-		{
-			s.get() ;
-			std::string line ;
-			getline( s, line ) ;
-			descr_.push_back( '\n' ) ;
-			descr_ += line ;
-		}
-
-		// were name and descr. repeated?  might be a useful hint...
-		bool rep_name = name_ == qs.name ;
-		bool rep_descr = descr_ == qs.description ;
+		// if more description follows, drop it
+		while( descr_follows(s) ) getline( s, descr_ ) ;
 
 		if( seq_continues(s) ) {
-			std::string line ;
+			string line ;
 			getline( s, line ) ;
 
 			// Check one line; if it contains only spaces and numbers in
@@ -96,10 +91,8 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 			{
 				for( int ix = 0 ; s ; )
 				{
-					std::stringstream ss( line ) ;
-					// XXX assume phred quality scores.  Need a
-					// solution for Solexa nonsense...
-					for( int q = 0 ; ss >> q ; ++ix ) qs.qual( ix, q ) ;
+					stringstream ss( line ) ;
+					for( int q = 0 ; ss >> q ; ++ix ) qs.qual( ix, solexa_scores ? sol_to_phred(q) : q ) ;
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
 				}
@@ -114,10 +107,8 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 				{
 					for( size_t j = 0 ; ix != total && j != line.size() ; ++j, ++ix )
 					{
-						// XXX assume phred quality scores.  Need a
-						// solution for Solexa nonsense...
-						uint8_t q = line[j] - 33 ;
-						qs.qual( ix, q ) ;
+						int q = line[j] ;
+						qs.qual( ix, solexa_scores ? sol_to_phred( q-64 ) : q-33 ) ;
 					}
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
@@ -130,7 +121,7 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 
 	// We did get a sequence, no matter the stream state now, so no
 	// failure.  If we reached EOF, the flags must remain.
-	s.clear( s.rdstate() & ~std::istream::failbit ) ;
+	s.clear( s.rdstate() & ~istream::failbit ) ;
 	return s ;
 }
 
@@ -142,12 +133,12 @@ std::istream& read_fastq( std::istream& s, QSequence& qs )
 int main()
 {
 	QSequence qs ;
-	while( read_fastq( std::cin, qs ) ) {
-		std::cout << qs.get_name() << std::endl 
-			<< qs.get_descr() << std::endl ;
+	while( read_fastq( cin, qs ) ) {
+		cout << qs.get_name() << endl 
+			<< qs.get_descr() << endl ;
 		for( int i = 0 ; i != qs.length() ; ++i )
-			std::cout << (int)qs.qual(i) << ' ' ;
-		std::cout << std::endl ;
+			cout << (int)qs.qual(i) << ' ' ;
+		cout << endl ;
 	}
 }
 #endif

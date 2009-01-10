@@ -197,12 +197,34 @@ inline std::ostream& operator << ( std::ostream& s, const flat_alignment &fa )
 			 << fa.state << ": " << fa.penalty ;
 }
 
-// basic operations (overloaded for different automata)
+//! \page basic_alignment_ops Basic Operations over Alignment States
+//! The functions in here should be overloaded for different styles of
+//! alignment, so they form a minimal API.
+//!
+//! \page trivial_alignments Trivial Alignments
+//! \subpage basic_alignment_ops
+//! @{
+
+//! \brief checks whether an open list is empty
+//! \param ol open list
+//! \return true iff \c ol is empty
 bool is_empty( const std::deque< flat_alignment >& ol ) { return ol.empty() ; }
+
+//! \brief retrieves cheapest alignment from open list
+//! Behaviour on an empty list is undefined.
+//! \param ol open list
+//! \return cheapest alignment
 flat_alignment get_top( const std::deque< flat_alignment >& ol ) { return ol.front() ; }
 
+//! \brief removes cheapest alignment from list
+//! Behaviour on an empty list is undefined.
+//! \param ol open list
 void pop_top( std::deque< flat_alignment >& ol ) { std::pop_heap( ol.begin(), ol.end() ) ; ol.pop_back() ; }
 
+//! \brief cheks whether an alignment is already closed
+//! \param cl closed set
+//! \param s alignment state
+//! \return true iff \c s in contained in \c cl
 bool is_present( const flat_alignment::ClosedSet& cl, const flat_alignment& s )
 {
 	return cl, s.reference.get(), s.query.get(),
@@ -255,6 +277,11 @@ void reset( flat_alignment& fa )
 	fa.penalty = 0 ;
 }
 
+//! \brief checks whether an laignment is finished
+//! A \c flat_alignment is finished iff either sequence hit a gap while
+//! doing the second half of an alignment.
+//! \param s alignment state
+//! \return true iff the alignment is finished
 bool finished( const flat_alignment& s ) {
 	return s.state == 1 &&
 		( s.reference[ s.ref_offs ] == 0 || s.query[ s.query_offs ] == 0 ) ;
@@ -266,6 +293,7 @@ bool finished( const flat_alignment& s ) {
 //! enough traces if backtracing is desired.  Here we do this by never
 //! changing state in greedy(), but only in forward().  greedy() just
 //! advances two pointers synchronously.
+//! \param s alignment state
 void greedy( flat_alignment& s )
 {
 	while( s.query[s.query_offs] && s.reference[s.ref_offs] == s.query[s.query_offs] )
@@ -352,6 +380,9 @@ template< typename F > void forward( const flat_alignment& s, F f )
 bool operator < ( const flat_alignment& a, const flat_alignment& b )
 { return b.penalty < a.penalty ; }
 
+//! }@
+
+
 template< typename State > struct enter {
 	private: 
 		std::deque< State > &o_ ;
@@ -408,6 +439,9 @@ template< typename State > struct enter_bt {
  *                  must have been called on each of its elements.
  * \param max_penalty Penalty at which alignments are no longer
  *                    interesting.
+ * \param report_success if set, a statistic of the finished alignment
+ *                       is sent to std::clog (only useful for
+ *                       debugging)
  * \return First state to be detected as finished().
  */
 template< typename State >

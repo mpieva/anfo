@@ -1,22 +1,56 @@
 package output ;
 
+// Result hits... all very ad-hoc and ugly.  We need:
+// - best hit globally
+// - score of best hit globally with different species
+// - score of best hit globally with different order
+
+// - best hit to some genome (usually, but not always human or
+//   human/chimp hybrid)
+// - score of second best hit to said genome
+// - score of best hit to said genome, but different chromosome
+// - if best is on sex chromosomes, score of best hit on same genome
+//   outside sex chromosomes
+
 message Hit {
-    // sequence that was hit.  must encode genome.
-    required string refseq = 1 ;
+    // description of the hit: genome, sequence, start point, length
+    // (negative length counts on the RC'd strand)
+    required string genome = 1 ;
+    required string sequence = 2 ;
+    required uint32 start_pos = 3 ;
+    required sint32 aln_length = 4 ;
 
-    // offset where it was hit, negative to denote RC'd strand
-    required sint32 offset = 2 ;
+    // the alignment itself as pair of strings
+    // XXX: find more compact encoding
+    required string ref = 32 ;
+    required string qry = 33 ;
 
-    // most specific taxid, if known at all
-    optional int32 taxid = 3 ;
+    // Score and E-value (because it's customary to have one)
+    required sint32 score = 5 ;
+    optional float evalue = 6 ;
 
-    // score of the alignment, for the time being in no particular unit
-    required sint32 score = 4 ;
+    // taxids if known: most specific, species and order
+    // An absent taxid means it's not known.
+    optional int32 taxid = 16 ;
+    optional int32 taxid_species = 17 ;
+    optional int32 taxid_order = 18 ;
+}
 
-    // the alignment itself as pair of strings // XXX: find more compact
-    // encoding
-    required string ref = 5 ;
-    required string qry = 6 ;
+enum Reason {
+    // ordinary alignment
+    aligned = 0 ;
+
+    // couldn't align because there was no seed at all
+    no_seeds = 1 ;
+
+    // decided not to align because there were too many seeds
+    too_many_seeds = 2 ;
+
+    // all alignments exceeded the e-value cutoff
+    bad_alignment = 3 ;
+
+	// no policy how to align, therefore no alignment
+	no_policy = 4 ;
 }
 
 message Result {
@@ -24,21 +58,45 @@ message Result {
     // from being contained in a database where the id is the key
     optional string seqid = 1 ;
 
-    // the sequence itself, if so desired (ASCII encoding)
+    // optional description (taken e.g. from FASTA file)
+    optional string description = 13 ;
+
+    // the sequence itself, if so desired (ASCII encoding---do we want
+    // something more compact?)
     optional string sequence = 2 ;
 
-    // best hit, if any
+    // number of bases trimmed at 5' (at 3') end if trimming was done
+    optional int32 trim_left = 11 [ default = 0 ] ;
+    optional int32 trim_right = 12 [ default = 0 ] ;
+
+    // Reason we arrived at this result
+    optional Reason reason = 10 [ default = aligned ] ;
+
+    // Best hit globally, if any.  Difference in bit score to the next
+    // best one with different species, with different order, iff such
+    // hits exist.
     optional Hit best_hit = 3 ;
+    optional sint32 diff_to_next_species = 4 ;
+    optional sint32 diff_to_next_order = 5 ;
+
+    // Best hit to some selected genome (probably human), if any.
+    // Difference in bit score to next best hit, to next best on
+    // different chromosome, to next on different class of chromosomes,
+    // if they exist.  Classes for this purpose are sex chromosomes,
+    // autosomes and organelles.
+    optional Hit best_to_genome = 6 ;
+    optional sint32 diff_to_next = 7 ;
+    optional sint32 diff_to_next_chromosome = 8 ;
+    optional sint32 diff_to_next_chromosome_class = 9 ;
 }
 
-message Output {
-    // Hrm, put any amount of metadata here.  Subject to further
-    // refinement...
-
+// Hrm, put any amount of metadata here.  Subject to further
+// refinement...
+message Header {
     // one of the genomes that was matched against
-    repeated string genome = 16 ; 
+    repeated string genome = 1 ; 
 
-    // result from mapping one sequence
-    repeated Result result = 1 ;
+    // E-value cutoff
+    optional float max_evalue = 2 ;
 }
 

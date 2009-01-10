@@ -288,11 +288,18 @@ class QSequence
 		const std::string &get_name() const { return name ; }
 		const std::string &get_descr() const { return description ; } 
 
+		std::string as_string() const {
+			std::vector<uint16_t>::const_iterator a = seq.begin(), b = seq.end() ;
+			std::string r ;
+			for( ++a, --b ; a != b ; ++a ) r.push_back( from_ambicode( *a & 0xf ) ) ;
+			return r ;
+		}
+
 		Ambicode operator [] ( size_t ix ) const { return seq[1+ix] & 0xf ; }
 		uint8_t qual( size_t ix ) const { return seq[1+ix] >> 8 ; }
 		void qual( size_t ix, uint8_t q ) { seq[1+ix] = seq[1+ix] & 0xff | (uint16_t)q << 8 ; }
 
-		friend std::istream& read_fastq( std::istream& s, QSequence& qs ) ;
+		friend std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores ) ;
 } ;
 
 //! \brief reads a sequence from a FASTA or FASTQ file
@@ -303,8 +310,14 @@ class QSequence
 //! phred-like values (Sanger standard).  If they are 64-based
 //! (Solexa idiocy), you're hosed...
 //!
-//! \todo Find an automatic solution for Solexa idiocy.
-std::istream& read_fastq( std::istream& s, QSequence& qs ) ;
+//! \param s stream to read from
+//! \param qs sequence-with-quality to read into
+//! \param solexa_scores 
+//!     If set, quality scores are converted from Solexa to Phred
+//!     conventions and the origin for raw scores is 64.  Else the
+//!     origin is 33 and no conversion is done.
+//! \return the stream \c s
+std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores = false ) ;
 
 #endif
 

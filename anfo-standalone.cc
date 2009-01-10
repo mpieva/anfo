@@ -27,6 +27,8 @@ using namespace std ;
 //! \todo Commandline is missing, all this is very inflexible.
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
+//! \todo Make this run in N threads (on the order of four).
+//! \todo Test this: the canonical test case is homo sapiens, chr 21.
 
 metaindex::Policy select_policy( const metaindex::Config &c, const QSequence &ps )
 {
@@ -34,11 +36,22 @@ metaindex::Policy select_policy( const metaindex::Config &c, const QSequence &ps
 	for( int i = 0 ; i != c.policy_size() ; ++i )
 	{
 		const metaindex::Policy &pi = c.policy(i) ;
-		if( ( !pi.has_minlength() || pi.minlength() >= ps.length() ) &&
-			( !pi.has_maxlength() || pi.maxlength() <= ps.length() ) )
+		if( ( !pi.has_minlength() || pi.minlength() <= ps.length() ) &&
+			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) )
 			p.MergeFrom( pi ) ;
 	}
 	return p ;
+}
+
+void write_separator( google::protobuf::io::ZeroCopyOutputStream& s )
+{
+	void *p ;
+	int sz ;
+	if( !s.Next( &p, &sz ) || sz < 3 ) throw "write error" ;
+	((char*)p)[0] = '\n' ;
+	((char*)p)[1] = 0x1e ; // RS 
+	((char*)p)[2] = '\n' ;
+	s.BackUp( sz - 3 ) ;
 }
 
 int main_( int argc, const char * argv[] )
@@ -46,17 +59,25 @@ int main_( int argc, const char * argv[] )
 	metaindex::Config mi ;
 	merge_text_config( "config.txt", mi ) ;
 
-	std::map< std::string, CompactGenome > genomes ;
-	std::map< std::string, std::map< int, FixedIndex > > indices ;
+	typedef std::map< std::string, CompactGenome > Genomes ; 
+	typedef std::map< std::string, std::map< int, FixedIndex > > Indices ;
+	Genomes genomes ;
+	Indices indices ;
 	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
 
+	output::Header ohd ;
 	for( int i = 0 ; i != mi.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )
 		{
 			const metaindex::CompactIndexSpec &ixs = mi.policy(i).use_compact_index(j) ;
 			CompactGenome &g = genomes[ ixs.genome_name() ] ;
-			if( !g.get_base() ) CompactGenome( find_genome( mi, ixs.genome_name() ) ).swap( g ) ;
+			if( !g.get_base() )
+			{
+				*ohd.add_genome() = ixs.genome_name() ;
+				CompactGenome( find_genome( mi, ixs.genome_name() ) ).swap( g ) ;
+			}
+
 			FixedIndex &ix = indices[ ixs.genome_name() ][ ixs.wordsize() ] ;
 			if( !ix ) {
 				const metaindex::CompactIndex& cix = find_compact_index( mi, ixs.genome_name(), ixs.wordsize() ) ;
@@ -69,13 +90,22 @@ int main_( int argc, const char * argv[] )
 	google::protobuf::io::FileOutputStream fos( config_out ) ;
 	fos.SetCloseOnDelete( true ) ;
 
+	google::protobuf::TextFormat::Print( ohd, &fos ) ; write_separator( fos ) ; // XXX
+
 	std::ifstream inp( "input.fa" ) ;
 	QSequence ps ;
 	while( read_fastq( inp, ps ) )
 	{
+		output::Result r ;
+		r.set_seqid( ps.get_name() ) ;
+		if( !ps.get_descr().empty() ) r.set_description( ps.get_descr() ) ;
+		r.set_sequence( ps.as_string() ) ;
+		// XXX: set trim points?
+
 		const metaindex::Policy& p = select_policy( mi, ps ) ;
 
 		deque<flat_alignment> ol ;
+		int total_seeds = 0 ;
 		for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 		{
 			const metaindex::CompactIndexSpec &cis = p.use_compact_index(i) ;
@@ -93,36 +123,70 @@ int main_( int argc, const char * argv[] )
 				 << " clumps." << endl ;
 
 			setup_alignments( genomes[ cis.genome_name() ], ps, seeds.begin(), seeds.end(), ol ) ;
+			total_seeds += num_raw ;
 		}
 		
-		if( ol.empty() ) continue ; // XXX
-		if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() ) continue ; // XXX
-
-		flat_alignment best = find_cheapest( ol, p.max_penalty_per_nuc() * ps.length() / 1000 ) ;
-		if( !best ) continue ; // XXX
-		int penalty = best.penalty ;
-
-		// cout << "Done near " << best.reference - g.get_base() << " costing " << best.penalty << ':' << endl ;
-
-		deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
-		reset( best ) ;
-		greedy( best ) ;
-		(enter_bt<flat_alignment>( ol_ ))( best ) ;
-		Trace t = find_cheapest( ol_ ) ;
-
-		output::Result r ;
-		r.set_seqid( ps.get_name() ) ;
-		output::Hit *h = r.mutable_best_hit() ;
-		// XXX: h->set_refseq( gdef.name() ) ;
-		// XXX: h->set_offset( best.reference  + best.ref_offs - g.get_base() ) ;
-		h->set_score( penalty ) ;
-		for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
+		if( !p.has_max_penalty_per_nuc() )
 		{
-			h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
-			h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
+			r.set_reason( output::no_policy ) ;
+		}
+		else if( ol.empty() ) 
+		{
+			r.set_reason( output::no_seeds ) ;
+		}
+		else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
+		{
+			r.set_reason( output::too_many_seeds ) ;
+		}
+		else
+		{
+			flat_alignment best = find_cheapest( ol, p.max_penalty_per_nuc() * ps.length() / 1000 ) ;
+			if( !best )
+			{
+				r.set_reason( output::bad_alignment ) ;
+			}
+			else
+			{
+				int penalty = best.penalty ;
+
+				deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
+				reset( best ) ;
+				greedy( best ) ;
+				(enter_bt<flat_alignment>( ol_ ))( best ) ;
+				Trace t = find_cheapest( ol_ ) ;
+
+				output::Hit *h = r.mutable_best_hit() ;
+
+				for( Genomes::const_iterator g = genomes.begin(), ge = genomes.end() ; g != ge ; ++g )
+				{
+					uint32_t start_pos ;
+					if( g->second.translate_back( 
+								best.reference, 
+								*h->mutable_sequence(),
+								start_pos ) )
+					{
+						h->set_genome( g->first ) ;
+						h->set_start_pos( start_pos ) ;
+						// XXX: h->set_aln_length
+						break ;
+					}
+				}
+
+				for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
+				{
+					h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
+					h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
+				}
+				h->set_score( penalty ) ;
+				// XXX: h->set_evalue
+				// XXX: h->set_taxid
+
+				// XXX set diff_to_next_species, diff_to_next_order
+				// XXX find another best hit (genome only)
+			}
 		}
 
-		google::protobuf::TextFormat::Print( r, &fos ) ;
+		google::protobuf::TextFormat::Print( r, &fos ) ; write_separator( fos ) ; // XXX
 	}
 	return 0 ;
 }
