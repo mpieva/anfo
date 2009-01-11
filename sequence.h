@@ -146,8 +146,9 @@ class DnaP
 
 		operator const void*() const { return (const void*)p_ ; }
 
-		void reverse() { p_ = -p_ ; }
+		bool is_reversed() const { return p_ < 0 ; }
 		DnaP abs() const { DnaP q ; q.p_ = std::abs(p_) ; return q ; }
+		DnaP reverse() const { DnaP q ; q.p_ = -p_ ; return q ; }
 
 		//! \brief returns a pointer to the underlying storage.
 		//! \internal

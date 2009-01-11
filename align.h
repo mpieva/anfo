@@ -177,7 +177,7 @@ struct flat_alignment {
 		, query( ps.start() + ( s.offset >= 0 ? s.offset + s.size / 2 : -s.offset - s.size/2 ) )
 		, state(0), penalty(0), ref_offs(0), query_offs(0)
 	{
-		if( s.offset < 0 ) reference.reverse() ;
+		if( s.offset < 0 ) reference = reference.reverse() ;
 	}
 
 	operator const void * () const { return (const void *)reference ; }
@@ -480,21 +480,26 @@ State find_cheapest(
 	return State() ;
 }
 
-typedef std::deque< std::pair< Ambicode, Ambicode > > Trace ;
+typedef std::deque< std::pair< Ambicode, Ambicode > > Trace_ ;
+struct Trace
+{
+	Trace_ trace ;
+	DnaP minpos, maxpos ;
+} ;
 
 //! prints a backtrace in three-line format.
 //! This is intended for debugging, it prints a backtraced alignment in
 //! two lines of sequence and one "conservation" line.
 //! \internal
-inline std::ostream& operator << ( std::ostream& s, const Trace& t )
+inline std::ostream& operator << ( std::ostream& s, const Trace_& t )
 {
-	for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
+	for( Trace_::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
 		s << from_ambicode( i->first ) ; 
 	s << '\n' ;
-	for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
+	for( Trace_::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
 		s << from_ambicode( i->second ) ; 
 	s << '\n' ;
-	for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
+	for( Trace_::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
 		s << ( i->first == i->second ? '*' : i->first & i->second ? '.' : ' ') ;
 	s << '\n' ;
 	return s ;
@@ -523,10 +528,15 @@ inline std::ostream& operator << ( std::ostream& s, const Trace& t )
 
 Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 {
+	Trace r ;
+
+	// When the alignment finished, it pointed to the minimum
+	// coordinate (to a gap actually).  Just store it.
+	r.minpos = a->reference + a->ref_offs ;
+
 	// Only trace back second state here, this ends up at the front of
 	// the alignment, but we add stuff to the back as we generate it in
 	// the wrong order.
-	Trace t1 ;
 	while( const flat_alignment *b = *lookup( cl, *a ) ) 
 	{
 		if( b->state == 0 ) break ;
@@ -535,7 +545,7 @@ Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 		{
 			Ambicode x = ro == b->ref_offs   ? 0 : a->reference[++ro] ;
 			Ambicode y = qo == b->query_offs ? 0 : a->query[++qo] ;
-			t1.push_back( std::make_pair( x,y ) ) ;
+			r.trace.push_back( std::make_pair( x,y ) ) ;
 		}
 		a = b ;
 	}
@@ -545,15 +555,19 @@ Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 	{
 		Ambicode x = ro ? a->reference[++ro] : 0 ;
 		Ambicode y = qo ? a->query[++qo] : 0 ;
-		t1.push_back( std::make_pair( x,y ) ) ;
+		r.trace.push_back( std::make_pair( x,y ) ) ;
 	}
 
 	// Skip one state, this is the one aligning the terminal gap.
 	a = *lookup( cl, *a ) ; 
 		
+	// Now at the end of the first phase, we got a pointer to the
+	// maximum coordinate (again a gap).  Store it.
+	r.maxpos = a->reference + a->ref_offs ;
+
 	// Trace back first state now, generating a new trace which needs to
 	// be reversed in the end.
-	Trace t2 ;
+	Trace_ t2 ;
 	while( const flat_alignment *b = *lookup( cl, *a ) ) 
 	{
 		for( signed short ro = a->ref_offs, qo = a->query_offs ; 
@@ -580,8 +594,8 @@ Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 	// To see the crack between the two halves, use this:
 	// t2.push_back( std::make_pair( 0,0 ) ) ;
 
-	t1.insert( t1.end(), t2.rbegin(), t2.rend() ) ;
-	return t1 ;
+	r.trace.insert( r.trace.end(), t2.rbegin(), t2.rend() ) ;
+	return r ;
 }
 
 /*! \brief Dijkstra's with backtracing.

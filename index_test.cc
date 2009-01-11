@@ -78,7 +78,7 @@ int main_( int argc, const char * argv[] )
 	reset( best ) ;
 	greedy( best ) ;
 	(enter_bt<flat_alignment>( ol_ ))( best ) ;
-	cout << find_cheapest( ol_ ) << endl ;
+	cout << find_cheapest( ol_ ).trace << endl ;
 
 	return 0 ;
 }

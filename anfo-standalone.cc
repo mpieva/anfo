@@ -16,13 +16,11 @@
 
 using namespace std ;
 
-//! \page Standalone ANFO executable
+//! \page anfo_executable Standalone ANFO executable
 //! This is work in progress; it may morph into an ANFO executable to be
 //! run directly from the command line.  Right now it reads a FASTA or
 //! FASTQ file and maps it against whatever index is configured.
 //!
-//! \todo The mapper produces internal coordinates, these have to be
-//!       mapped back to real sequences and coordinates.
 //! \todo We want an E-value...
 //! \todo Commandline is missing, all this is very inflexible.
 //! \todo We want more than just the best match.  Think about a sensible
@@ -47,11 +45,12 @@ void write_separator( google::protobuf::io::ZeroCopyOutputStream& s )
 {
 	void *p ;
 	int sz ;
-	if( !s.Next( &p, &sz ) || sz < 3 ) throw "write error" ;
+	if( !s.Next( &p, &sz ) || sz < 4 ) throw "write error" ;
 	((char*)p)[0] = '\n' ;
 	((char*)p)[1] = 0x1e ; // RS 
 	((char*)p)[2] = '\n' ;
-	s.BackUp( sz - 3 ) ;
+	((char*)p)[3] = '\n' ;
+	s.BackUp( sz - 4 ) ;
 }
 
 int main_( int argc, const char * argv[] )
@@ -160,26 +159,38 @@ int main_( int argc, const char * argv[] )
 				for( Genomes::const_iterator g = genomes.begin(), ge = genomes.end() ; g != ge ; ++g )
 				{
 					uint32_t start_pos ;
-					if( g->second.translate_back( 
-								best.reference, 
-								*h->mutable_sequence(),
-								start_pos ) )
+					int32_t len = t.maxpos - t.minpos - 1 ;
+					if( g->second.translate_back( t.minpos+1, *h->mutable_sequence(), start_pos ) )
 					{
 						h->set_genome( g->first ) ;
-						h->set_start_pos( start_pos ) ;
-						// XXX: h->set_aln_length
+						if( t.minpos.is_reversed() )
+						{
+							h->set_start_pos( start_pos - len + 1 ) ;
+							h->set_aln_length( -len ) ;
+						}
+						else
+						{
+							h->set_start_pos( start_pos ) ;
+							h->set_aln_length( len ) ;
+						}
 						break ;
 					}
 				}
 
-				for( Trace::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
+				for( Trace_::const_iterator i = t.trace.begin(), e = t.trace.end() ; i != e ; ++i )
 				{
 					h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
 					h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
+					h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
 				}
 				h->set_score( penalty ) ;
 				// XXX: h->set_evalue
 				// XXX: h->set_taxid
+
+				//! \todo Find second best hit and similar stuff.
+				//! We want the distance to the next best hit; also,
+				//! unless already found, we want the best hit to some
+				//! selected genome(s).
 
 				// XXX set diff_to_next_species, diff_to_next_order
 				// XXX find another best hit (genome only)

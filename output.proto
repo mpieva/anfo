@@ -24,6 +24,7 @@ message Hit {
     // XXX: find more compact encoding
     required string ref = 32 ;
     required string qry = 33 ;
+    optional string con = 34 ;
 
     // Score and E-value (because it's customary to have one)
     required sint32 score = 5 ;
