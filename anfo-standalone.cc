@@ -28,12 +28,12 @@ using namespace std ;
 //! \todo Make this run in N threads (on the order of four).
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
 
-metaindex::Policy select_policy( const metaindex::Config &c, const QSequence &ps )
+config::Policy select_policy( const config::Config &c, const QSequence &ps )
 {
-	metaindex::Policy p ;
+	config::Policy p ;
 	for( int i = 0 ; i != c.policy_size() ; ++i )
 	{
-		const metaindex::Policy &pi = c.policy(i) ;
+		const config::Policy &pi = c.policy(i) ;
 		if( ( !pi.has_minlength() || pi.minlength() <= ps.length() ) &&
 			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) )
 			p.MergeFrom( pi ) ;
@@ -55,7 +55,7 @@ void write_separator( google::protobuf::io::ZeroCopyOutputStream& s )
 
 int main_( int argc, const char * argv[] )
 {
-	metaindex::Config mi ;
+	config::Config mi ;
 	merge_text_config( "config.txt", mi ) ;
 
 	typedef std::map< std::string, CompactGenome > Genomes ; 
@@ -69,18 +69,17 @@ int main_( int argc, const char * argv[] )
 	{
 		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )
 		{
-			const metaindex::CompactIndexSpec &ixs = mi.policy(i).use_compact_index(j) ;
-			CompactGenome &g = genomes[ ixs.genome_name() ] ;
-			if( !g.get_base() )
-			{
-				*ohd.add_genome() = ixs.genome_name() ;
-				CompactGenome( find_genome( mi, ixs.genome_name() ) ).swap( g ) ;
-			}
-
-			FixedIndex &ix = indices[ ixs.genome_name() ][ ixs.wordsize() ] ;
+			const config::CompactIndexSpec &ixs = mi.policy(i).use_compact_index(j) ;
+			FixedIndex &ix = indices[ ixs.name() ] ;
 			if( !ix ) {
-				const metaindex::CompactIndex& cix = find_compact_index( mi, ixs.genome_name(), ixs.wordsize() ) ;
-				FixedIndex( cix.filename().c_str(), cix.wordsize() ).swap( ix ) ;
+				FixedIndex( ixs.name(), mi ).swap( ix ) ;
+
+				CompactGenome &g = genomes[ ix.ci_.genome_name() ] ;
+				if( !g.get_base() )
+				{
+					*ohd.add_genome() = ix.ci_.genome_name() ;
+					CompactGenome( ix.ci_.genome_name(), mi ).swap( g ) ;
+				}
 			}
 		}
 	}
@@ -101,13 +100,13 @@ int main_( int argc, const char * argv[] )
 		r.set_sequence( ps.as_string() ) ;
 		// XXX: set trim points?
 
-		const metaindex::Policy& p = select_policy( mi, ps ) ;
+		const config::Policy& p = select_policy( mi, ps ) ;
 
 		deque<flat_alignment> ol ;
 		int total_seeds = 0 ;
 		for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 		{
-			const metaindex::CompactIndexSpec &cis = p.use_compact_index(i) ;
+			const config::CompactIndexSpec &cis = p.use_compact_index(i) ;
 
 			vector<Seed> seeds ;
 			int num_raw = indices[ cis.genome_name() ][ cis.wordsize() ].lookup( ps, seeds,

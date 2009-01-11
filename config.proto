@@ -1,4 +1,4 @@
-package metaindex ;
+package config ;
 
 message Contig {
     // number of half-bytes to seek into the genome file to get to the
@@ -27,11 +27,9 @@ message Sequence {
 }
 
 message Genome {
-    // internal handle for the genome (short name)
+    // internal handle for the genome (short name, only used to report
+	// matches)
     required string name = 1 ;
-
-    // path to file that stores the genome
-    required string filename = 2 ;
 
     // description of the genome (most likely from command line)
     optional string description = 3 ;
@@ -44,13 +42,14 @@ message Genome {
 
     // taxonomic id, if known and applies to whole genome
     optional uint32 taxid = 6 ;
+
+	// maximum number of contiguous Ns in sequence; more constitute a
+	// gap
+	required uint32 maxn = 7 ;
 }
 
 message CompactIndex {
-    // file that stores the index
-    required string filename = 1 ;
-
-    // name of the indexed genome
+    // file name of the indexed genome
     required string genome_name = 2 ;
 
     // length of words (the k in k-mer)
@@ -66,8 +65,7 @@ message CompactIndex {
 }
 
 message CompactIndexSpec {
-    required string genome_name = 2 ;
-    required uint32 wordsize = 3 ;
+    required string name = 2 ;
     optional uint32 cutoff = 4 ;
 }
 
@@ -101,6 +99,9 @@ message Policy {
 }
 
 message Config {
+	repeated string genome_path = 18 ;
+	repeated string index_path = 19 ;
+
     // set this to merge a binary configuration file
     repeated string load = 16 ;
 

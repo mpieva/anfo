@@ -1,10 +1,9 @@
 #ifndef INCLUDED_INDEX_H
 #define INCLUDED_INDEX_H
 
+#include "config.pb.h"
 #include "sequence.h"
 #include "util.h"
-
-#include <metaindex.pb.h>
 
 #include <cassert>
 #include <iostream>
@@ -19,28 +18,38 @@
 class CompactGenome
 {
 	public:
-		typedef std::map< uint32_t, std::pair< const metaindex::Sequence*, const metaindex::Contig* > > ContigMap ;
+		typedef std::map< uint32_t, std::pair< const config::Sequence*, const config::Contig* > > ContigMap ;
 
 	private:
 		DnaP base_ ;
 		uint32_t length_ ;
 		int fd_ ;
 		ContigMap contig_map_ ;
+		config::Genome g_ ;
 
 	public:
 		//! \brief constructs an invalid genome
 		//! Genomes constructed in the default fashion are unusable;
 		//! however, this makes \c CompactGenome default constructible
 		//! for use in standard containers.
-		CompactGenome() : base_(0), length_(0), fd_(0) {}
+		CompactGenome() : base_(0), length_(0), fd_(0), g_() {}
 
-		//! \brief makes accessible a file described by metadata
-		//! \param g genome definition as found in a configuration file
-		//! \param adv advise passed to \c madvise, if you anticipate
+		//! \brief makes accessible a genome file
+		//! \param name file name of the genome
+		//! \param c program configuration, needed for the search path
+		//! \param adv advise passed to madvise(), if you anticipate
 		//!            specific use of the genome
-		CompactGenome( const metaindex::Genome &g, int adv = MADV_NORMAL ) ;
+		CompactGenome( const std::string& name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~CompactGenome() ;
 
+		std::string describe() const 
+		{
+			std::string d = g_.name() ;
+			if( g_.has_description() ) d += " (" + g_.description() + ")" ;
+			return d ;
+		}
+
+		uint32_t total_size() const { return g_.total_size() ; }
 		DnaP get_base() const { return base_ ; }
 
 		//! \brief scan over finite words of the dna
@@ -72,6 +81,7 @@ class CompactGenome
 			std::swap( length_, g.length_ ) ;
 			std::swap( fd_, g.fd_ ) ;
 			std::swap( contig_map_, g.contig_map_ ) ;
+			std::swap( g_, g.g_ ) ;
 		}
 
 		const ContigMap &get_contig_map() const { return contig_map_ ; }
@@ -88,7 +98,7 @@ class CompactGenome
 		bool translate_back( DnaP pos, std::string& sequ_id, uint32_t& offset ) const ;
 
 	private:
-		static const uint32_t signature = 0x30414e44 ; // DNA0 
+		static const uint32_t signature = 0x31414e44u ; // DNA1 
 
 		//! \brief reports a position while scanning
 		//! \internal
@@ -117,10 +127,10 @@ inline std::ostream& operator << ( std::ostream& o, const Seed& s )
 class FixedIndex 
 {
 	public:
-		enum { signature = 0x30584449u } ; // IDX0 
+		enum { signature = 0x31584449u } ; // IDX1 
 
-		FixedIndex() : base(0), secondary(0), first_level_len(0), length(0), fd(0), wordsize(0) {}
-		FixedIndex( const char* fp, unsigned w ) ;
+		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
+		FixedIndex( const std::string &name, const config::Config &c ) ;
 		~FixedIndex() ;
 
 		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0 ) const ;
@@ -134,16 +144,19 @@ class FixedIndex
 			std::swap( secondary, i.secondary ) ;
 			std::swap( first_level_len, i.first_level_len ) ;
 			std::swap( length, i.length ) ;
-			std::swap( fd, i.fd ) ;
-			std::swap( wordsize, i.wordsize ) ;
+			std::swap( fd_, i.fd_ ) ;
+			std::swap( ci_, i.ci_ ) ;
 		}
 
 	private:
-		uint32_t *base, *secondary ;
+		const void* p_ ;
+		const uint32_t *base, *secondary ;
 		uint32_t first_level_len ;
 		uint64_t length ;
-		int fd ;
-		unsigned wordsize ;
+		int fd_ ;
+
+	public:
+		config::CompactIndex ci_ ;
 } ;
 
 template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, const char* msg )

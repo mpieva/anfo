@@ -40,12 +40,15 @@
  *
  * \note to self: creating and mmapping a sparse file, then filling it in
  *       random order is an exceptionally bad idea...
+ *
+ * \todo The indexer can produce a histogram.  This should actually be
+ *       part of normal operation to select a sensible cutoff.
  */
 
 #include "index.h"
 #include "util.h"
-#include "metaindex.pb.h"
 #include "conffile.h"
+#include "config.pb.h"
 
 #include <google/protobuf/text_format.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -180,7 +183,7 @@ int main_( int argc, const char * argv[] )
 	const char* output_file = 0 ;
 	const char* config_file = 0 ;
 	const char* description = 0 ;
-	const char* genome_conf = 0 ;
+	const char* genome_file = 0 ;
 
 	unsigned wordsize = 10 ;
 	unsigned cutoff   = std::numeric_limits<unsigned>::max() ;
@@ -190,7 +193,7 @@ int main_( int argc, const char * argv[] )
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Output index to FILE", "FILE" },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
-		{ "genome",      'g', POPT_ARG_STRING, &genome_conf, opt_none,    "Read genome config from FILE", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, &genome_file, opt_none,    "Read genome from FILE", "FILE" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
 		{ "wordsize",    's', POPT_ARG_INT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
@@ -215,17 +218,19 @@ int main_( int argc, const char * argv[] )
 			return 1 ; 
 	}
 
-	if( !config_file ) throw "missing --config option" ;
+	// if( !config_file ) throw "missing --config option" ;
 	if( !output_file ) throw "missing --output option" ;
-	if( !genome_conf ) throw "missing --genome option" ;
+	if( !genome_file ) throw "missing --genome option" ;
 
-	metaindex::Config mi ;
-	merge_binary_config( genome_conf, mi ) ;
+	config::Config mi ;
+	if( config_file ) merge_text_config( config_file, mi ) ;
+	// merge_binary_config( genome_conf, mi ) ;
 
-	if( !mi.genome_size() ) throw "no genome found" ;
-	CompactGenome genome( mi.genome(0), MADV_SEQUENTIAL ) ;
+	// if( !mi.genome_size() ) throw "no genome found" ;
+	CompactGenome genome( genome_file, mi, MADV_SEQUENTIAL ) ;
 
 	uint64_t first_level_len = 1 << (2 * wordsize) + 1 ;
+	assert( std::numeric_limits<uint32_t>::max() > first_level_len ) ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
 
 	uint32_t *base = (uint32_t*)malloc( 4 * first_level_len ) ;
@@ -288,27 +293,26 @@ int main_( int argc, const char * argv[] )
 		else last = *p ;
 	}
 
+	config::CompactIndex ci ;
+	ci.set_genome_name( mi.genome(0).name() ) ; // XXX
+	ci.set_wordsize( wordsize ) ;
+	ci.set_indexsize( total ) ;
+	if( cutoff != std::numeric_limits<unsigned>::max() ) ci.set_cutoff( cutoff ) ;
+	std::string metainfo ;
+	if( !ci.SerializeToString( &metainfo ) ) throw "error when serializing metainfo" ;
+
 	std::clog << "Writing " << output_file << "..." << std::endl ;
 	int fd = throw_errno_if_minus1( creat( output_file, 0644 ), "opening", output_file ) ;
 
-	uint32_t sig = FixedIndex::signature ;
+	uint32_t sig = FixedIndex::signature, len = metainfo.size() ;
 	mywrite( fd, &sig, 4 ) ;
-	mywrite( fd, &first_level_len, 4 ) ;
+	mywrite( fd, &len, 4 ) ;
+	mywrite( fd, metainfo.data(), len ) ;
 	mywrite( fd, base, 4 * first_level_len ) ;
 	mywrite( fd, &total, 4 ) ;
 	mywrite( fd, lists, 4 * total ) ;
+
 	close( fd ) ;
-
-	metaindex::Config c ;
-	metaindex::CompactIndex *ci = c.add_compact_index() ;
-	ci->set_filename( output_file ) ;
-	ci->set_genome_name( mi.genome(0).name() ) ;
-	ci->set_wordsize( wordsize ) ;
-	if( cutoff == std::numeric_limits<unsigned>::max() ) ci->clear_cutoff() ;
-	else ci->set_cutoff( cutoff ) ;
-	ci->set_indexsize( total ) ;
-
-	write_binary_config( config_file, c ) ;
 	return 0 ;
 }
 

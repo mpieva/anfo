@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 
 using namespace std ;
-using namespace metaindex ;
+using namespace config ;
 
 //! \todo Some of the functions involving file descriptors and/or
 //!       temporary files may cause filename clashes and or leaks.

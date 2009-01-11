@@ -1,6 +1,6 @@
-load: "../data/chr21.cfg"
-load: "../data/hg18.cfg"
 load: "../data/chr21_10.cfg"
+
+genome_path: "../data"
 
 policy {
     use_compact_index {
@@ -9,7 +9,7 @@ policy {
 		cutoff: 6400
     }
 
-	minlength: 25
+    minlength: 25
     repeat_threshold: 100000 
     max_diag_skew: 2 
     max_gap: 16

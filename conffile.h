@@ -1,7 +1,7 @@
 #ifndef INCLUDED_CONFFILE_H
 #define INCLUDED_CONFFILE_H
 
-#include "metaindex.pb.h"
+#include "config.pb.h"
 
 /*! \defgroup configuration Convenient access to configuration files
  *
@@ -17,13 +17,13 @@
  * Google toolchain, but also for Haskell
  * (http://hackage.haskell.org/cgi-bin/hackage-scripts/package/hprotoc)
  * and possibly for more languages.  The definition of the possible
- * parts of the configuration resides in \c metaindex.proto, we
+ * parts of the configuration resides in \c config.proto, we
  * currently store the configuration in a single file using the protobuf
  * text format.  If the need arises, we can easily move to multiple
  * files, binary files, or a combination of both.  Text and binary files
  * are interconvertible using \c protoc.
  *
- * Our main configuration is of type metaindex::Config, pointers to
+ * Our main configuration is of type config::Config, pointers to
  * this type are expected by the functions contained in here.
  *
  * @{ */
@@ -37,7 +37,7 @@
 //!
 //! \param filename filename of configuration file
 //! \param mi configuration to be merged into
-void merge_text_config( const std::string& filename, metaindex::Config& mi ) ;
+void merge_text_config( const std::string& filename, config::Config& mi ) ;
 
 //! \brief merges the configuration from a binary file.
 //! A binary format configuration file is read and the information
@@ -48,7 +48,7 @@ void merge_text_config( const std::string& filename, metaindex::Config& mi ) ;
 //!
 //! \param filename filename of configuration file
 //! \param mi configuration to be merged into
-void merge_binary_config( const std::string& filename, metaindex::Config& mi ) ;
+void merge_binary_config( const std::string& filename, config::Config& mi ) ;
 
 //! \brief writes a configuration in text format.
 //! The configuration is written to a file in Google's text format.  A
@@ -60,7 +60,7 @@ void merge_binary_config( const std::string& filename, metaindex::Config& mi ) ;
 //!
 //! \param filename filename of configuration file
 //! \param mi pointer to configuration
-void write_text_config( const std::string& filename, const metaindex::Config& mi ) ;
+void write_text_config( const std::string& filename, const config::Config& mi ) ;
 
 //! \brief writes a configuration in binary format.
 //! The configuration is written to a file in Google's native binary
@@ -72,15 +72,15 @@ void write_text_config( const std::string& filename, const metaindex::Config& mi
 //!
 //! \param filename filename of configuration file
 //! \param mi pointer to configuration
-void write_binary_config( const std::string& filename, const metaindex::Config& mi ) ;
+void write_binary_config( const std::string& filename, const config::Config& mi ) ;
 
 //! \brief finds a named genome.
-//! The metaindex is scanned for a genome exactly matching the supplied
+//! The config is scanned for a genome exactly matching the supplied
 //! name.  If no genome is found, an exception is thrown.
 //! \param mi the configuration
 //! \param genome_name name to look for
 //! \return A reference to the genome config.
-const metaindex::Genome &find_genome( const metaindex::Config& mi, const std::string genome_name ) ;
+const config::Genome &find_genome( const config::Config& mi, const std::string genome_name ) ;
 
 //! \brief finds any index for a given genome
 //! Looks for a compact index for the named genome.  The first index
@@ -91,8 +91,8 @@ const metaindex::Genome &find_genome( const metaindex::Config& mi, const std::st
 //! \param genome_name name of the indexed genome
 //! \param wordsize desired length of indexed words
 //! \return reference to the index configuration
-const metaindex::CompactIndex& find_compact_index(
-		const metaindex::Config& mi, const std::string genome_name, unsigned wordsize = 0 ) ; 
+const config::CompactIndex& find_compact_index(
+		const config::Config& mi, const std::string genome_name, unsigned wordsize = 0 ) ; 
 
 //! @}
 #endif

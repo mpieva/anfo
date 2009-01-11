@@ -7,38 +7,55 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-using namespace metaindex ;
+using namespace config ;
 using namespace std ; 
 
-CompactGenome::CompactGenome( const metaindex::Genome &g, int adv )
-	: base_(), length_(0), fd_(-1)
+CompactGenome::CompactGenome( const std::string &name, const config::Config &c, int adv )
+	: base_(), length_(0), fd_(-1), g_()
 {
 	try
 	{
-		const char *fp = g.filename().c_str() ;
-		fd_ = open( fp, O_RDONLY ) ;
-		throw_errno_if_minus1( fd_, "opening", fp ) ;
+		std::string fp = name ;
+		fd_ = open( fp.c_str(), O_RDONLY ) ;
+		if( fd_ == -1 && errno != ENOENT )
+			throw_errno_if_minus1( fd_, "opening", fp.c_str() ) ;
+
+		for( int i = 0 ; fd_ == -1 && i != c.genome_path_size() ; ++i )
+		{
+			fp = c.genome_path(i) + '/' + name ;
+			fd_ = open( fp.c_str(), O_RDONLY ) ;
+			if( fd_ == -1 && errno != ENOENT )
+				throw_errno_if_minus1( fd_, "opening", fp.c_str() ) ;
+		}
+		throw_errno_if_minus1( fd_, "opening", name.c_str() ) ;
+
 		struct stat the_stat ;
-		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp ) ;
+		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp.c_str() ) ;
 		length_ = the_stat.st_size ;
 		void *p = mmap( 0, length_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
-		throw_errno_if_minus1( p, "mmapping", fp ) ;
+		throw_errno_if_minus1( p, "mmapping", fp.c_str() ) ;
 		if( adv ) madvise( p, length_, adv ) ;
 		base_.assign( (uint8_t*)p ) ;
 
-		if( *((uint32_t const*)p) != signature ) 
-			throw fp + string(" does not have 'DNA0' signature") ;
+		if( ((uint32_t const*)p)[0] != signature ) 
+			throw fp + string(" does not have 'DNA1' signature") ;
 
-		for( int i = 0 ; i != g.sequence_size() ; ++i )
+		uint32_t meta_off = ((uint32_t const*)p)[1] ;
+		uint32_t meta_len = ((uint32_t const*)p)[2] ;
+
+		if( !g_.ParseFromArray( (const char*)p + meta_off, meta_len ) )
+			throw "error parsing meta information" ;
+
+		for( int i = 0 ; i != g_.sequence_size() ; ++i )
 		{
-			const Sequence &s = g.sequence(i) ;
+			const Sequence &s = g_.sequence(i) ;
 			for( int j = 0 ; j != s.contig_size() ; ++j )
 			{
 				const Contig &c = s.contig(j) ;
 				contig_map_[ c.offset() ] = make_pair( &s, &c ) ;
 			}
 		}
-		contig_map_[ g.total_size() ] = make_pair( (const Sequence*)0, (const Contig*)0 ) ;
+		contig_map_[ g_.total_size() ] = make_pair( (const Sequence*)0, (const Contig*)0 ) ;
 	}
 	catch(...) 
 	{
@@ -61,41 +78,56 @@ void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 			<< ", " << round((50.0*o)/l) << "%)\e[K" << flush ;
 }
 
-FixedIndex::FixedIndex( const char* fp, unsigned w )
-	: base(0), secondary(0), first_level_len(0), length(0), fd(-1), wordsize(w)
+FixedIndex::FixedIndex( const std::string& name, const config::Config& c )
+	: base(0), secondary(0), first_level_len(0), length(0), fd_(-1)
 {
 	try 
 	{
-		fd = open( fp, O_RDONLY ) ;
-		throw_errno_if_minus1( fd, "opening", fp ) ;
+		std::string fp = name ;
+		fd_ = open( fp.c_str(), O_RDONLY ) ;
+		if( fd_ == -1 && errno != ENOENT )
+			throw_errno_if_minus1( fd_, "opening", fp.c_str() ) ;
+
+		for( int i = 0 ; fd_ == -1 && i != c.index_path_size() ; ++i )
+		{
+			fp = c.index_path(i) + '/' + name ;
+			fd_ = open( fp.c_str(), O_RDONLY ) ;
+			if( fd_ == -1 && errno != ENOENT )
+				throw_errno_if_minus1( fd_, "opening", fp.c_str() ) ;
+		}
+		throw_errno_if_minus1( fd_, "opening", name.c_str() ) ;
+
 		struct stat the_stat ;
-		throw_errno_if_minus1( fstat( fd, &the_stat ), "statting", fp ) ;
+		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp.c_str() ) ;
 		length = the_stat.st_size ;
-		void *p = mmap( 0, length, PROT_READ, MAP_SHARED, fd, 0 ) ;
-		throw_errno_if_minus1( p, "mmapping", fp ) ;
-		base = (uint32_t*)p ;
+		p_ = mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
+		throw_errno_if_minus1( p_, "mmapping", fp.c_str() ) ;
 
 		// std::cerr << "index base: " << p << std::endl ;
 
-		if( base[0] != signature ) 
-			throw fp + string(" does not have 'IDX0' signature") ;
+		if( *(const uint32_t*)p_ != signature ) 
+			throw fp + string(" does not have 'IDX1' signature") ;
 
-		first_level_len = base[1] ;
-		base += 2 ;
+		uint32_t meta_len = base[1] ;
+		if( !ci_.ParseFromArray( (const char*)p_ + 8, meta_len ) )
+			throw "error parsing meta information" ;
+
+		first_level_len = 1 << (2 * ci_.wordsize()) + 1 ;
+		base = (const uint32_t*)( (const char*)p_ + 8 + meta_len ) ;
 		secondary = base + first_level_len + 1 ;
 	}
 	catch(...)
 	{
-		if( base ) munmap( base-2, length ) ;
-		if( fd != -1 ) close( fd ) ;
+		if( p_ ) munmap( (void*)p_, length ) ;
+		if( fd_ != -1 ) close( fd_ ) ;
 		throw ;
 	}
 }
 
 FixedIndex::~FixedIndex() 
 {
-	if( base ) munmap( base-2, length ) ;
-	if( fd != -1 ) close( fd ) ;
+	if( p_ ) munmap( (void*)p_, length ) ;
+	if( fd_ != -1 ) close( fd_ ) ;
 }
 
 //! \brief directly looks up an oligo
@@ -113,7 +145,7 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 	assert( o < first_level_len ) ;
 
 	Seed seed ;
-	seed.size = wordsize ;
+	seed.size = ci_.wordsize() ;
 	seed.offset = offs ;
 
 	if( base[o+1] - base[o] < cutoff )
@@ -144,9 +176,9 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_t cutoff ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
-	Oligo mask = ~( ~0 << (wordsize * 2) ) ;
+	Oligo mask = ~( ~0 << (ci_.wordsize() * 2) ) ;
 
-	int s = 2 * wordsize - 2 ;
+	int s = 2 * ci_.wordsize() - 2 ;
 	unsigned filled = 0 ;
 	unsigned total = 0 ;
 	int32_t fraglen = dna.length() ;
@@ -165,9 +197,9 @@ unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_
 			case 8: o_f |= 3 << s ; o_r |= 1 ; break ;
 			default: filled = 0 ; break ;
 		}
-		if( filled >= wordsize ) 
-			total += lookup1( o_f, v, cutoff,   offset - wordsize + 1 ) 
-				   + lookup1( o_r, v, cutoff, - offset                ) ;
+		if( filled >= ci_.wordsize() ) 
+			total += lookup1( o_f, v, cutoff,   offset - ci_.wordsize() + 1 ) 
+				   + lookup1( o_r, v, cutoff, - offset                      ) ;
 	}
 	combine_seeds( v ) ;
 	return total ;
@@ -181,8 +213,8 @@ bool CompactGenome::translate_back( DnaP pos, std::string& sequ_id, uint32_t& of
 	--high ;
 
 	// uint32_t offset = high->first ;
-	const metaindex::Sequence *sequ = high->second.first ;
-	const metaindex::Contig *contig = high->second.second ;
+	const config::Sequence *sequ = high->second.first ;
+	const config::Contig *contig = high->second.second ;
 
 	sequ_id = sequ->name() ;
 	offset = pos.abs() - base_ - contig->offset() + contig->range_start() ;

@@ -27,7 +27,7 @@
  * that every contig is terminated by a gap in either direction.
  *
  * An index of the contigs and a description of the genome is packed
- * into a message of type "Genome" (see metaindex.proto) and a "Config"
+ * into a message of type "Genome" (see config.proto) and a "Config"
  * message containing only this genome definition is written out in
  * binary protobuf format.
  *
@@ -38,7 +38,7 @@
  */
 
 #include "conffile.h"
-#include "metaindex.pb.h"
+#include "config.pb.h"
 #include "sequence.h"
 #include "util.h"
 
@@ -74,9 +74,9 @@ class FastaDecoder
 		bool verbose_ ;
 
 		std::ostream& dna_ ;
-		metaindex::Genome& cur_genome_ ;
-		metaindex::Sequence *cur_sequence_ ;
-		metaindex::Contig *cur_contig_ ;
+		config::Genome cur_genome_ ;
+		config::Sequence *cur_sequence_ ;
+		config::Contig *cur_contig_ ;
 		
 		
 	public:
@@ -94,19 +94,28 @@ class FastaDecoder
 		//! \param maxn maximum number of Ns in a row that is not a gap
 		//! \param verbose whether to produce progress reports to \c
 		//!        stderr
-		FastaDecoder( std::ostream& dna, metaindex::Genome &genome, unsigned maxn = 2, bool verbose = false )
+		FastaDecoder( std::ostream& dna, const config::Genome &genome, unsigned maxn = 2, bool verbose = false )
 			: state_( &FastaDecoder::s_idle ), position_( 8 ), num_n_( 0 ), one_nt_( 0 )
 			, max_n_( maxn ), verbose_( verbose ), dna_( dna )
 			, cur_genome_( genome ), cur_sequence_( 0 ), cur_contig_( 0 )
 		{
-			dna_.write( "DNA0", 4 ) ;
+			dna_.write( "DNA1\0\0\0\0\0\0\0\0", 12 ) ;
 			cur_genome_.clear_sequence() ;
+			cur_genome_.set_maxn( maxn ) ;
 		}
 
 		void finish() 
 		{
 			step( 0 ) ;
 			if( verbose_ ) std::clog << "\33[K" << std::flush ;
+
+			uint32_t ix_start = dna_.tellp() ;
+			if( !cur_genome_.SerializeToOstream( &dna_ ) ) 
+				throw "couldn't serialize config" ;
+			uint32_t ix_len = (uint32_t)dna_.tellp() - ix_start ;
+			dna_.seekp( 4 ) ;
+			dna_.write( (char*)&ix_start, 4 ) ;
+			dna_.write( (char*)&ix_len, 4 ) ; 
 		}
 
 		void consume( std::istream& s ) 
@@ -286,7 +295,7 @@ int main_( int argc, const char * argv[] )
 	enum option_tags { opt_none, opt_version } ;
 
 	const char* output_file = 0 ;
-	const char* config_file = 0 ;
+	// const char* config_file = 0 ;
 	const char* description = 0 ;
 	const char* genome_name = 0 ;
 	int max_num_n = 2 ;
@@ -296,7 +305,7 @@ int main_( int argc, const char * argv[] )
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write DNA output to FILE", "FILE" },
 		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "Treat N consecutive Ns as separator", "N" },
-		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
+		// { "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "Set genome name to NAME", "NAME" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to genome", "TEXT" },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
@@ -320,15 +329,14 @@ int main_( int argc, const char * argv[] )
 			return 1 ; 
 	}
 
-	if( !config_file ) throw "missing --config option" ;
+	// if( !config_file ) throw "missing --config option" ;
 	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
 
-	metaindex::Config mi ;
-	metaindex::Genome& g = *mi.add_genome() ;
+	config::Config mi ;
+	config::Genome& g = *mi.add_genome() ;
 
 	g.set_name( genome_name ) ;
-	g.set_filename( output_file ) ;
 	if( description ) g.set_description( description ) ;
 
 	std::ofstream output_stream( output_file ) ;
@@ -346,7 +354,7 @@ int main_( int argc, const char * argv[] )
 	}
 
 	fd.finish() ;
-	write_binary_config( config_file, mi ) ;
+	// write_binary_config( config_file, mi ) ;
 	return 0 ;
 }
 

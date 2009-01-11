@@ -40,20 +40,18 @@ void revcom( string &s )
 
 int main_( int argc, const char * argv[] )
 {
-	metaindex::Config mi ;
+	config::Config mi ;
 	merge_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "config.txt" : argv[1], mi ) ;
-	metaindex::CompactIndex cix = find_compact_index( mi, argc < 3 ? "chr21" : argv[2] ) ;
-	metaindex::Genome gdef = find_genome( mi, cix.genome_name() ) ;
 
-	cout << "Found index " << cix.filename() << " with wordsize " << cix.wordsize() << " and " ;
-	if( cix.has_cutoff() ) cout << "cutoff " << cix.cutoff() << '.' ;
-	                  else cout << "no cutoff." ;
-	cout << "\nFound genome " << gdef.filename() << " of length " << gdef.total_size() << endl ;
+	FixedIndex ix( argc < 3 ? "chr21" : argv[2], mi ) ;
+	CompactGenome g( ix.ci_.genome_name(), mi ) ;
 
-	FixedIndex ix( cix.filename().c_str(), cix.wordsize() ) ;
-	CompactGenome g( gdef ) ;
+	cout << "Found index " << /* XXX cix.filename() << */ " with wordsize " << ix.ci_.wordsize() << " and " ;
+	if( ix.ci_.has_cutoff() ) cout << "cutoff " << ix.ci_.cutoff() << '.' ;
+	                     else cout << "no cutoff." ;
+	cout << "\nFound genome " << g.describe() << " of length " << g.total_size() << endl ;
 
-	// string sq = argc < 4 ? "TAGGTCTTTTCCCAGGCCCAGTATCTGTGATTTGCTGTACATAACAGCTG" : argv[3] ;
+
 	string sq = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
 	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(sq) ;
 	QSequence ps( sq.c_str() ) ;

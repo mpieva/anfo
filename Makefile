@@ -8,14 +8,15 @@ CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -O3 -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS = -ggdb -Wall -MMD -DVERSION='"$(version)"'
 
-TARGETS := fa2dna dnaindex index_test anfo-standalone
+TARGETS := fa2dna dnaindex index_test
+# TARGETS := fa2dna dnaindex index_test anfo-standalone
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna
 
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := metaindex.pb.o output.pb.o util.o index.o conffile.o sequence.o
+OBJECTS := config.pb.o output.pb.o util.o index.o conffile.o sequence.o
 
 fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)
@@ -27,7 +28,7 @@ anfo-standalone: $(OBJECTS)
 	    	/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr*.fa
 
 ../data/chr21.dna: fa2dna
-	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -c $(@:.dna=.cfg) -o $@ -v \
+	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -o $@ -v \
 		/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr21.fa
 
 ../data/hg18_10.idx: ../data/hg18.dna dnaindex
