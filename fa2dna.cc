@@ -17,19 +17,18 @@
  * two left rotations therefore reverse-complement a single nucleotide.
  * In a byte, the first nucleotide occupies the 4 LSBs.
  *
- * The "compact genome" starts with the ACSII-signature "DNA0", followed
- * by the raw DNA.  Each contig is prepended with a single gap, then the
+ * The "compact genome" starts with the ACSII-signature "DNA1", then the
+ * offset to the internal metadata, then the length of the metadata, followed
+ * by the raw DNA.  Finally the metadata is attached, in the form of a
+ * binary protocol buffer message of type config::Genome.  
+ *
+ * In the DNA part, each contig is prepended with a single gap, then the
  * contigs are concatenated, then a final single gap is appended.  The
- * DNA is written out with two nucleotides per byte, and the final byte is
- * padded with a gap if necessary.  Note that every contig is always
+ * DNA is written out with two nucleotides per byte, and the final byte
+ * is padded with a gap if necessary.  Note that every contig is always
  * preceded and succeeded by a gap; this is done so we can \c mmap a
  * genome into memory and operate on pointers into it in the knowledge
  * that every contig is terminated by a gap in either direction.
- *
- * An index of the contigs and a description of the genome is packed
- * into a message of type "Genome" (see config.proto) and a "Config"
- * message containing only this genome definition is written out in
- * binary protobuf format.
  *
  * \todo A genome may or may not contain information about taxonomy, and
  *       this info may apply to the genome or just some sequences.  Add
@@ -39,6 +38,7 @@
 
 #include "conffile.h"
 #include "config.pb.h"
+#include "index.h"
 #include "sequence.h"
 #include "util.h"
 
@@ -95,11 +95,14 @@ class FastaDecoder
 		//! \param verbose whether to produce progress reports to \c
 		//!        stderr
 		FastaDecoder( std::ostream& dna, const config::Genome &genome, unsigned maxn = 2, bool verbose = false )
-			: state_( &FastaDecoder::s_idle ), position_( 8 ), num_n_( 0 ), one_nt_( 0 )
+			: state_( &FastaDecoder::s_idle ), position_( 24 ), num_n_( 0 ), one_nt_( 0 )
 			, max_n_( maxn ), verbose_( verbose ), dna_( dna )
 			, cur_genome_( genome ), cur_sequence_( 0 ), cur_contig_( 0 )
 		{
-			dna_.write( "DNA1\0\0\0\0\0\0\0\0", 12 ) ;
+			uint32_t dummy = 0, signature = CompactGenome::signature ;
+			dna_.write( (const char*)&signature, 4 ) ;
+			dna_.write( (const char*)&dummy, 4 ) ;
+			dna_.write( (const char*)&dummy, 4 ) ;
 			cur_genome_.clear_sequence() ;
 			cur_genome_.set_maxn( maxn ) ;
 		}
@@ -287,15 +290,18 @@ class FastaDecoder
 		}
 } ;
 
-
-
+std::string drop_suffix( const std::string& suf, const std::string& s )
+{
+	if( s.substr( s.size()-suf.size() ) == suf ) return s.substr( 0, s.size()-suf.size() ) ;
+	else return s ;
+}
 
 int main_( int argc, const char * argv[] )
 {
 	enum option_tags { opt_none, opt_version } ;
 
 	const char* output_file = 0 ;
-	// const char* config_file = 0 ;
+	const char* output_dir  = "." ;
 	const char* description = 0 ;
 	const char* genome_name = 0 ;
 	int max_num_n = 2 ;
@@ -304,8 +310,8 @@ int main_( int argc, const char * argv[] )
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write DNA output to FILE", "FILE" },
+		{ "output-dir",  'O', POPT_ARG_STRING, &output_dir,  opt_none,    "Write output in folder DIR", "DIR" },
 		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "Treat N consecutive Ns as separator", "N" },
-		// { "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "Set genome name to NAME", "NAME" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to genome", "TEXT" },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
@@ -329,17 +335,16 @@ int main_( int argc, const char * argv[] )
 			return 1 ; 
 	}
 
-	// if( !config_file ) throw "missing --config option" ;
-	if( !output_file ) throw "missing --output option" ;
 	if( !genome_name ) throw "missing --genome option" ;
+	config::Genome g ;
 
-	config::Config mi ;
-	config::Genome& g = *mi.add_genome() ;
-
-	g.set_name( genome_name ) ;
 	if( description ) g.set_description( description ) ;
+	if( genome_name ) g.set_name( genome_name ) ;
+	else if( !poptPeekArg( pc ) ) g.set_name( "genome" ) ;
+	else g.set_name( drop_suffix( ".fa", drop_suffix( ".fas", drop_suffix( ".fna", poptPeekArg( pc ))))) ;
 
-	std::ofstream output_stream( output_file ) ;
+	std::ofstream output_stream( (std::string(output_dir) + "/" + 
+				(output_file ? output_file : (g.name() + ".dna"))).c_str() ) ;
 	FastaDecoder fd( output_stream, g, max_num_n, verbose ) ;
 
 	if( !poptPeekArg( pc ) ) fd.consume( std::cin ) ;
@@ -354,7 +359,6 @@ int main_( int argc, const char * argv[] )
 	}
 
 	fd.finish() ;
-	// write_binary_config( config_file, mi ) ;
 	return 0 ;
 }
 

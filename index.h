@@ -18,10 +18,11 @@
 class CompactGenome
 {
 	public:
-		typedef std::map< uint32_t, std::pair< const config::Sequence*, const config::Contig* > > ContigMap ;
+		typedef std::map< uint32_t, std::pair< config::Sequence, config::Contig > > ContigMap ;
 
 	private:
 		DnaP base_ ;
+		size_t file_size_ ;
 		uint32_t length_ ;
 		int fd_ ;
 		ContigMap contig_map_ ;
@@ -32,7 +33,7 @@ class CompactGenome
 		//! Genomes constructed in the default fashion are unusable;
 		//! however, this makes \c CompactGenome default constructible
 		//! for use in standard containers.
-		CompactGenome() : base_(0), length_(0), fd_(0), g_() {}
+		CompactGenome() : base_(0), file_size_(0), length_(0), fd_(0), contig_map_(), g_() {}
 
 		//! \brief makes accessible a genome file
 		//! \param name file name of the genome
@@ -42,6 +43,7 @@ class CompactGenome
 		CompactGenome( const std::string& name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~CompactGenome() ;
 
+		std::string name() const { return g_.name() ; }
 		std::string describe() const 
 		{
 			std::string d = g_.name() ;
@@ -78,6 +80,7 @@ class CompactGenome
 		void swap( CompactGenome& g )
 		{
 			std::swap( base_, g.base_ ) ;
+			std::swap( file_size_, g.file_size_ ) ;
 			std::swap( length_, g.length_ ) ;
 			std::swap( fd_, g.fd_ ) ;
 			std::swap( contig_map_, g.contig_map_ ) ;
@@ -97,9 +100,9 @@ class CompactGenome
 		//! \return true iff the pointer could be translated
 		bool translate_back( DnaP pos, std::string& sequ_id, uint32_t& offset ) const ;
 
-	private:
-		static const uint32_t signature = 0x31414e44u ; // DNA1 
+		enum { signature = 0x31414e44u } ; // DNA1 
 
+	private:
 		//! \brief reports a position while scanning
 		//! \internal
 		static void report( uint32_t, uint32_t, const char* ) ;
@@ -140,6 +143,7 @@ class FixedIndex
 		operator const void * () const { return base ; }
 
 		void swap( FixedIndex& i ) {
+			std::swap( p_, i.p_ ) ;
 			std::swap( base, i.base ) ;
 			std::swap( secondary, i.secondary ) ;
 			std::swap( first_level_len, i.first_level_len ) ;

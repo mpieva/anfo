@@ -1,13 +1,16 @@
 /*! \page DNA indexer
  *
- * Scans a dna file, creating an index of fixed-size words. 
- * We need a two-level index and want to keep it simple.  To this end,
- * we'll store the configuration of the index externally in text format
- * and the index files themselves are little more than arrays.  So, this
- * is what an index file looks like:
+ * Scans a dna file, creating an index of fixed-size words.  We need a
+ * two-level index and want to keep it simple.  To this end, we'll store
+ * plain arrays in the index files so they can be directly mmaped.  That
+ * makes them inherently unportable between different architectures, but
+ * we'll have to live with that.  So, this is what an index file looks
+ * like:
  *
- * - The signature "IDX0" in ASCII.
- * - The size of the first level array in words.
+ * - The signature "IDX1" in ASCII.
+ * - The length of the meta information.
+ * - The metainformation of type config::CompactIndex, serialized in
+ *   binary protocol buffer format.
  * - The first level array itself.  Every DNA-word is converted to an
  *   index by assigning 0,1,2,3 to A,C,T,G and writing nucleotides LSB
  *   to MSB.  The entry at that position is an offset into the second
@@ -30,16 +33,8 @@
  *
  * We use (unsigned long long int) to store words cut out from the
  * genome.  Assuming it has at least 64 bits of storage, this limits the
- * word size to 16 bases.  (No problem, more than that is probably
- * impractical anyway.)  
- *
- * \todo This is crap... splitting everything over two files.  DNA and
- *       index files should include their metainformation.  Maybe put an
- *       appropriate message at the end of the file, store an offset at
- *       the start?
- *
- * \note to self: creating and mmapping a sparse file, then filling it in
- *       random order is an exceptionally bad idea...
+ * word size to no less than 16 bases.  (No problem, more than that is
+ * probably impractical anyway.)  
  *
  * \todo The indexer can produce a histogram.  This should actually be
  *       part of normal operation to select a sensible cutoff.
@@ -47,7 +42,6 @@
 
 #include "index.h"
 #include "util.h"
-#include "conffile.h"
 #include "config.pb.h"
 
 #include <google/protobuf/text_format.h>
@@ -58,6 +52,7 @@
 #include <cassert>
 #include <iostream>
 #include <iomanip>
+#include <sstream>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -178,9 +173,10 @@ class store_word {
 
 int main_( int argc, const char * argv[] )
 {
-	enum option_tags { opt_none, opt_version } ;
+	enum option_tags { opt_none, opt_version, opt_path } ;
 
 	const char* output_file = 0 ;
+	const char* output_dir  = "." ;
 	const char* config_file = 0 ;
 	const char* description = 0 ;
 	const char* genome_file = 0 ;
@@ -189,11 +185,14 @@ int main_( int argc, const char * argv[] )
 	unsigned cutoff   = std::numeric_limits<unsigned>::max() ;
 	int      verbose  = 0 ;
 
+	config::Config mi ;
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Output index to FILE", "FILE" },
+		{ "output-dir",  'O', POPT_ARG_STRING, &output_dir,  opt_none,    "Write output in folder DIR", "DIR" },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_file, opt_none,    "Read genome from FILE", "FILE" },
+		{ "genome-dir",  'G', POPT_ARG_STRING, 0,            opt_path,    "Add DIR to genome search path", "DIR" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
 		{ "wordsize",    's', POPT_ARG_INT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
@@ -208,6 +207,10 @@ int main_( int argc, const char * argv[] )
 	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
 	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
 	{
+		case opt_path:
+			*mi.add_genome_path() = poptGetOptArg( pc ) ;
+			break ;
+
 		case opt_version:
 			std::cout << poptGetInvocationName(pc) << ", revision " << VERSION << std::endl ;
 			return 0 ;
@@ -218,15 +221,8 @@ int main_( int argc, const char * argv[] )
 			return 1 ; 
 	}
 
-	// if( !config_file ) throw "missing --config option" ;
-	if( !output_file ) throw "missing --output option" ;
 	if( !genome_file ) throw "missing --genome option" ;
 
-	config::Config mi ;
-	if( config_file ) merge_text_config( config_file, mi ) ;
-	// merge_binary_config( genome_conf, mi ) ;
-
-	// if( !mi.genome_size() ) throw "no genome found" ;
 	CompactGenome genome( genome_file, mi, MADV_SEQUENTIAL ) ;
 
 	uint64_t first_level_len = 1 << (2 * wordsize) + 1 ;
@@ -294,22 +290,29 @@ int main_( int argc, const char * argv[] )
 	}
 
 	config::CompactIndex ci ;
-	ci.set_genome_name( mi.genome(0).name() ) ; // XXX
+	ci.set_genome_name( genome_file ) ;
 	ci.set_wordsize( wordsize ) ;
 	ci.set_indexsize( total ) ;
 	if( cutoff != std::numeric_limits<unsigned>::max() ) ci.set_cutoff( cutoff ) ;
 	std::string metainfo ;
 	if( !ci.SerializeToString( &metainfo ) ) throw "error when serializing metainfo" ;
 
-	std::clog << "Writing " << output_file << "..." << std::endl ;
-	int fd = throw_errno_if_minus1( creat( output_file, 0644 ), "opening", output_file ) ;
+	// Note to self: creating and mmapping a sparse file, then filling
+	// it in random order is an exceptionally bad idea...
+ 
+	std::clog << "Writing " << genome.name() << "..." << std::endl ;
+	std::stringstream output_path ;
+	output_path << output_dir << '/' ;
+	if( output_file ) output_path << output_file ;
+	else output_path << genome.name() << '_' << wordsize << ".idx" ;
+	int fd = throw_errno_if_minus1( creat( output_path.str().c_str(), 0644 ), "opening", output_path.str().c_str() ) ;
 
-	uint32_t sig = FixedIndex::signature, len = metainfo.size() ;
+	uint32_t sig = FixedIndex::signature, len = metainfo.size() ; 
+	metainfo.append( "\0\0\0" ) ;
 	mywrite( fd, &sig, 4 ) ;
 	mywrite( fd, &len, 4 ) ;
-	mywrite( fd, metainfo.data(), len ) ;
+	mywrite( fd, metainfo.data(), (len+3)&~3 ) ;
 	mywrite( fd, base, 4 * first_level_len ) ;
-	mywrite( fd, &total, 4 ) ;
 	mywrite( fd, lists, 4 * total ) ;
 
 	close( fd ) ;

@@ -125,7 +125,7 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 	return s ;
 }
 
-#if 0
+#if BUILD_TEST_HARNESS
 // very stupid test harness, not normally compiled
 
 #include <iostream>

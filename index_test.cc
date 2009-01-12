@@ -43,10 +43,10 @@ int main_( int argc, const char * argv[] )
 	config::Config mi ;
 	merge_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "config.txt" : argv[1], mi ) ;
 
-	FixedIndex ix( argc < 3 ? "chr21" : argv[2], mi ) ;
+	FixedIndex ix( argc < 3 ? "chr21_10" : argv[2], mi ) ;
 	CompactGenome g( ix.ci_.genome_name(), mi ) ;
 
-	cout << "Found index " << /* XXX cix.filename() << */ " with wordsize " << ix.ci_.wordsize() << " and " ;
+	cout << "Found index for " << ix.ci_.genome_name() << " with wordsize " << ix.ci_.wordsize() << " and " ;
 	if( ix.ci_.has_cutoff() ) cout << "cutoff " << ix.ci_.cutoff() << '.' ;
 	                     else cout << "no cutoff." ;
 	cout << "\nFound genome " << g.describe() << " of length " << g.total_size() << endl ;

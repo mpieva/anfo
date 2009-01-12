@@ -45,7 +45,13 @@ void write_separator( google::protobuf::io::ZeroCopyOutputStream& s )
 {
 	void *p ;
 	int sz ;
-	if( !s.Next( &p, &sz ) || sz < 4 ) throw "write error" ;
+	for(;;)
+	{
+		if( !s.Next( &p, &sz ) ) throw "write error" ;
+		if( sz >= 4 ) break ;
+		s.BackUp( sz ) ;
+	}
+
 	((char*)p)[0] = '\n' ;
 	((char*)p)[1] = 0x1e ; // RS 
 	((char*)p)[2] = '\n' ;
@@ -59,7 +65,7 @@ int main_( int argc, const char * argv[] )
 	merge_text_config( "config.txt", mi ) ;
 
 	typedef std::map< std::string, CompactGenome > Genomes ; 
-	typedef std::map< std::string, std::map< int, FixedIndex > > Indices ;
+	typedef std::map< std::string, FixedIndex > Indices ;
 	Genomes genomes ;
 	Indices indices ;
 	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
@@ -84,6 +90,8 @@ int main_( int argc, const char * argv[] )
 		}
 	}
 
+	std::clog << genomes.size() << " / " << indices.size() << std::endl ;
+
 	int config_out = throw_errno_if_minus1( creat( "output.tab", 0644 ), "writing output" ) ;
 	google::protobuf::io::FileOutputStream fos( config_out ) ;
 	fos.SetCloseOnDelete( true ) ;
@@ -107,20 +115,21 @@ int main_( int argc, const char * argv[] )
 		for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 		{
 			const config::CompactIndexSpec &cis = p.use_compact_index(i) ;
+			const FixedIndex &ix = indices[ cis.name() ] ;
+			const CompactGenome &g = genomes[ ix.ci_.genome_name() ] ;
+			assert( ix ) ; assert( g.get_base() ) ;
 
 			vector<Seed> seeds ;
-			int num_raw = indices[ cis.genome_name() ][ cis.wordsize() ].lookup( ps, seeds,
-					cis.has_cutoff() ? cis.cutoff() : std::numeric_limits<uint32_t>::max() ) ;
+			int num_raw = ix.lookup( ps, seeds, cis.has_cutoff() ? cis.cutoff() : std::numeric_limits<uint32_t>::max() ) ;
 			int num_comb = seeds.size() ;
-			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(),
-					genomes[ cis.genome_name() ].get_contig_map() ) ;
+			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
 			int num_clumps = seeds.size() ;
 
 			cout << ps.get_name() << ": got " << num_raw << " seeds, combined into "
 				 << num_comb << " larger ones, clumped into " << num_clumps
 				 << " clumps." << endl ;
 
-			setup_alignments( genomes[ cis.genome_name() ], ps, seeds.begin(), seeds.end(), ol ) ;
+			setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
 			total_seeds += num_raw ;
 		}
 		

@@ -18,15 +18,6 @@ using namespace config ;
 //! \todo Error handling is shaky.  (How the fuck am I supposed to find
 //!       out whether parsing worked at all?)
 
-static void unfold_includes( Config &mi )
-{
-	for( int i = 0 ; i != mi.load_size() ; ++i )
-		merge_binary_config( mi.load(i), mi ) ;
-
-	for( int i = 0 ; i != mi.include_size() ; ++i )
-		merge_text_config( mi.include(i), mi ) ;
-}
-
 void merge_text_config( const string& filename, Config &mi )
 {
 	Config c ;
@@ -36,7 +27,6 @@ void merge_text_config( const string& filename, Config &mi )
 	if( !google::protobuf::TextFormat::Parse( &fis, &c ) )
 		throw "parse error reading " + filename ;
 	close( config_in ) ;
-	unfold_includes( c ) ;
 	mi.MergeFrom( c ) ;
 }
 
@@ -48,7 +38,6 @@ void merge_binary_config( const string& filename, Config &mi )
 	if( !c.ParseFromFileDescriptor( config_in ) )
 		throw "unmarshal error reading " + filename ;
 	close( config_in ) ;
-	unfold_includes( c ) ;
 	mi.MergeFrom( c ) ;
 }
 
@@ -80,6 +69,7 @@ void write_binary_config( const string& filename, const Config &mi )
 			"renaming config" ) ;
 }
 
+/*
 const Genome& find_genome( const Config &mi, const string genome_name ) 
 {
 	for( int i = 0 ; i != mi.genome_size() ; ++i )
@@ -97,4 +87,4 @@ const CompactIndex& find_compact_index( const
 			return mi.compact_index(i) ;
 	throw "don't have an index for genome " + genome_name ;
 }
-
+*/

@@ -43,9 +43,8 @@ message Genome {
     // taxonomic id, if known and applies to whole genome
     optional uint32 taxid = 6 ;
 
-	// maximum number of contiguous Ns in sequence; more constitute a
-	// gap
-	required uint32 maxn = 7 ;
+    // maximum number of contiguous Ns; more constitute a gap
+    required uint32 maxn = 7 ;
 }
 
 message CompactIndex {
@@ -99,17 +98,9 @@ message Policy {
 }
 
 message Config {
-	repeated string genome_path = 18 ;
-	repeated string index_path = 19 ;
-
-    // set this to merge a binary configuration file
-    repeated string load = 16 ;
-
-    // set this to merge an additional text configuration file
-    repeated string include = 17 ;
-
-    repeated Genome genome = 1 ;
-    repeated CompactIndex compact_index = 2 ;
+    repeated string genome_path = 18 ;
+    repeated string index_path = 19 ;
     repeated Policy policy = 3 ;
 }
 
+// vim:expandtab:ts=4:sw=4:cindent

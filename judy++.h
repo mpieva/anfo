@@ -84,7 +84,6 @@ template< typename value > class const_ref
 		explicit const_ref( value *p = 0 ) : p_(p) {}
 		const value* operator -> () const { return p_ ; }
 		const value& operator * () const { return *p_ ; }
-		// operator const value* () const { return p_ ; }
 		bool operator ! () const { return !p_ ; }
 } ;
 
