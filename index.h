@@ -18,7 +18,7 @@
 class CompactGenome
 {
 	public:
-		typedef std::map< uint32_t, std::pair< config::Sequence, config::Contig > > ContigMap ;
+		typedef std::map< uint32_t, std::pair< int, int > > ContigMap ;
 
 	private:
 		DnaP base_ ;

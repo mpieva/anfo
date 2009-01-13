@@ -61,8 +61,7 @@ void write_separator( google::protobuf::io::ZeroCopyOutputStream& s )
 
 int main_( int argc, const char * argv[] )
 {
-	config::Config mi ;
-	merge_text_config( "config.txt", mi ) ;
+	config::Config mi = parse_text_config( "config.txt" ) ;
 
 	typedef std::map< std::string, CompactGenome > Genomes ; 
 	typedef std::map< std::string, FixedIndex > Indices ;

@@ -63,11 +63,11 @@ CompactGenome::CompactGenome( const std::string &name, const config::Config &c, 
 			for( int j = 0 ; j != s.contig_size() ; ++j )
 			{
 				const Contig &c = s.contig(j) ;
-				contig_map_[ c.offset() ].first = s ;
-				contig_map_[ c.offset() ].second = c ;
+				contig_map_[ c.offset() ].first = i ;
+				contig_map_[ c.offset() ].second = j ;
 			}
 		}
-		contig_map_[ g_.total_size() ] = make_pair( Sequence(), Contig() ) ;
+		contig_map_[ g_.total_size() ] = make_pair( -1, -1 ) ;
 	}
 	catch(...) 
 	{
@@ -218,8 +218,8 @@ bool CompactGenome::translate_back( DnaP pos, std::string& sequ_id, uint32_t& of
 	if( high == contig_map_.end() ) return false ; // after end
 	--high ;
 
-	const config::Sequence &sequ = high->second.first ;
-	const config::Contig &contig = high->second.second ;
+	const config::Sequence &sequ = g_.sequence( high->second.first ) ;
+	const config::Contig &contig = sequ.contig( high->second.second ) ;
 
 	sequ_id = sequ.name() ;
 	offset = pos.abs() - base_ - contig.offset() + contig.range_start() ;

@@ -40,8 +40,7 @@ void revcom( string &s )
 
 int main_( int argc, const char * argv[] )
 {
-	config::Config mi ;
-	merge_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "config.txt" : argv[1], mi ) ;
+	config::Config mi = parse_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "config.txt" : argv[1] ) ;
 
 	FixedIndex ix( argc < 3 ? "chr21_10" : argv[2], mi ) ;
 	CompactGenome g( ix.ci_.genome_name(), mi ) ;
