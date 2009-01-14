@@ -1,5 +1,6 @@
 #include <sequence.h>
 #include <cmath>
+#include <limits>
 #include <sstream>
 
 using namespace std ;
@@ -35,7 +36,7 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 {
 	qs.seq.clear() ;
 	qs.seq.push_back( 0 ) ;
-	while( seq_continues(s) ) s.ignore( INT_MAX, '\n' ) ;
+	while( seq_continues(s) ) s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
 
 	// header follows, don't care for the delimiter, read name and
 	// description

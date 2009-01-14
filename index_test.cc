@@ -3,6 +3,9 @@
 #include "index.h"
 #include "util.h"
 
+#include <limits>
+#include <string>
+
 using namespace std ;
 
 //! \brief Rev-complements ASCII-encoded sequence.
@@ -67,7 +70,7 @@ int main_( int argc, const char * argv[] )
 
 	deque<flat_alignment> ol ;
 	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-	flat_alignment best = find_cheapest( ol, INT_MAX, true ) ;
+	flat_alignment best = find_cheapest( ol, std::numeric_limits<uint32_t>::max(), true ) ;
 
 	cout << "Done near " << best.reference.abs() - g.get_base() << " costing " << best.penalty << ':' << endl ;
 
