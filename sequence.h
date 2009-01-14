@@ -122,12 +122,7 @@ class DnaP
 		//! \param complement set to true to make a pointer to the
 		//!                   reverse-complemented strand
 		//! \param off offset to add to the final pointer
-		explicit DnaP( const uint8_t *p = 0, bool complement = false, int off = 0 ) 
-		{
-			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
-			if( complement ) p_ = -p_ ;
-			p_ += off ;
-		}
+		explicit DnaP( const uint8_t *p = 0, bool complement = false, int off = 0 ) { assign( p, complement, off ) ; }
 
 		void assign( const uint8_t *p = 0, bool complement = false, int off = 0 )
 		{
@@ -139,7 +134,9 @@ class DnaP
 		Ambicode operator * () const { return (*this)[0] ; }
 		Ambicode operator [] ( int64_t ix ) const {
 			int64_t p = p_ + ix ;
-			uint8_t w = *( reinterpret_cast<uint8_t*>( (std::abs(p) << 1) >> 2 ) ) ;
+			int64_t p2 = std::abs(p) ;
+			if( (p2 << 1) < 0 ) p2 |= std::numeric_limits<int64_t>::min() ;
+			uint8_t w = *( reinterpret_cast<uint8_t*>( p2 >> 1 ) ) ;
 			w = 0xf & ( p & 1 ? w >> 4 : w ) ;
 			return p < 0 ? complement(w) : w ;  
 		}
@@ -154,7 +151,11 @@ class DnaP
 		//! \internal
 		//! If you call this function for anything, you're on your own.
 		const uint8_t *unsafe_ptr() const
-		{ return reinterpret_cast<uint8_t*>( (std::abs(p_) << 1) >> 2 ) ; }
+		{ 
+			int64_t p2 = std::abs(p_) ;
+			if( (p2 << 1) < 0 ) p2 |= std::numeric_limits<int64_t>::min() ;
+			return reinterpret_cast<uint8_t*>( p2 >> 1 ) ;
+		}
 
 		DnaP &operator ++ () { p_++ ; return *this ; }
 		DnaP &operator -- () { p_-- ; return *this ; }
