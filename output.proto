@@ -73,6 +73,11 @@ message Result {
     // Reason we arrived at this result
     optional Reason reason = 10 [ default = aligned ] ;
 
+	// For statistical purposes
+	optional uint32 num_raw_seeds = 16 ;
+	optional uint32 num_grown_seeds = 17 ;
+	optional uint32 num_clumps = 18 ;
+
     // Best hit globally, if any.  Difference in bit score to the next
     // best one with different species, with different order, iff such
     // hits exist.

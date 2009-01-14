@@ -1,6 +1,7 @@
 #include "align.h"
 #include "conffile.h"
 #include "index.h"
+#include "outputfile.h"
 #include "util.h"
 
 #include "output.pb.h"
@@ -41,24 +42,6 @@ config::Policy select_policy( const config::Config &c, const QSequence &ps )
 	return p ;
 }
 
-void write_separator( google::protobuf::io::ZeroCopyOutputStream& s )
-{
-	void *p ;
-	int sz ;
-	for(;;)
-	{
-		if( !s.Next( &p, &sz ) ) throw "write error" ;
-		if( sz >= 4 ) break ;
-		s.BackUp( sz ) ;
-	}
-
-	((char*)p)[0] = '\n' ;
-	((char*)p)[1] = 0x1e ; // RS 
-	((char*)p)[2] = '\n' ;
-	((char*)p)[3] = '\n' ;
-	s.BackUp( sz - 4 ) ;
-}
-
 int main_( int argc, const char * argv[] )
 {
 	config::Config mi = parse_text_config( "config.txt" ) ;
@@ -89,19 +72,18 @@ int main_( int argc, const char * argv[] )
 		}
 	}
 
-	std::clog << genomes.size() << " / " << indices.size() << std::endl ;
-
-	int config_out = throw_errno_if_minus1( creat( "output.tab", 0644 ), "writing output" ) ;
-	google::protobuf::io::FileOutputStream fos( config_out ) ;
-	fos.SetCloseOnDelete( true ) ;
-
-	google::protobuf::TextFormat::Print( ohd, &fos ) ; write_separator( fos ) ; // XXX
+	std::ofstream config_out( "output.tab" ) ;
+	google::protobuf::io::OstreamOutputStream oos( &config_out ) ;
+	google::protobuf::io::CodedOutputStream cos( &oos ) ;
+	write_delimited_message( cos, ohd ) ;
 
 	std::ifstream inp( "input.fa" ) ;
 	QSequence ps ;
 	while( read_fastq( inp, ps ) )
 	{
 		output::Result r ;
+		std::clog << '\r' << ps.get_name() << "\33[K" << std::flush ;
+
 		r.set_seqid( ps.get_name() ) ;
 		if( !ps.get_descr().empty() ) r.set_description( ps.get_descr() ) ;
 		r.set_sequence( ps.as_string() ) ;
@@ -110,7 +92,7 @@ int main_( int argc, const char * argv[] )
 		const config::Policy& p = select_policy( mi, ps ) ;
 
 		deque<flat_alignment> ol ;
-		int total_seeds = 0 ;
+		int num_raw = 0, num_comb = 0, num_clumps = 0 ;
 		for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 		{
 			const config::CompactIndexSpec &cis = p.use_compact_index(i) ;
@@ -119,19 +101,17 @@ int main_( int argc, const char * argv[] )
 			assert( ix ) ; assert( g.get_base() ) ;
 
 			vector<Seed> seeds ;
-			int num_raw = ix.lookup( ps, seeds, cis.has_cutoff() ? cis.cutoff() : std::numeric_limits<uint32_t>::max() ) ;
-			int num_comb = seeds.size() ;
+			num_raw += ix.lookup( ps, seeds, cis.has_cutoff() ? cis.cutoff() : std::numeric_limits<uint32_t>::max() ) ;
+			num_comb += seeds.size() ;
 			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
-			int num_clumps = seeds.size() ;
-
-			cout << ps.get_name() << ": got " << num_raw << " seeds, combined into "
-				 << num_comb << " larger ones, clumped into " << num_clumps
-				 << " clumps." << endl ;
+			num_clumps += seeds.size() ;
 
 			setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-			total_seeds += num_raw ;
 		}
-		
+		r.set_num_raw_seeds( num_raw ) ;
+		r.set_num_grown_seeds( num_comb ) ;
+		r.set_num_clumps( num_clumps ) ;
+
 		if( !p.has_max_penalty_per_nuc() )
 		{
 			r.set_reason( output::no_policy ) ;
@@ -167,9 +147,13 @@ int main_( int argc, const char * argv[] )
 				{
 					uint32_t start_pos ;
 					int32_t len = t.maxpos - t.minpos - 1 ;
-					if( g->second.translate_back( t.minpos+1, *h->mutable_sequence(), start_pos ) )
+					if( const config::Sequence *sequ = g->second.translate_back( t.minpos+1, start_pos ) )
 					{
 						h->set_genome( g->first ) ;
+						h->set_sequence( sequ->name() ) ;
+						if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+						else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
+
 						if( t.minpos.is_reversed() )
 						{
 							h->set_start_pos( start_pos - len + 1 ) ;
@@ -192,7 +176,6 @@ int main_( int argc, const char * argv[] )
 				}
 				h->set_score( penalty ) ;
 				// XXX: h->set_evalue
-				// XXX: h->set_taxid
 
 				//! \todo Find second best hit and similar stuff.
 				//! We want the distance to the next best hit; also,
@@ -204,8 +187,9 @@ int main_( int argc, const char * argv[] )
 			}
 		}
 
-		google::protobuf::TextFormat::Print( r, &fos ) ; write_separator( fos ) ; // XXX
+		write_delimited_message( cos, r ) ;
 	}
+	std::clog << std::endl ;
 	return 0 ;
 }
 

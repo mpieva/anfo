@@ -35,9 +35,6 @@
  * genome.  Assuming it has at least 64 bits of storage, this limits the
  * word size to no less than 16 bases.  (No problem, more than that is
  * probably impractical anyway.)  
- *
- * \todo The indexer can produce a histogram.  This should actually be
- *       part of normal operation to select a sensible cutoff.
  */
 
 #include "index.h"
@@ -181,9 +178,10 @@ int main_( int argc, const char * argv[] )
 	const char* description = 0 ;
 	const char* genome_file = 0 ;
 
-	unsigned wordsize = 10 ;
-	unsigned cutoff   = std::numeric_limits<unsigned>::max() ;
-	int      verbose  = 0 ;
+	unsigned wordsize  = 10 ;
+	unsigned cutoff    = std::numeric_limits<unsigned>::max() ;
+	int      verbose   = 0 ;
+	int 	 histogram = 0 ;
 
 	config::Config mi ;
 	struct poptOption options[] = {
@@ -196,6 +194,7 @@ int main_( int argc, const char * argv[] )
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
 		{ "wordsize",    's', POPT_ARG_INT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
+		{ "histogram",   'h', POPT_ARG_NONE,   &histogram,   opt_none,    "Produce histogram of word frequencies", 0 },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
@@ -242,14 +241,21 @@ int main_( int argc, const char * argv[] )
 	genome.scan_words( wordsize, make_dense_word( count_word( base, cutoff, total0 ) ), "Counting" ) ;
 	std::clog << "Need to store " << total0 << " pointers." << std::endl ;
 
-#if 0
-	// XXX This is temporary... make a histogram.
-	std::map< int, int > hist ;
-	for( unsigned *p = base+3 ; p != base+3+first_level_len ; ++p ) ++hist[ *p ] ;
+	// Histogram of word frequencies.
+	if( histogram )
+	{
+		std::map< int, int > hist ;
+		for( unsigned *p = base+3 ; p != base+3+first_level_len ; ++p )
+			++hist[ *p ] ;
 
-	for( std::map< int,int >::const_iterator i = hist.begin() ; i != hist.end() ; ++i )
-		std::cout << i->first << '\t' << i->second << std::endl ;
-#endif
+		int max = 0 ;
+		for( std::map< int,int >::const_iterator i = hist.begin() ; i != hist.end() ; ++i )
+			if( max < i->second ) max = i->second ;
+
+		for( std::map< int,int >::const_iterator i = hist.begin() ; i != hist.end() ; ++i )
+			std::cout << i->first << '\t' << i->second << '\t'
+				<< std::string( 50*i->second / max, '*' ) << std::endl ;
+	}
 
 	// sum up occurences and replace counts by pointers into array.
 	// For practical reasons, pointers (actually indices) will be set to

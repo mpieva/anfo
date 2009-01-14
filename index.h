@@ -26,6 +26,8 @@ class CompactGenome
 		uint32_t length_ ;
 		int fd_ ;
 		ContigMap contig_map_ ;
+
+	public:
 		config::Genome g_ ;
 
 	public:
@@ -95,10 +97,9 @@ class CompactGenome
 		//! strand is disregarded, the result is the same regardless of
 		//! the direction the pointer would be moving in.
 		//! \param pos position to be translated
-		//! \param sequ_id is assigned the name of the found sequence
 		//! \param offset is assigned the offset after translation
-		//! \return true iff the pointer could be translated
-		bool translate_back( DnaP pos, std::string& sequ_id, uint32_t& offset ) const ;
+		//! \return pointer to sequence that includes the hit, else null
+		const config::Sequence *translate_back( DnaP pos, uint32_t& offset ) const ;
 
 		enum { signature = 0x31414e44u } ; // DNA1 
 

@@ -5,10 +5,10 @@ PROTOC ?= protoc
 LDLIBS += -lprotobuf -lpopt -lJudy
 # LDFLAGS += -p
 CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
-CXXFLAGS += -ggdb 
-# CXXFLAGS += -O3
+# CXXFLAGS += -ggdb 
+CXXFLAGS += -O3
 
-TARGETS := fa2dna dnaindex index_test file-info anfo-standalone
+TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
 
@@ -22,6 +22,7 @@ dnaindex: $(OBJECTS)
 file-info: $(OBJECTS)
 index_test: $(OBJECTS)
 anfo-standalone: $(OBJECTS)
+anfo-type: $(OBJECTS)
 
 ../data/hg18.dna: fa2dna
 	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -O ${@D} -v \

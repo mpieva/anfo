@@ -211,18 +211,17 @@ unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_
 	return total ;
 }
 
-bool CompactGenome::translate_back( DnaP pos, std::string& sequ_id, uint32_t& offset ) const 
+const config::Sequence *CompactGenome::translate_back( DnaP pos, uint32_t& offset ) const 
 {
 	ContigMap::const_iterator high = contig_map_.upper_bound( pos.abs() - base_ ) ;
-	if( pos.abs() < base_ ) return false ; // before start
-	if( high == contig_map_.end() ) return false ; // after end
+	if( pos.abs() < base_ ) return 0 ; // before start
+	if( high == contig_map_.end() ) return 0 ; // after end
 	--high ;
 
 	const config::Sequence &sequ = g_.sequence( high->second.first ) ;
 	const config::Contig &contig = sequ.contig( high->second.second ) ;
 
-	sequ_id = sequ.name() ;
 	offset = pos.abs() - base_ - contig.offset() + contig.range_start() ;
-	return true ;
+	return &sequ ;
 }
 

@@ -1,5 +1,5 @@
 /*!
- * \page FASTA to DNA file converter
+ * \page fasta_to_dna FASTA to DNA file converter
  *
  * \c fa2dna reads a set of FASTA files with one ore more DNA or RNA
  * sequences, possibly containing ambiguity codes, from files or stdin,
