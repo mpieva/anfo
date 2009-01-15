@@ -5,8 +5,8 @@ PROTOC ?= protoc
 LDLIBS += -lprotobuf -lpopt -lJudy
 # LDFLAGS += -p
 CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
-# CXXFLAGS += -ggdb 
-CXXFLAGS += -O3
+CXXFLAGS += -ggdb 
+# CXXFLAGS += -O3
 
 TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx

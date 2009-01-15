@@ -14,6 +14,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <sstream>
 #include <string>
 
 #include <unistd.h>
@@ -117,6 +118,8 @@ int main_( int argc, const char * argv[] )
 			return 1 ; 
 	}
 
+	if( !output_file ) throw "no output file" ;
+
 	Config mi ;
 	if( config_file ) mi = parse_text_config( config_file ) ;
 	else if( !access( "anfo.cfg", F_OK ) ) mi = parse_text_config( "anfo.cfg" ) ;
@@ -154,8 +157,8 @@ int main_( int argc, const char * argv[] )
 	}
 
 	ofstream output_file_stream ;
-	ostream& output_stream = !output_file || !strcmp( output_file, "-" )
-		? cout : (output_file_stream.open( output_file ), output_file_stream) ;
+	ostream& output_stream = strcmp( output_file, "-" ) ?
+		(output_file_stream.open( output_file ), output_file_stream) : cout ;
 
 	google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
 	google::protobuf::io::CodedOutputStream cos( &oos ) ;
@@ -165,18 +168,19 @@ int main_( int argc, const char * argv[] )
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
 	if( files.empty() ) files.push_back( "-" ) ;
 
-	for( ; !files.empty() ; files.pop_front() )
+	for( int total_count = 1 ; !files.empty() ; files.pop_front() )
 	{
 		ifstream input_file_stream ;
 		istream& inp = files.front().empty() || files.front() == "-" 
 			? cin : (input_file_stream.open( files.front().c_str() ), input_file_stream) ;
 
-		QSequence ps ;
-		while( read_fastq( inp, ps ) )
+		for( QSequence ps ; read_fastq( inp, ps ) ; ++total_count )
 		{
 			output::Result r ;
-			clog << '\r' << ps.get_name() << "\33[K" << flush ;
-			set_proc_title( ps.get_name().c_str() ) ;
+			stringstream progress ;
+			progress << ps.get_name() << " (#" << total_count << ")" ;
+			clog << '\r' << progress.str() << "\33[K" << flush ;
+			set_proc_title( progress.str().c_str() ) ;
 
 			r.set_seqid( ps.get_name() ) ;
 			if( !ps.get_descr().empty() ) r.set_description( ps.get_descr() ) ;

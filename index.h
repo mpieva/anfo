@@ -118,7 +118,7 @@ class CompactGenome
 //! end of the sequence.
 struct Seed
 {
-	uint32_t diagonal ;
+	int64_t diagonal ;
 	uint32_t size ;
 	int32_t offset ;
 } ;

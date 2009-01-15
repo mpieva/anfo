@@ -1,6 +1,7 @@
 #ifndef INCLUDED_SEQUENCE_H
 #define INCLUDED_SEQUENCE_H
 
+#include <cassert>
 #include <climits>
 #include <istream>
 #include <vector>
@@ -129,6 +130,7 @@ class DnaP
 			p_ = (reinterpret_cast<int64_t>(p) << 1) & std::numeric_limits<int64_t>::max() ;
 			if( complement ) p_ = -p_ ;
 			p_ += off ;
+			assert( unsafe_ptr() == p ) ;
 		}
 
 		Ambicode operator * () const { return (*this)[0] ; }

@@ -158,7 +158,7 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 	{
 		for( uint32_t p = base[o] ; p != base[o+1] ; ++p )
 		{
-			seed.diagonal = secondary[p] - (uint32_t)offs ;
+			seed.diagonal = (int64_t)secondary[p] - (int64_t)offs ;
 			v.push_back( seed ) ;
 		}
 	}
