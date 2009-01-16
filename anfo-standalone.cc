@@ -12,6 +12,7 @@
 
 #include <popt.h>
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -19,6 +20,7 @@
 #include <string>
 
 #include <unistd.h>
+#include <sys/stat.h>
 
 using namespace config ;
 using namespace std ;
@@ -32,7 +34,6 @@ using namespace std ;
 //! \todo Commandline is missing, all this is very inflexible.
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
-//! \todo Make this run in N threads (on the order of four).
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
 
 Policy select_policy( const Config &c, const QSequence &ps )
@@ -107,6 +108,13 @@ void* run_output_thread( void* p )
 	return 0 ;
 }
 
+struct reference_overlaps {
+	DnaP x, y ;
+	reference_overlaps( DnaP u, DnaP v ) : x(u), y(v) {}
+	bool operator()( const flat_alignment& a ) {
+		return a.reference >= x && a.reference <= y ; }
+} ;
+
 void* run_worker_thread( void* cd_ )
 {
 	CommonData *cd = (CommonData*)cd_ ;
@@ -170,7 +178,7 @@ void* run_worker_thread( void* cd_ )
 				(enter_bt<flat_alignment>( ol_ ))( best ) ;
 				Trace t = find_cheapest( ol_ ) ;
 
-				output::Hit *h = r->mutable_best_hit() ;
+				output::Hit *h = r->mutable_best_to_genome() ;
 
 				for( Genomes::const_iterator g = cd->genomes.begin(), ge = cd->genomes.end() ; g != ge ; ++g )
 				{
@@ -213,6 +221,18 @@ void* run_worker_thread( void* cd_ )
 
 				// XXX set diff_to_next_species, diff_to_next_order
 				// XXX find another best hit (genome only)
+
+				// get rid of overlaps of that first alignment, then look
+				// for the next one
+				// XXX this is cumbersome... need a better PQueue
+				// impl...
+				// XXX make distance configurable
+				ol.erase( 
+						std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
+						ol.end() ) ;
+				make_heap( ol.begin(), ol.end() ) ;
+				flat_alignment second_best = find_cheapest( ol, penalty + 10 ) ;
+				if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
 			}
 		}
 		cd->output_queue.enqueue( r ) ;
@@ -327,7 +347,15 @@ int main_( int argc, const char * argv[] )
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
-	if( files.empty() ) files.push_back( "-" ) ;
+	if( files.empty() ) files.push_back( "-" ) ; 
+
+	int64_t total_size = 0, total_done = 0 ;
+	for( size_t i = 0 ; i != files.size() && total_size != -1 ; ++i )
+	{
+		struct stat s ;
+		bool good = files[i] != "-" && !stat( files[i].c_str(), &s ) && S_ISREG( s.st_mode ) ;
+		if( good ) total_size += s.st_size ; else total_size = -1 ;
+	}
 
 	ofstream output_file_stream ;
 	ostream& output_stream = strcmp( output_file, "-" ) ?
@@ -353,24 +381,33 @@ int main_( int argc, const char * argv[] )
 	for( int total_count = 1 ; !files.empty() ; files.pop_front() )
 	{
 		ifstream input_file_stream ;
-		istream& inp = files.front().empty() || files.front() == "-" 
-			? cin : (input_file_stream.open( files.front().c_str() ), input_file_stream) ;
+		istream *inp = &cin ;
+		if( !files.front().empty() && files.front() != "-" )
+		{
+			input_file_stream.open( files.front().c_str() ) ;
+			inp = &input_file_stream ;
+		}
 
 		for(;;)
 		{
 			QSequence *ps = new QSequence ;
-			if( !read_fastq( inp, *ps ) ) {
+			if( !read_fastq( *inp, *ps ) ) {
 				delete ps ;
 				break ;
 			}
 			stringstream progress ;
-			progress << ps->get_name() << " (#" << total_count << ")" ;
+			progress << ps->get_name() << " (#" << total_count ;
+			if( total_size != -1 )
+				progress << ", " << (total_done + input_file_stream.tellg()) * 100 / total_size << '%' ;
+			progress << ')' ;
+
 			clog << '\r' << progress.str() << "\33[K" << flush ;
 			set_proc_title( progress.str().c_str() ) ;
 
 			common_data.input_queue.enqueue( ps ) ;
 			++total_count ;
 		}
+		if( total_size != -1 ) total_done += input_file_stream.tellg() ;
 	}
 	common_data.input_queue.enqueue( 0 ) ;
 
