@@ -1,0 +1,12 @@
+= ANFO version 0.5 =
+
+Consider this a working prototype.  The program maps and aligns, is
+configurable to some extent, but not quite as versatile as planned.
+
+The most glaring omission is the simplistic aligner (linear gap costs
+and no aDNA model), followed by the fact that only one genome is
+searched against.  The code is also a bit unclean (too much in a single
+file/function).
+
+For what it's worth, this version is fit for a large scale test.
+
