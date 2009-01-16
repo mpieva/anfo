@@ -24,6 +24,7 @@ void print_res( const Header& h, const Result& r ) { print_msg( r ) ; }
 
 int main_( int argc, const char** argv )
 {
+	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	for( int argi = 1 ; argi != argc ; ++argi )
 	{
 		std::ifstream is( argv[argi] ) ;

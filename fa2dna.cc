@@ -298,6 +298,7 @@ std::string drop_suffix( const std::string& suf, const std::string& s )
 
 int main_( int argc, const char * argv[] )
 {
+	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version } ;
 
 	const char* output_file = 0 ;

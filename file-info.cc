@@ -10,6 +10,7 @@
 
 int main_( int argc, const char**argv )
 {
+	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	for( int argi = 1 ; argi != argc ; ++argi )
 	{
 		std::cout << argv[argi] << ": " ;

@@ -274,6 +274,7 @@ void* run_worker_thread( void* cd_ )
 
 int main_( int argc, const char * argv[] )
 {
+	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version, opt_quiet } ;
 
 	const char* config_file = 0 ;
