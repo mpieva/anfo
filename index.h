@@ -134,7 +134,7 @@ class FixedIndex
 		enum { signature = 0x31584449u } ; // IDX1 
 
 		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
-		FixedIndex( const std::string &name, const config::Config &c ) ;
+		FixedIndex( const std::string &name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~FixedIndex() ;
 
 		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0 ) const ;

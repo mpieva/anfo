@@ -119,22 +119,44 @@ struct simple_adna {} ;
 //! with quality scores for the query).  Sequences are self-delimiting,
 //! so the two pointers completely define the alignment task---good!.
 //! For the ongoing state, we need two offsets (one on each sequence)
-//! and at least a bit to know whether we're already in the second part.
-//! More complex alignment need to keep track of open gaps, aDNA state
-//! and possibly more.  We'll use signed shorts for the offsets; ±32k
-//! should be plenty for the intended application of a mapper.
-//! Furthermore, the score accumulated so far must be stored, and it is
-//! here where we bite off some bits for the state.  That limits the
-//! score (cost, actually) to 2G (not really a limit), and we can store
-//! the whole state in 4 double words (16 byte in a 32-bit memory model,
-//! 32 byte in a 64 bit memory model.
+//! and a field to store internal state (to keep track of which half
+//! we're in, open gaps, aDNA state and possibly more).  We'll use
+//! signed shorts for the offsets; ±32k should be plenty for the
+//! intended applications of a mapper.  Furthermore, the score
+//! accumulated so far must be stored, and it is here where we bite off
+//! some bits for the state.  That limits the score (cost, actually) to
+//! 16M (not really a limit, even if scaled up by ~100, a limit of 160k
+//! is far away), and we can store the whole state in 20 bytes in a
+//! 32-bit memory model or 24 bytes in a 64 bit memory model.
+//!
+//! The most simple alignment is ::flat_alignment, see ::simple_adna for
+//! a more complex one.
 
-struct flat_alignment {
+template< typename T > struct gen_alignment {
 	DnaP reference ; 						// entry point
 	QDnaP query ;							// entry point
-	uint32_t state   :  1 ;					// and state (left/right)
-	uint32_t penalty : 31 ;					// cost so far
-	signed short ref_offs, query_offs ; 	// current positions
+	uint32_t state     :  8 ;				// state
+	uint32_t penalty   : 24 ;				// cost so far
+	int32_t ref_offs   : 16 ;				// cur. position
+	int32_t query_offs : 16 ; 				// cur. position
+
+	//! \brief default constructor
+	//! Constructs an alignment easily recognizable as invalid.
+	gen_alignment() : reference(0), query(0), state(0), penalty(0), ref_offs(0), query_offs(0) {}
+
+	//! \brief prepares an alignment from a seed
+	//! Prepares an alignment from a genomic sequence, a sample sequence
+	//! and an appropriate seed.  The alignment starts in the middle of
+	//! the seed in state 0 at no penalty.
+	//!
+	//! \param g genome the seeds were prepared from
+	//! \param ps sample sequence in compact format
+	//! \param s the seed
+	gen_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s )
+		: reference( (g.get_base() + s.diagonal + s.offset + s.size / 2).reverse_if( s.offset < 0 ) )
+		, query( ps.start() + ( s.offset >= 0 ? s.offset + s.size / 2 : -s.offset - s.size/2 ) )
+		, state(0), penalty(0), ref_offs(0), query_offs(0) {}
+
 
 	// associated types: 
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)
@@ -142,90 +164,69 @@ struct flat_alignment {
 	//   (ClosedMap :: flat_alignment -> Maybe flat_alignment)
 #if SMALL_SYS
 	typedef JudyL< JudyL< JudyL< JudyL< Judy1 > > > > ClosedSet ;
-	typedef JudyL< JudyL< JudyL< JudyL< JudyL< const flat_alignment* > > > > > ClosedMap ;
+	typedef JudyL< JudyL< JudyL< JudyL< JudyL< const T* > > > > > ClosedMap ;
 #else
 	typedef JudyL< JudyL< JudyL< Judy1 > > > ClosedSet ;
-	typedef JudyL< JudyL< JudyL< JudyL< const flat_alignment* > > > > ClosedMap ;
+	typedef JudyL< JudyL< JudyL< JudyL< const T* > > > > ClosedMap ;
 #endif
 
-	/*! \brief Trivial substitution matrix.
-	 *
-	 * Aligning two codes that have any overlap costs nothing, else it
-	 * costs 1.
-	 */
+	//! \brief checks whether this alignment is valid
+	//! \return a null pointer iff this is an invalid alignment
+	operator const void * () const { return (const void *)reference ; }
+
+	//! \brief returns the current nucleotide on the reference
+	Ambicode get_ref() const { return reference[ref_offs] ; }
+
+	//! \brief returns the current nucleotide on the query
+	Ambicode get_qry() const { return query[query_offs] ; }
+
+	//! \brief returns the current quality score on the query
+	uint8_t  get_qlt() const { return query.qual( query_offs ) ; }
+} ;
+
+struct flat_alignment : public gen_alignment<flat_alignment> {
+	//! \brief Trivial substitution matrix.
+	//! Aligning two codes that have any overlap costs nothing, else it
+	//! costs 1.
 	static uint32_t subst_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 1 ; }
 
-	/*! \brief trivial gap costs
-	 *
-	 * A gap costs one, whether it is opened or extended.
-	 */
+	//! \brief trivial gap costs
+	//!A gap costs one, whether it is opened or extended.
 	static uint32_t gap_penalty() { return 1 ; }
 
-	flat_alignment() : reference(0), query(0), state(0), penalty(0), ref_offs(0), query_offs(0) {}
-
-	//! \brief prepares an alignment from a seed
-	//! Prepares an alignment from a genomic sequence, a sample sequence
-	//! and an appropriate seed.  The alignment starts in the middle of
-	//! the seed.
-	//!
-	//! \param g genome the seeds were prepared from
-	//! \param ps sample sequence in compact format
-	//! \param s the seed
-
-	flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s )
-		: reference( g.get_base() + s.diagonal + s.offset + s.size / 2 )
-		, query( ps.start() + ( s.offset >= 0 ? s.offset + s.size / 2 : -s.offset - s.size/2 ) )
-		, state(0), penalty(0), ref_offs(0), query_offs(0)
-	{
-		if( s.offset < 0 ) reference = reference.reverse() ;
-	}
-
-	operator const void * () const { return (const void *)reference ; }
-	Ambicode get_ref() const { return reference[ref_offs] ; }
-	Ambicode get_qry() const { return query[query_offs] ; }
-	uint8_t  get_qlt() const { return query.qual( query_offs ) ; }
+	flat_alignment() : gen_alignment<flat_alignment>() {}
+	flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<flat_alignment>(g,ps,s) {}
 } ;
 
 //! formats an intermediate alignment state to a stream.
 //! This is useful mostly for debugging.
 //! \internal 
-
-inline std::ostream& operator << ( std::ostream& s, const flat_alignment &fa )
+template< typename A > std::ostream& operator << ( std::ostream& s, const gen_alignment<A>& fa )
 {
 	return s << fa.reference + fa.ref_offs << " x "
 		     << fa.query + fa.query_offs << " @"
 			 << fa.state << ": " << fa.penalty ;
 }
 
-//! \page basic_alignment_ops Basic Operations over Alignment States
-//! The functions in here should be overloaded for different styles of
-//! alignment, so they form a minimal API.
+//! \brief removes cheapest alignment from list
+//! Behaviour on an empty list is undefined.
+//! \param ol open list
+template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.begin(), ol.end() ) ; ol.pop_back() ; }
+
+//! \page generic_alignment_ops Basic Operations over Alignment States
+//! The functions in here are still reasonably general and might be
+//! useful for a variety of concrete alignments.  Anything not sensibly
+//! derivable from ::gen_alignment should specialze them.
 //!
 //! \page trivial_alignments Trivial Alignments
 //! \subpage basic_alignment_ops
 //! @{
 
-//! \brief checks whether an open list is empty
-//! \param ol open list
-//! \return true iff \c ol is empty
-bool is_empty( const std::deque< flat_alignment >& ol ) { return ol.empty() ; }
-
-//! \brief retrieves cheapest alignment from open list
-//! Behaviour on an empty list is undefined.
-//! \param ol open list
-//! \return cheapest alignment
-flat_alignment get_top( const std::deque< flat_alignment >& ol ) { return ol.front() ; }
-
-//! \brief removes cheapest alignment from list
-//! Behaviour on an empty list is undefined.
-//! \param ol open list
-void pop_top( std::deque< flat_alignment >& ol ) { std::pop_heap( ol.begin(), ol.end() ) ; ol.pop_back() ; }
-
 //! \brief cheks whether an alignment is already closed
 //! \param cl closed set
 //! \param s alignment state
 //! \return true iff \c s in contained in \c cl
-bool is_present( const flat_alignment::ClosedSet& cl, const flat_alignment& s )
+template< typename A > bool is_present( const typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
 {
 	return cl, s.reference.get(), s.query.get(),
 #if SMALL_SYS
@@ -234,7 +235,8 @@ bool is_present( const flat_alignment::ClosedSet& cl, const flat_alignment& s )
 			   s.ref_offs, s.query_offs | s.state << 16 ;
 }
 
-const_ref<const flat_alignment*> lookup( const flat_alignment::ClosedMap& cl, const flat_alignment& s )
+template< typename A > const_ref<const A*> lookup(
+		const typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s )
 {
 	return cl, s.reference.get(), s.query.get(),
 #if SMALL_SYS
@@ -243,7 +245,7 @@ const_ref<const flat_alignment*> lookup( const flat_alignment::ClosedMap& cl, co
 			   s.ref_offs, s.query_offs | s.state << 16 ;
 }
 
-void set_bit( flat_alignment::ClosedSet& cl, const flat_alignment& s )
+template< typename A > void set_bit( typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
 {
 	cl.insert( s.reference.get() )
 	  ->insert( s.query.get() )
@@ -254,7 +256,8 @@ void set_bit( flat_alignment::ClosedSet& cl, const flat_alignment& s )
 	  ->set( s.query_offs | s.state << 16 ) ;
 }
 
-void insert( flat_alignment::ClosedMap& cl, const flat_alignment& s, const flat_alignment *p )
+template< typename A > void insert(
+		typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s, const A *p )
 { 
 	*cl.insert( s.reference.get() )
 	   ->insert( s.query.get() )
@@ -269,7 +272,7 @@ void insert( flat_alignment::ClosedMap& cl, const flat_alignment& s, const flat_
 //! The internal state is reset, the penalty set to zero and the
 //! reference and query positions to their initial values.  The alignment
 //! can be repeated now.
-void reset( flat_alignment& fa )
+template< typename A > void reset( gen_alignment<A>& fa )
 {
 	fa.ref_offs = 0 ;
 	fa.query_offs = 0 ;
@@ -277,7 +280,25 @@ void reset( flat_alignment& fa )
 	fa.penalty = 0 ;
 }
 
-//! \brief checks whether an laignment is finished
+/*! \brief compares two simple alignments.
+ *
+ * Since we are building a heap and the STL heap puts the \em largest
+ * element at the top, we want an alignment with lower penalty to
+ * compare greater.
+ */
+template< typename A >
+bool operator < ( const gen_alignment<A>& a, const gen_alignment<A>& b )
+{ return b.penalty < a.penalty ; }
+
+//! }@
+
+//! \page special_align_ops Specific Alignment Operations
+//! These functions should be specialized for every concrete type of
+//! alignment.
+//!
+//! {@
+
+//! \brief checks whether an alignment is finished
 //! A \c flat_alignment is finished iff either sequence hit a gap while
 //! doing the second half of an alignment.
 //! \param s alignment state
@@ -371,17 +392,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	}
 }
 
-/*! \brief compares two simple alignments.
- *
- * Since we are building a heap and the STL heap puts the \em largest
- * element at the top, we want an alignment with lower penalty to
- * compare greater.
- */
-bool operator < ( const flat_alignment& a, const flat_alignment& b )
-{ return b.penalty < a.penalty ; }
-
-//! }@
-
+//! @}
 
 template< typename State > struct enter {
 	private: 
@@ -613,8 +624,7 @@ Trace find_cheapest(
 	while( !open_list.empty() )
 	{
 		std::pair< State, const State *> p = open_list.front() ;
-		std::pop_heap( open_list.begin(), open_list.end() ) ;
-		open_list.pop_back() ;
+		pop_top( open_list ) ;
 
 		if( !lookup( closed_list, p.first ) ) 
 		{

@@ -90,9 +90,10 @@ void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 			<< ", " << round((50.0*o)/l) << "%)\e[K" << flush ;
 }
 
-FixedIndex::FixedIndex( const std::string& name, const config::Config& c )
+FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int adv )
 	: base(0), secondary(0), first_level_len(0), length(0), fd_(-1)
 {
+	void *p = 0 ;
 	try 
 	{
 		std::string fp = name ;
@@ -108,23 +109,26 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c )
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp.c_str() ) ;
 		length = the_stat.st_size ;
-		p_ = mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
-		throw_errno_if_minus1( p_, "mmapping", fp.c_str() ) ;
+		p = mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
+		throw_errno_if_minus1( p, "mmapping", fp.c_str() ) ;
 
-		if( *(const uint32_t*)p_ != signature ) 
+		if( adv ) madvise( p, length, adv ) ;
+
+		if( *(const uint32_t*)p != signature ) 
 			throw fp + string(" does not have 'IDX1' signature") ;
 
-		uint32_t meta_len = ((const uint32_t*)p_)[1] ;
-		if( !ci_.ParseFromArray( (const char*)p_ + 8, meta_len ) )
+		uint32_t meta_len = ((const uint32_t*)p)[1] ;
+		if( !ci_.ParseFromArray( (const char*)p + 8, meta_len ) )
 			throw "error parsing meta information" ;
 
 		first_level_len = 1 << (2 * ci_.wordsize()) + 1 ;
-		base = (const uint32_t*)( (const char*)p_ + 8 + ((3+meta_len) & ~3) ) ;
+		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
+		p_ = p ;
 	}
 	catch(...)
 	{
-		if( p_ ) munmap( (void*)p_, length ) ;
+		if( p ) munmap( p, length ) ;
 		if( fd_ != -1 ) close( fd_ ) ;
 		throw ;
 	}

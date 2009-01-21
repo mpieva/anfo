@@ -31,10 +31,10 @@ using namespace std ;
 //! FASTQ file and maps it against whatever index is configured.
 //!
 //! \todo We want an E-value...
-//! \todo Commandline is missing, all this is very inflexible.
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
+//! \todo GZipped input and output would be beautiful.
 
 Policy select_policy( const Config &c, const QSequence &ps )
 {
@@ -280,12 +280,14 @@ int main_( int argc, const char * argv[] )
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
 	int nthreads = 1 ;
+	int solexa_quals = 0 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
+		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
@@ -334,13 +336,13 @@ int main_( int argc, const char * argv[] )
 			const CompactIndexSpec &ixs = common_data.mi.policy(i).use_compact_index(j) ;
 			FixedIndex &ix = common_data.indices[ ixs.name() ] ;
 			if( !ix ) {
-				FixedIndex( ixs.name(), common_data.mi ).swap( ix ) ;
+				FixedIndex( ixs.name(), common_data.mi, MADV_WILLNEED ).swap( ix ) ;
 
 				CompactGenome &g = common_data.genomes[ ix.ci_.genome_name() ] ;
 				if( !g.get_base() )
 				{
 					*ohd.add_genome() = ix.ci_.genome_name() ;
-					CompactGenome( ix.ci_.genome_name(), common_data.mi ).swap( g ) ;
+					CompactGenome( ix.ci_.genome_name(), common_data.mi, MADV_WILLNEED ).swap( g ) ;
 				}
 			}
 		}
@@ -392,7 +394,7 @@ int main_( int argc, const char * argv[] )
 		for(;;)
 		{
 			QSequence *ps = new QSequence ;
-			if( !read_fastq( *inp, *ps ) ) {
+			if( !read_fastq( *inp, *ps, solexa_quals ) ) {
 				delete ps ;
 				break ;
 			}
