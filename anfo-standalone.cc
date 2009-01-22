@@ -30,6 +30,17 @@ using namespace std ;
 //! run directly from the command line.  Right now it reads a FASTA or
 //! FASTQ file and maps it against whatever index is configured.
 //!
+//! What's not obvious from the command line help:  ANFO can run in
+//! multiple threads, if you have an SMP machine, that is definitely
+//! what you want, but even a single CPU machine can benefit from
+//! multithreading as long as not the whole index is cached in memory.
+//! The exception is that some hostile environments (Sun Grid Engine)
+//! tend to frown upon multithreaded programs with nontrivial memory
+//! consumtion.  Therefore, the -p (--threads) option can request any
+//! number of worker threads, and you get two IO threads in addition.
+//! Setting -p 1 gives you one worker and two IOs, but as a special
+//! case, -p 0 turns off multithreading altogether.
+//!
 //! \todo We want an E-value...
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
@@ -115,126 +126,132 @@ struct reference_overlaps {
 		return a.reference >= x && a.reference <= y ; }
 } ;
 
+void process_sequence( CommonData *cd, QSequence *ps, output::Result *r )
+{
+	r->set_seqid( ps->get_name() ) ;
+	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
+	r->set_sequence( ps->as_string() ) ;
+	// XXX: set trim points?
+
+	Policy p = select_policy( cd->mi, *ps ) ;
+
+	deque<flat_alignment> ol ;
+	int num_raw = 0, num_comb = 0, num_clumps = 0 ;
+	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
+	{
+		const CompactIndexSpec &cis = p.use_compact_index(i) ;
+		const FixedIndex &ix = cd->indices[ cis.name() ] ;
+		const CompactGenome &g = cd->genomes[ ix.ci_.genome_name() ] ;
+		assert( ix ) ; assert( g.get_base() ) ;
+
+		vector<Seed> seeds ;
+		num_raw += ix.lookup( *ps, seeds, cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
+		num_comb += seeds.size() ;
+		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
+		num_clumps += seeds.size() ;
+
+		setup_alignments( g, *ps, seeds.begin(), seeds.end(), ol ) ;
+	}
+	r->set_num_raw_seeds( num_raw ) ;
+	r->set_num_grown_seeds( num_comb ) ;
+	r->set_num_clumps( num_clumps ) ;
+
+	if( !p.has_max_penalty_per_nuc() )
+	{
+		r->set_reason( output::no_policy ) ;
+	}
+	else if( ol.empty() ) 
+	{
+		r->set_reason( output::no_seeds ) ;
+	}
+	else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
+	{
+		r->set_reason( output::too_many_seeds ) ;
+	}
+	else
+	{
+		flat_alignment best = find_cheapest( ol, p.max_penalty_per_nuc() * ps->length() / 1000 ) ;
+		if( !best )
+		{
+			r->set_reason( output::bad_alignment ) ;
+		}
+		else
+		{
+			int penalty = best.penalty ;
+
+			deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
+			reset( best ) ;
+			greedy( best ) ;
+			(enter_bt<flat_alignment>( ol_ ))( best ) ;
+			Trace t = find_cheapest( ol_ ) ;
+
+			output::Hit *h = r->mutable_best_to_genome() ;
+
+			for( Genomes::const_iterator g = cd->genomes.begin(), ge = cd->genomes.end() ; g != ge ; ++g )
+			{
+				uint32_t start_pos ;
+				int32_t len = t.maxpos - t.minpos - 1 ;
+				if( const Sequence *sequ = g->second.translate_back( t.minpos+1, start_pos ) )
+				{
+					h->set_genome( g->first ) ;
+					h->set_sequence( sequ->name() ) ;
+					if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+					else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
+
+					if( t.minpos.is_reversed() )
+					{
+						h->set_start_pos( start_pos - len + 1 ) ;
+						h->set_aln_length( -len ) ;
+					}
+					else
+					{
+						h->set_start_pos( start_pos ) ;
+						h->set_aln_length( len ) ;
+					}
+					break ;
+				}
+			}
+
+			for( Trace_::const_iterator i = t.trace.begin(), e = t.trace.end() ; i != e ; ++i )
+			{
+				h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
+				h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
+				h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
+			}
+			h->set_score( penalty ) ;
+			// XXX: h->set_evalue
+
+			//! \todo Find second best hit and similar stuff.
+			//! We want the distance to the next best hit; also,
+			//! unless already found, we want the best hit to some
+			//! selected genome(s).
+
+			// XXX set diff_to_next_species, diff_to_next_order
+			// XXX find another best hit (genome only)
+
+			// get rid of overlaps of that first alignment, then look
+			// for the next one
+			// XXX this is cumbersome... need a better PQueue
+			// impl...
+			// XXX make distance configurable
+			ol.erase( 
+					std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
+					ol.end() ) ;
+			make_heap( ol.begin(), ol.end() ) ;
+			flat_alignment second_best = find_cheapest( ol, penalty + 10 ) ;
+			if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
+		}
+	}
+}
+
 void* run_worker_thread( void* cd_ )
 {
 	CommonData *cd = (CommonData*)cd_ ;
 	while( QSequence *ps = cd->input_queue.dequeue() )
 	{
 		output::Result *r = new output::Result ;
-		r->set_seqid( ps->get_name() ) ;
-		if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
-		r->set_sequence( ps->as_string() ) ;
-		// XXX: set trim points?
+		process_sequence( cd, ps, r ) ;
 
-		Policy p = select_policy( cd->mi, *ps ) ;
-
-		deque<flat_alignment> ol ;
-		int num_raw = 0, num_comb = 0, num_clumps = 0 ;
-		for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
-		{
-			const CompactIndexSpec &cis = p.use_compact_index(i) ;
-			const FixedIndex &ix = cd->indices[ cis.name() ] ;
-			const CompactGenome &g = cd->genomes[ ix.ci_.genome_name() ] ;
-			assert( ix ) ; assert( g.get_base() ) ;
-
-			vector<Seed> seeds ;
-			num_raw += ix.lookup( *ps, seeds, cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
-			num_comb += seeds.size() ;
-			select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
-			num_clumps += seeds.size() ;
-
-			setup_alignments( g, *ps, seeds.begin(), seeds.end(), ol ) ;
-		}
-		r->set_num_raw_seeds( num_raw ) ;
-		r->set_num_grown_seeds( num_comb ) ;
-		r->set_num_clumps( num_clumps ) ;
-
-		if( !p.has_max_penalty_per_nuc() )
-		{
-			r->set_reason( output::no_policy ) ;
-		}
-		else if( ol.empty() ) 
-		{
-			r->set_reason( output::no_seeds ) ;
-		}
-		else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
-		{
-			r->set_reason( output::too_many_seeds ) ;
-		}
-		else
-		{
-			flat_alignment best = find_cheapest( ol, p.max_penalty_per_nuc() * ps->length() / 1000 ) ;
-			if( !best )
-			{
-				r->set_reason( output::bad_alignment ) ;
-			}
-			else
-			{
-				int penalty = best.penalty ;
-
-				deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
-				reset( best ) ;
-				greedy( best ) ;
-				(enter_bt<flat_alignment>( ol_ ))( best ) ;
-				Trace t = find_cheapest( ol_ ) ;
-
-				output::Hit *h = r->mutable_best_to_genome() ;
-
-				for( Genomes::const_iterator g = cd->genomes.begin(), ge = cd->genomes.end() ; g != ge ; ++g )
-				{
-					uint32_t start_pos ;
-					int32_t len = t.maxpos - t.minpos - 1 ;
-					if( const Sequence *sequ = g->second.translate_back( t.minpos+1, start_pos ) )
-					{
-						h->set_genome( g->first ) ;
-						h->set_sequence( sequ->name() ) ;
-						if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-						else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
-
-						if( t.minpos.is_reversed() )
-						{
-							h->set_start_pos( start_pos - len + 1 ) ;
-							h->set_aln_length( -len ) ;
-						}
-						else
-						{
-							h->set_start_pos( start_pos ) ;
-							h->set_aln_length( len ) ;
-						}
-						break ;
-					}
-				}
-
-				for( Trace_::const_iterator i = t.trace.begin(), e = t.trace.end() ; i != e ; ++i )
-				{
-					h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
-					h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
-					h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
-				}
-				h->set_score( penalty ) ;
-				// XXX: h->set_evalue
-
-				//! \todo Find second best hit and similar stuff.
-				//! We want the distance to the next best hit; also,
-				//! unless already found, we want the best hit to some
-				//! selected genome(s).
-
-				// XXX set diff_to_next_species, diff_to_next_order
-				// XXX find another best hit (genome only)
-
-				// get rid of overlaps of that first alignment, then look
-				// for the next one
-				// XXX this is cumbersome... need a better PQueue
-				// impl...
-				// XXX make distance configurable
-				ol.erase( 
-						std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
-						ol.end() ) ;
-				make_heap( ol.begin(), ol.end() ) ;
-				flat_alignment second_best = find_cheapest( ol, penalty + 10 ) ;
-				if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
-			}
-		}
 		cd->output_queue.enqueue( r ) ;
 		delete ps ;
 	}
@@ -314,7 +331,7 @@ int main_( int argc, const char * argv[] )
 	}
 
 	if( !output_file ) throw "no output file" ;
-	if( nthreads < 1 ) throw "invalid thread number" ;
+	if( nthreads < 0 ) throw "invalid thread number" ;
 
 	CommonData common_data ;
 	if( config_file ) common_data.mi = parse_text_config( config_file ) ;
@@ -375,7 +392,7 @@ int main_( int argc, const char * argv[] )
 
 	common_data.output_stream = &cos ;
 	pthread_t output_thread ;
-	pthread_create( &output_thread, 0, run_output_thread, &common_data ) ;
+	if( nthreads ) pthread_create( &output_thread, 0, run_output_thread, &common_data ) ;
 
 	pthread_t worker_thread[ nthreads ] ;
 	for( int i = 0 ; i != nthreads ; ++i )
@@ -407,20 +424,29 @@ int main_( int argc, const char * argv[] )
 			clog << '\r' << progress.str() << "\33[K" << flush ;
 			set_proc_title( progress.str().c_str() ) ;
 
-			common_data.input_queue.enqueue( ps ) ;
+			if( nthreads ) common_data.input_queue.enqueue( ps ) ;
+			else 
+			{
+				output::Result r ;
+				process_sequence( &common_data, ps, &r ) ;
+				write_delimited_message( *common_data.output_stream, r ) ;
+			}
 			++total_count ;
 		}
 		if( total_size != -1 ) total_done += input_file_stream.tellg() ;
 	}
-	common_data.input_queue.enqueue( 0 ) ;
+	if( nthreads )
+	{
+		common_data.input_queue.enqueue( 0 ) ;
 
-	// done with input... wait for the workers
-	for( int i = 0 ; i != nthreads ; ++i )
-		pthread_join( worker_thread[i], 0 ) ;
+		// done with input... wait for the workers
+		for( int i = 0 ; i != nthreads ; ++i )
+			pthread_join( worker_thread[i], 0 ) ;
 
-	// end output
-	common_data.output_queue.enqueue( 0 ) ;
-	pthread_join( output_thread, 0 ) ;
+		// end output
+		common_data.output_queue.enqueue( 0 ) ;
+		pthread_join( output_thread, 0 ) ;
+	}
 
 	clog << endl ;
 	return 0 ;
