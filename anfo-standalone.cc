@@ -46,6 +46,8 @@ using namespace std ;
 //!       way to configure this.
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
 //! \todo GZipped input and output would be beautiful.
+//! \todo Memory management and pointer/reference conventions are
+//! somewhat wonky in here.  Deserves a thourough audit.
 
 Policy select_policy( const Config &c, const QSequence &ps )
 {
@@ -98,9 +100,18 @@ void set_proc_title( const char *title )
 typedef map< string, CompactGenome > Genomes ; 
 typedef map< string, FixedIndex > Indices ;
 
+struct AlignmentWorkload
+{
+	int pmax ;
+	std::deque< flat_alignment > *ol ;
+	output::Result *r ;
+	QSequence *ps ;
+} ;
+
 struct CommonData
 {
 	Queue<output::Result*, 10> output_queue ;
+	Queue<AlignmentWorkload*, 10> intermed_queue ;
 	Queue<QSequence*, 10> input_queue ;
 	google::protobuf::io::CodedOutputStream *output_stream ;
 	Config mi ;
@@ -126,7 +137,7 @@ struct reference_overlaps {
 		return a.reference >= x && a.reference <= y ; }
 } ;
 
-void process_sequence( CommonData *cd, QSequence *ps, output::Result *r )
+int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque< flat_alignment >& ol )
 {
 	r->set_seqid( ps->get_name() ) ;
 	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
@@ -135,7 +146,6 @@ void process_sequence( CommonData *cd, QSequence *ps, output::Result *r )
 
 	Policy p = select_policy( cd->mi, *ps ) ;
 
-	deque<flat_alignment> ol ;
 	int num_raw = 0, num_comb = 0, num_clumps = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 	{
@@ -159,103 +169,135 @@ void process_sequence( CommonData *cd, QSequence *ps, output::Result *r )
 	if( !p.has_max_penalty_per_nuc() )
 	{
 		r->set_reason( output::no_policy ) ;
+		return INT_MAX ;
 	}
 	else if( ol.empty() ) 
 	{
 		r->set_reason( output::no_seeds ) ;
+		return INT_MAX ;
 	}
 	else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
 	{
 		r->set_reason( output::too_many_seeds ) ;
+		return INT_MAX ;
+	}
+	else return p.max_penalty_per_nuc() ;
+}
+
+void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, std::deque< flat_alignment > &ol, output::Result *r )
+{
+	flat_alignment best = find_cheapest( ol, max_penalty_per_nuc * ps->length() / 1000 ) ;
+	if( !best )
+	{
+		r->set_reason( output::bad_alignment ) ;
 	}
 	else
 	{
-		flat_alignment best = find_cheapest( ol, p.max_penalty_per_nuc() * ps->length() / 1000 ) ;
-		if( !best )
+		int penalty = best.penalty ;
+
+		deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
+		reset( best ) ;
+		greedy( best ) ;
+		(enter_bt<flat_alignment>( ol_ ))( best ) ;
+		Trace t = find_cheapest( ol_ ) ;
+
+		output::Hit *h = r->mutable_best_to_genome() ;
+
+		for( Genomes::const_iterator g = cd->genomes.begin(), ge = cd->genomes.end() ; g != ge ; ++g )
 		{
-			r->set_reason( output::bad_alignment ) ;
-		}
-		else
-		{
-			int penalty = best.penalty ;
-
-			deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
-			reset( best ) ;
-			greedy( best ) ;
-			(enter_bt<flat_alignment>( ol_ ))( best ) ;
-			Trace t = find_cheapest( ol_ ) ;
-
-			output::Hit *h = r->mutable_best_to_genome() ;
-
-			for( Genomes::const_iterator g = cd->genomes.begin(), ge = cd->genomes.end() ; g != ge ; ++g )
+			uint32_t start_pos ;
+			int32_t len = t.maxpos - t.minpos - 1 ;
+			if( const Sequence *sequ = g->second.translate_back( t.minpos+1, start_pos ) )
 			{
-				uint32_t start_pos ;
-				int32_t len = t.maxpos - t.minpos - 1 ;
-				if( const Sequence *sequ = g->second.translate_back( t.minpos+1, start_pos ) )
+				h->set_genome( g->first ) ;
+				h->set_sequence( sequ->name() ) ;
+				if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+				else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
+
+				if( t.minpos.is_reversed() )
 				{
-					h->set_genome( g->first ) ;
-					h->set_sequence( sequ->name() ) ;
-					if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-					else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
-
-					if( t.minpos.is_reversed() )
-					{
-						h->set_start_pos( start_pos - len + 1 ) ;
-						h->set_aln_length( -len ) ;
-					}
-					else
-					{
-						h->set_start_pos( start_pos ) ;
-						h->set_aln_length( len ) ;
-					}
-					break ;
+					h->set_start_pos( start_pos - len + 1 ) ;
+					h->set_aln_length( -len ) ;
 				}
+				else
+				{
+					h->set_start_pos( start_pos ) ;
+					h->set_aln_length( len ) ;
+				}
+				break ;
 			}
-
-			for( Trace_::const_iterator i = t.trace.begin(), e = t.trace.end() ; i != e ; ++i )
-			{
-				h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
-				h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
-				h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
-			}
-			h->set_score( penalty ) ;
-			// XXX: h->set_evalue
-
-			//! \todo Find second best hit and similar stuff.
-			//! We want the distance to the next best hit; also,
-			//! unless already found, we want the best hit to some
-			//! selected genome(s).
-
-			// XXX set diff_to_next_species, diff_to_next_order
-			// XXX find another best hit (genome only)
-
-			// get rid of overlaps of that first alignment, then look
-			// for the next one
-			// XXX this is cumbersome... need a better PQueue
-			// impl...
-			// XXX make distance configurable
-			ol.erase( 
-					std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
-					ol.end() ) ;
-			make_heap( ol.begin(), ol.end() ) ;
-			flat_alignment second_best = find_cheapest( ol, penalty + 10 ) ;
-			if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
 		}
+
+		for( Trace_::const_iterator i = t.trace.begin(), e = t.trace.end() ; i != e ; ++i )
+		{
+			h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
+			h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
+			h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
+		}
+		h->set_score( penalty ) ;
+		// XXX: h->set_evalue
+
+		//! \todo Find second best hit and similar stuff.
+		//! We want the distance to the next best hit; also,
+		//! unless already found, we want the best hit to some
+		//! selected genome(s).
+
+		// XXX set diff_to_next_species, diff_to_next_order
+		// XXX find another best hit (genome only)
+
+		// get rid of overlaps of that first alignment, then look
+		// for the next one
+		// XXX this is cumbersome... need a better PQueue
+		// impl...
+		// XXX make distance configurable
+		ol.erase( 
+				std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
+				ol.end() ) ;
+		make_heap( ol.begin(), ol.end() ) ;
+		flat_alignment second_best = find_cheapest( ol, penalty + 10 ) ;
+		if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
 	}
 }
 
-void* run_worker_thread( void* cd_ )
+void* run_indexer_thread( void* cd_ )
 {
 	CommonData *cd = (CommonData*)cd_ ;
 	while( QSequence *ps = cd->input_queue.dequeue() )
 	{
 		output::Result *r = new output::Result ;
-		process_sequence( cd, ps, r ) ;
-
-		cd->output_queue.enqueue( r ) ;
-		delete ps ;
+		std::deque< flat_alignment > *ol = new std::deque< flat_alignment >() ;
+		int pmax = index_sequence( cd, ps, r, *ol ) ;
+		if( pmax!= INT_MAX ) 
+		{
+			AlignmentWorkload *w = new AlignmentWorkload ;
+			w->pmax = pmax ;
+			w->ps = ps ;
+			w->ol = ol ;
+			w->r = r ;
+			cd->intermed_queue.enqueue( w ) ;
+		}
+		else
+		{
+			cd->output_queue.enqueue( r ) ;
+			delete ps ;
+		}
 	}
 	cd->input_queue.enqueue(0) ;
+	return 0 ;
+}
+
+void* run_worker_thread( void* cd_ )
+{
+	CommonData *cd = (CommonData*)cd_ ;
+	while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
+	{
+		process_sequence( cd, w->ps, w->pmax, *w->ol, w->r ) ;
+		cd->output_queue.enqueue( w->r ) ;
+		delete w->ol ;
+		delete w->ps ;
+		delete w ;
+	}
+	cd->intermed_queue.enqueue(0) ;
 	return 0 ;
 }
 
@@ -297,12 +339,14 @@ int main_( int argc, const char * argv[] )
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
 	int nthreads = 1 ;
+	int nxthreads = 1 ;
 	int solexa_quals = 0 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
-		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel threads", "N" },
+		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
+		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallen indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
@@ -398,6 +442,11 @@ int main_( int argc, const char * argv[] )
 	for( int i = 0 ; i != nthreads ; ++i )
 		pthread_create( worker_thread+i, 0, run_worker_thread, &common_data ) ;
 
+	pthread_t indexer_thread[ nxthreads ] ;
+	if( nthreads )
+		for( int i = 0 ; i != nxthreads ; ++i )
+			pthread_create( indexer_thread+i, 0, run_indexer_thread, &common_data ) ;
+
 	for( int total_count = 1 ; !files.empty() ; files.pop_front() )
 	{
 		ifstream input_file_stream ;
@@ -428,7 +477,9 @@ int main_( int argc, const char * argv[] )
 			else 
 			{
 				output::Result r ;
-				process_sequence( &common_data, ps, &r ) ;
+				std::deque< flat_alignment > ol ;
+				int pmax = index_sequence( &common_data, ps, &r, ol ) ;
+				if( pmax != INT_MAX ) process_sequence( &common_data, ps, pmax, ol, &r ) ;
 				write_delimited_message( *common_data.output_stream, r ) ;
 			}
 			++total_count ;
@@ -437,13 +488,18 @@ int main_( int argc, const char * argv[] )
 	}
 	if( nthreads )
 	{
+		// no more input, wait for indexer(s)
 		common_data.input_queue.enqueue( 0 ) ;
+		if( nthreads )
+			for( int i = 0 ; i != nxthreads ; ++i )
+				pthread_join( indexer_thread[i], 0 ) ;
 
-		// done with input... wait for the workers
+		// done with indexes... wait for the workers
+		common_data.intermed_queue.enqueue( 0 ) ;
 		for( int i = 0 ; i != nthreads ; ++i )
 			pthread_join( worker_thread[i], 0 ) ;
 
-		// end output
+		// end output and wait for it to finish
 		common_data.output_queue.enqueue( 0 ) ;
 		pthread_join( output_thread, 0 ) ;
 	}
