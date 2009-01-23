@@ -6,6 +6,8 @@
 
 #include <deque>
 
+#include <sstream>
+
 /*!
 \page alignment_algorithm Alignment by Dijkstra's Algorithm
 
@@ -89,27 +91,6 @@ are never removed because they are simply too bad to ever be touched.
 */
 
 
-/*! \brief Automaton to align according to simple aDNA model
- *
- * This automaton realizes two alignments (to the left and to the
- * right of a seed) in sequence, allowing for affine gap penalties and
- * modelling ancient DNA by separate states for double stranded and
- * single stranded parts.
- * 
- * \todo To be implemented for real.
- */
-struct simple_adna {} ;
-
-/*! \brief Extremely simple automaton for testing.
- *
- * This automaton realizes the most trivial alignment possible.  It has
- * no internal states, gap costs are linear, aDNA is not modelled, but
- * the alignment consists of two parts in series.  Matching is also
- * greedy.  The resulting alignment is suitable for testing and also to
- * map sequences from the 454 instrument (due to the very common gaps).
- * \see alignment_rep
- */
-
 //! \page alignment_rep Representation Of Alignments
 //!
 //! What to store for a (partial) alignment and how to do it?  We'll
@@ -182,20 +163,6 @@ template< typename T > struct gen_alignment {
 
 	//! \brief returns the current quality score on the query
 	uint8_t  get_qlt() const { return query.qual( query_offs ) ; }
-} ;
-
-struct flat_alignment : public gen_alignment<flat_alignment> {
-	//! \brief Trivial substitution matrix.
-	//! Aligning two codes that have any overlap costs nothing, else it
-	//! costs 1.
-	static uint32_t subst_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 1 ; }
-
-	//! \brief trivial gap costs
-	//!A gap costs one, whether it is opened or extended.
-	static uint32_t gap_penalty() { return 1 ; }
-
-	flat_alignment() : gen_alignment<flat_alignment>() {}
-	flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<flat_alignment>(g,ps,s) {}
 } ;
 
 //! formats an intermediate alignment state to a stream.
@@ -292,11 +259,34 @@ bool operator < ( const gen_alignment<A>& a, const gen_alignment<A>& b )
 
 //! }@
 
-//! \page special_align_ops Specific Alignment Operations
+
+//! \page trivial_alignment Operations For Trivial Alignments
 //! These functions should be specialized for every concrete type of
 //! alignment.
 //!
-//! {@
+//! @{
+
+//! \brief Extremely simple automaton for testing.
+//! This automaton realizes the most trivial alignment possible.  It has
+//! no internal states, gap costs are linear, aDNA is not modelled, but
+//! the alignment consists of two parts in series.  Matching is also
+//! greedy.  The resulting alignment is suitable for testing and also to
+//! map sequences from the 454 instrument (due to the very common gaps).
+//! \see alignment_rep
+
+struct flat_alignment : public gen_alignment<flat_alignment> {
+	//! \brief Trivial substitution matrix.
+	//! Aligning two codes that have any overlap costs nothing, else it
+	//! costs 1.
+	static uint32_t subst_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 1 ; }
+
+	//! \brief trivial gap costs
+	//!A gap costs one, whether it is opened or extended.
+	static uint32_t gap_penalty() { return 1 ; }
+
+	flat_alignment() : gen_alignment<flat_alignment>() {}
+	flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<flat_alignment>(g,ps,s) {}
+} ;
 
 //! \brief checks whether an alignment is finished
 //! A \c flat_alignment is finished iff either sequence hit a gap while
@@ -388,6 +378,282 @@ template< typename F > void forward( const flat_alignment& s, F f )
 			s3.penalty += flat_alignment::gap_penalty() ;
 			--s3.query_offs ;
 			f( s3 ) ;
+		}
+	}
+}
+
+//! @}
+
+//! \page adna_alignment Operations on Ancient DNA Alignments
+//! This type of alignment models aDNA as two additional states, one
+//! with higher deamination rate, with an asymmetric substitution
+//! matrix, and with affine gap costs.  Additional parameters are all
+//! static.
+//!
+//! @{
+
+//! \brief aDNA alignment automaton
+//! We encode the state as follows: Bit 0 is set if we're in the second
+//! half (5' end), bit 1 is set if we're threating DNA as single
+//! stranded, bit 2 is set if we're gapping the reference and bit 3 is
+//! set if we're gapping the query.
+//! \see alignment_rep
+
+struct simple_adna : public gen_alignment<simple_adna> {
+	//! \brief DS substitution matrix, forward direction
+	//! \todo Needs to be refined, right now a match costs nothing, a
+	//! mismatch costs 3.
+	static uint32_t ds_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 3 ; }
+
+	//! \brief SS substitution matrix, forward direction
+	//! \todo Needs to be refined, too.  Right now a match costs
+	//! nothing, a mismatch costs one, and deamination costs nothing.
+	//! Note that deamination shows up as G->A, since we are near the 3'
+	//! end.
+	static uint32_t ss_mat( Ambicode a, Ambicode b ) {
+		return (a & b) != 0 ? 0 :
+			   (a & 4) != 0 && (b & 1) != 0 ? 0 : 3 ; }
+
+	//! \brief Penalty for extending an overhang.
+	//! Having a constant penalty for the overhang length models its
+	//! length distribution as geometric.
+	//! \todo I pulled the number out of my 4$$
+	static uint32_t overhang_ext_penalty() { return 1 ; }
+
+	//! \brief gap open penalty
+	//! \todo Gaps have affine costs, which are currently somewhat
+	//! arbitrary.
+	static uint32_t gap_open_penalty() { return 5 ; }
+
+	//! \brief gap extension penalty
+	//! \todo Also arbitrary...
+	static uint32_t gap_ext_penalty() { return 2 ; }
+
+	simple_adna() : gen_alignment<simple_adna>() {}
+	simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}
+
+	enum {
+		mask_dir     = 1,
+		mask_ss      = 2,
+		mask_gap_ref = 4,
+		mask_gap_qry = 8,
+
+		mask_gaps = mask_gap_ref | mask_gap_ref
+	} ;
+} ;
+
+//! \brief checks whether an alignment is finished
+//! A \c simple_adna alignment is finished iff either sequence hit a gap
+//! while doing the second half of an alignment, regardless of whether
+//! any gaps are open and what state of aDNA we're in.
+//! \param s alignment state
+//! \return true iff the alignment is finished
+bool finished( const simple_adna& s )
+{
+	return (s.state & simple_adna::mask_dir) &&
+		( s.get_ref() == 0 || s.get_qry() == 0 ) ;
+}
+
+//! \brief greedily extends an alignment.
+//! We extend greedily if no gap is open and the two sequences match.
+//! \see ::greedy( flat_alignment& )
+//! \param s alignment state
+void greedy( simple_adna& s )
+{
+	if( (s.state & simple_adna::mask_gaps) == 0 )
+	{
+		while( s.get_qry() && s.get_ref() == s.get_qry() )
+		{
+			s.penalty += s.state & simple_adna::mask_ss
+					? simple_adna::ss_mat( s.get_ref(), s.get_qry() )
+					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ;
+			if( s.state & simple_adna::mask_dir )
+			{
+				--s.ref_offs ;
+				--s.query_offs ;
+			}
+			else
+			{
+				++s.ref_offs ;
+				++s.query_offs ;
+			}
+		}
+	}
+}
+
+//! \todo this is all very ugly; need to abstract the gunk out of here.
+template< typename F > void forward( const simple_adna& s, F f )
+{
+	// what to do?  
+	// If in matching state, we know there's no immediate match, so we can...
+	// - mismatch
+	// - detect deamination and change to SS state (while matching)
+	// - open ref gap
+	// - open query gap
+	//
+	// If a gap is open, we can...
+	// - extend it
+	// - close it
+	//
+	// If we hit a gap symbol, we must...
+	// - start over at second half in initial state
+
+	if( (s.state & simple_adna::mask_dir) == 0 )
+	{
+		if( s.get_ref() == 0 || s.get_qry() == 0 )
+		{
+			// forward dir, hit gap --> start over in reverse dir
+			simple_adna s1 = s ;
+			s1.state = 1 ;
+			s1.ref_offs = -1 ;
+			s1.query_offs = -1 ;
+			f( s1 ) ;
+		}
+		else if( (s.state & simple_adna::mask_gaps) == 0 )
+		{
+			// no gaps open --> mismatch, open either gap, enter SS
+			{
+				simple_adna s1 = s ;
+				s1.penalty += (s.state & simple_adna::mask_ss) != 0
+					? simple_adna::ss_mat( s1.get_ref(), s1.get_qry() )
+					: simple_adna::ds_mat( s1.get_ref(), s1.get_qry() ) ;
+				++s1.ref_offs ;
+				++s1.query_offs ;
+				f( s1 ) ;
+			}{
+				simple_adna s2 = s ;
+				s2.penalty += simple_adna::gap_open_penalty() ;
+				s2.state |= simple_adna::mask_gap_qry ;
+				++s2.ref_offs ;
+				f( s2 ) ;
+			}{
+				simple_adna s3 = s ;
+				s3.penalty += simple_adna::gap_open_penalty() ;
+				s3.state |= simple_adna::mask_gap_ref ;
+				++s3.query_offs ;
+				f( s3 ) ;
+			}
+			if( (s.state & simple_adna::mask_ss) == 0 && s.get_ref() == 8 && s.get_qry() == 1 ) {
+				simple_adna s4 = s ;
+				s4.penalty += simple_adna::ss_mat( 8, 1 ) ;
+				s4.state |= simple_adna::mask_ss ;
+				++s4.ref_offs ;
+				++s4.query_offs ;
+				f( s4 ) ;
+			}
+		}
+		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref )
+		{
+			// already gapping ref --> continue or close
+			{
+				simple_adna s1 = s ;
+				s1.penalty += simple_adna::gap_ext_penalty() ;
+				++s1.query_offs ;
+				f( s1 ) ;
+			}{
+				simple_adna s2 = s ;
+				s2.penalty += s.state & simple_adna::mask_ss
+					? simple_adna::ss_mat( s.get_ref(), s.get_qry() )
+					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ;
+				s2.state &= ~simple_adna::mask_gap_ref ;
+				++s2.ref_offs ;
+				++s2.query_offs ;
+				f( s2 ) ;
+			}
+		}
+		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_qry )
+		{
+			// already gapping query --> continue or close
+			{
+				simple_adna s1 = s ;
+				s1.penalty += simple_adna::gap_ext_penalty() ;
+				++s1.ref_offs ;
+				f( s1 ) ;
+			}{
+				simple_adna s2 = s ;
+				s2.penalty += s.state & simple_adna::mask_ss
+					? simple_adna::ss_mat( s.get_ref(), s.get_qry() )
+					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ;
+				s2.state &= ~simple_adna::mask_gap_qry ;
+				++s2.ref_offs ;
+				++s2.query_offs ;
+				f( s2 ) ;
+			}
+		}
+	}
+	else
+	{
+		// second half; we won't be called if we hit a gap symbol
+		if( (s.state & simple_adna::mask_gaps) == 0 )
+		{
+			// no gaps open --> mismatch, open either gap, enter SS
+			{
+				simple_adna s1 = s ;
+				s1.penalty += (s.state & simple_adna::mask_ss) != 0
+					? simple_adna::ss_mat( s1.get_ref(), s1.get_qry() )		// XXX
+					: simple_adna::ds_mat( s1.get_ref(), s1.get_qry() ) ;	// XXX
+				--s1.ref_offs ;
+				--s1.query_offs ;
+				f( s1 ) ;
+			}{
+				simple_adna s2 = s ;
+				s2.penalty += simple_adna::gap_open_penalty() ;
+				s2.state |= simple_adna::mask_gap_qry ;
+				--s2.ref_offs ;
+				f( s2 ) ;
+			}{
+				simple_adna s3 = s ;
+				s3.penalty += simple_adna::gap_open_penalty() ;
+				s3.state |= simple_adna::mask_gap_ref ;
+				--s3.query_offs ;
+				f( s3 ) ;
+			}
+			if( (s.state & simple_adna::mask_ss) == 0 && s.get_ref() == 2 && s.get_qry() == 4 ) {
+				simple_adna s4 = s ;
+				s4.penalty += simple_adna::ss_mat( 8, 1 ) ;
+				s4.state |= simple_adna::mask_ss ;
+				--s4.ref_offs ;
+				--s4.query_offs ;
+				f( s4 ) ;
+			}
+		}
+		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref )
+		{
+			// already gapping ref --> continue or close
+			{
+				simple_adna s1 = s ;
+				s1.penalty += simple_adna::gap_ext_penalty() ;
+				--s1.query_offs ;
+				f( s1 ) ;
+			}{
+				simple_adna s2 = s ;
+				s2.penalty += s.state & simple_adna::mask_ss
+					? simple_adna::ss_mat( s.get_ref(), s.get_qry() ) // XXX
+					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ; // XXX
+				s2.state &= ~simple_adna::mask_gap_ref ;
+				--s2.ref_offs ;
+				--s2.query_offs ;
+				f( s2 ) ;
+			}
+		}
+		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_qry )
+		{
+			// already gapping query --> continue or close
+			{
+				simple_adna s1 = s ;
+				s1.penalty += simple_adna::gap_ext_penalty() ;
+				++s1.ref_offs ;
+				f( s1 ) ;
+			}{
+				simple_adna s2 = s ;
+				s2.penalty += s.state & simple_adna::mask_ss
+					? simple_adna::ss_mat( s.get_ref(), s.get_qry() ) // XXX
+					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ; // XXX
+				s2.state &= ~simple_adna::mask_gap_qry ;
+				--s2.ref_offs ;
+				--s2.query_offs ;
+				f( s2 ) ;
+			}
 		}
 	}
 }
@@ -537,7 +803,8 @@ inline std::ostream& operator << ( std::ostream& s, const Trace_& t )
 //! \return a trace, that is a sequence of pairs of Ambicodes
 //! \internal
 
-Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
+template< typename State >
+Trace backtrace( const typename State::ClosedMap &cl, const State *a )
 {
 	Trace r ;
 
@@ -548,9 +815,9 @@ Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 	// Only trace back second state here, this ends up at the front of
 	// the alignment, but we add stuff to the back as we generate it in
 	// the wrong order.
-	while( const flat_alignment *b = *lookup( cl, *a ) ) 
+	while( const State *b = *lookup( cl, *a ) ) 
 	{
-		if( b->state == 0 ) break ;
+		if( (b->state & simple_adna::mask_dir) == 0 ) break ;
 		for( signed short ro = a->ref_offs, qo = a->query_offs ; 
 				ro != b->ref_offs || qo != b->query_offs ; )
 		{
@@ -579,7 +846,7 @@ Trace backtrace( const flat_alignment::ClosedMap &cl, const flat_alignment *a )
 	// Trace back first state now, generating a new trace which needs to
 	// be reversed in the end.
 	Trace_ t2 ;
-	while( const flat_alignment *b = *lookup( cl, *a ) ) 
+	while( const State *b = *lookup( cl, *a ) ) 
 	{
 		for( signed short ro = a->ref_offs, qo = a->query_offs ; 
 				ro != b->ref_offs || qo != b->query_offs ; )

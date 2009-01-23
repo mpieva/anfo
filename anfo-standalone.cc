@@ -22,6 +22,11 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+//! \brief Configures type of alignment to be done.
+//! This is a hack and only intended as a stopgap.
+// typedef flat_alignment alignment_type ;
+typedef simple_adna alignment_type ;
+
 using namespace config ;
 using namespace std ;
 
@@ -103,7 +108,7 @@ typedef map< string, FixedIndex > Indices ;
 struct AlignmentWorkload
 {
 	int pmax ;
-	std::deque< flat_alignment > *ol ;
+	std::deque< alignment_type > *ol ;
 	output::Result *r ;
 	QSequence *ps ;
 } ;
@@ -133,11 +138,11 @@ void* run_output_thread( void* p )
 struct reference_overlaps {
 	DnaP x, y ;
 	reference_overlaps( DnaP u, DnaP v ) : x(u), y(v) {}
-	bool operator()( const flat_alignment& a ) {
+	bool operator()( const alignment_type& a ) {
 		return a.reference >= x && a.reference <= y ; }
 } ;
 
-int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque< flat_alignment >& ol )
+int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque< alignment_type >& ol )
 {
 	r->set_seqid( ps->get_name() ) ;
 	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
@@ -184,9 +189,9 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 	else return p.max_penalty_per_nuc() ;
 }
 
-void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, std::deque< flat_alignment > &ol, output::Result *r )
+void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result *r )
 {
-	flat_alignment best = find_cheapest( ol, max_penalty_per_nuc * ps->length() / 1000 ) ;
+	alignment_type best = find_cheapest( ol, max_penalty_per_nuc * ps->length() / 1000 ) ;
 	if( !best )
 	{
 		r->set_reason( output::bad_alignment ) ;
@@ -195,10 +200,10 @@ void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, s
 	{
 		int penalty = best.penalty ;
 
-		deque< pair< flat_alignment, const flat_alignment* > > ol_ ;
+		deque< pair< alignment_type, const alignment_type* > > ol_ ;
 		reset( best ) ;
 		greedy( best ) ;
-		(enter_bt<flat_alignment>( ol_ ))( best ) ;
+		(enter_bt<alignment_type>( ol_ ))( best ) ;
 		Trace t = find_cheapest( ol_ ) ;
 
 		output::Hit *h = r->mutable_best_to_genome() ;
@@ -254,7 +259,7 @@ void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, s
 				std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
 				ol.end() ) ;
 		make_heap( ol.begin(), ol.end() ) ;
-		flat_alignment second_best = find_cheapest( ol, penalty + 10 ) ;
+		alignment_type second_best = find_cheapest( ol, penalty + 10 ) ;
 		if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
 	}
 }
@@ -265,7 +270,7 @@ void* run_indexer_thread( void* cd_ )
 	while( QSequence *ps = cd->input_queue.dequeue() )
 	{
 		output::Result *r = new output::Result ;
-		std::deque< flat_alignment > *ol = new std::deque< flat_alignment >() ;
+		std::deque< alignment_type > *ol = new std::deque< alignment_type >() ;
 		int pmax = index_sequence( cd, ps, r, *ol ) ;
 		if( pmax!= INT_MAX ) 
 		{
@@ -485,7 +490,7 @@ int main_( int argc, const char * argv[] )
 			else 
 			{
 				output::Result r ;
-				std::deque< flat_alignment > ol ;
+				std::deque< alignment_type > ol ;
 				int pmax = index_sequence( &common_data, ps, &r, ol ) ;
 				if( pmax != INT_MAX ) process_sequence( &common_data, ps, pmax, ol, &r ) ;
 				write_delimited_message( *common_data.output_stream, r ) ;
