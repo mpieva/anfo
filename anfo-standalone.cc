@@ -301,6 +301,11 @@ void* run_worker_thread( void* cd_ )
 	return 0 ;
 }
 
+void expand_var( string &s, const string& r )
+{
+	for( size_t p ; string::npos != (p = s.find( "$VAR" )) ; )
+		s.replace( p, 4, r ) ;
+}
 
 //! \page finding_alns How to find everything we need
 //! We look for best hits globally and specifically on one genome.  They
@@ -338,6 +343,7 @@ int main_( int argc, const char * argv[] )
 
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
+	const char* var_def = "" ;
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_quals = 0 ;
@@ -348,6 +354,7 @@ int main_( int argc, const char * argv[] )
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallen indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
+		{ "var",          0 , POPT_ARG_STRING, &var_def,     opt_none,    "Set VAR to be expanded in config to S", "S" },
 		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -394,16 +401,17 @@ int main_( int argc, const char * argv[] )
 	{
 		for( int j = 0 ; j != common_data.mi.policy(i).use_compact_index_size() ; ++j )
 		{
-			const CompactIndexSpec &ixs = common_data.mi.policy(i).use_compact_index(j) ;
+			CompactIndexSpec &ixs = *common_data.mi.mutable_policy(i)->mutable_use_compact_index(j) ;
+			expand_var( *ixs.mutable_name(), var_def ) ;
 			FixedIndex &ix = common_data.indices[ ixs.name() ] ;
 			if( !ix ) {
 				FixedIndex( ixs.name(), common_data.mi, MADV_WILLNEED ).swap( ix ) ;
-
-				CompactGenome &g = common_data.genomes[ ix.ci_.genome_name() ] ;
+				const string& genome_name = ix.ci_.genome_name() ; 
+				CompactGenome &g = common_data.genomes[ genome_name ] ;
 				if( !g.get_base() )
 				{
-					*ohd.add_genome() = ix.ci_.genome_name() ;
-					CompactGenome( ix.ci_.genome_name(), common_data.mi, MADV_WILLNEED ).swap( g ) ;
+					*ohd.add_genome() = genome_name ;
+					CompactGenome( genome_name, common_data.mi, MADV_WILLNEED ).swap( g ) ;
 				}
 			}
 		}

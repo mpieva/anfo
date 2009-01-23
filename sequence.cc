@@ -29,7 +29,7 @@ static inline bool all_acsii_qscores( const std::string& s )
 
 static inline int sol_to_phred( int sol )
 {
-	return 0.5 + 10.0/log(10.0) * log( 1.0 + exp( sol*log(10.0)/10.0 ) ) ;
+	return (int)( 0.5 + 10.0/log(10.0) * log( 1.0 + exp( sol*log(10.0)/10.0 ))) ;
 }
 
 istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
