@@ -15,7 +15,7 @@ DATABASES := ../data/chr21.dna ../data/chr21_10.idx
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o
+OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o
 
 fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)
@@ -61,5 +61,6 @@ tags: *.cc *.h
 
 clean:
 	-rm $(TARGETS)
+	-rm -r doc
 	-rm *.o *.d *.pb.cc *.pb.h
 

@@ -88,7 +88,7 @@ template< typename value > class const_ref
 } ;
 
 
-bool operator , ( const const_ref<Judy1> &r, Word_t i ) { return !!r && r->test(i) ; }
+inline bool operator , ( const const_ref<Judy1> &r, Word_t i ) { return !!r && r->test(i) ; }
 
 template< typename value > const_ref< typename value::value_type > operator , ( const const_ref<value> &r, Word_t i ) 
 { if( !r ) return const_ref< typename value::value_type >() ; else return r->lookup( i ) ; }
@@ -144,8 +144,8 @@ template< typename value >
 const_ref< value > operator , ( const JudyL<value> &j, Word_t i )
 { return j.lookup( i ) ; }
 
-int64_t deep_count( const Judy1 &j ) { return j.count() ; }
-int64_t deep_count( const JudyL<Judy1> &j ) {
+inline int64_t deep_count( const Judy1 &j ) { return j.count() ; }
+inline int64_t deep_count( const JudyL<Judy1> &j ) {
 	Word_t w = 0 ; 
 	int64_t c = 0 ;
 	for( const Judy1 *v = j.first( w ) ; v ; v = j.next( w ) ) c += deep_count(*v) ;

@@ -98,6 +98,35 @@ message Policy {
     required uint32 max_penalty_per_nuc = 8 ;
 }
 
+message Aligner {
+    // rate of transversions, basically defines the mismatch penalty
+    required float rate_of_transversions = 1 ;
+
+    // rate of transitions, defaults to tranversion rate
+    optional float rate_of_transitions = 2 ;
+
+    // probability of a gap appearing, efectively defines the gap-open-penalty
+    // defaults to gap-extension-penalty to yield linear gap costs
+    optional float gap_open_rate = 3 ;
+
+    // probability of a gap extension
+    required float gap_extension_rate = 4 ;
+
+    // deamination rate, double stranded
+    optional float rate_of_ds_deamination = 5 [default = 0.0] ;
+    
+    // deamination rate, single stranded
+    optional float rate_of_ss_deamination = 6 [default = 0.0] ;
+
+    // mean overhang length
+    // at each end of a read we say there's half a chance that it has an
+    // overhang in the right (detectable) direction, and if so, the length is
+    // geometrically distributed with a suitable parameter
+	// if left out, no overhangs are produced
+    optional float mean_overhang_length = 7 ;
+}
+
+
 // Configuration messages are both read from a file to configure the program
 // and written as a kind of header to the output to leave an audit trail.
 message Config {
@@ -112,8 +141,19 @@ message Config {
     // rules to select indices
     repeated Policy policy = 3 ;
 
-    // indicates whether an output file is sorted
-    optional bool is_sorted = 15 [default=false] ;
+    // aligner configuration
+    // There can be only one kind of aligner in a run, if none is configured,
+    // you get the trivial ("flat") alignment.
+    optional Aligner aligner = 4 ;
+
+    // indicates whether an output file is sorted by read name
+    // (needed to merge files)
+    optional bool is_sorted_by_name = 15 [default=false] ;
+
+    // indicates whether an output file is sorted by genome coordinate
+    // (that is genome name, then sequence name, then earliest matching
+    // position; useful for consensus calling)
+    optional bool is_sorted_by_coordinate = 14 [default=false] ;
 }
 
 // vim:expandtab:ts=4:sw=4:cindent

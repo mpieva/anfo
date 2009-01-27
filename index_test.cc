@@ -6,7 +6,8 @@
 #include <limits>
 #include <string>
 
-typedef simple_adna alignment_type ;
+// typedef simple_adna alignment_type ;
+// typedef flat_alignment alignment_type ;
 
 using namespace std ;
 
@@ -42,6 +43,25 @@ void revcom( string &s )
 	}
 }
 
+template< typename alignment_type >
+int do_aln( const CompactGenome& g, const QSequence& ps, const vector<Seed>& seeds )
+{
+	deque<alignment_type> ol ;
+	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
+	alignment_type best = find_cheapest( ol, std::numeric_limits<uint32_t>::max(), true ) ;
+
+	cout << "Done near " << best.reference.abs() - g.get_base() << " costing " << best.penalty << ':' << endl ;
+
+	deque< pair< alignment_type, const alignment_type* > > ol_ ;
+	reset( best ) ;
+	greedy( best ) ;
+	(enter_bt<alignment_type>( ol_ ))( best ) ;
+	cout << find_cheapest( ol_ ).trace << endl ;
+
+	return 0 ;
+}
+
+
 int main_( int argc, const char * argv[] )
 {
 	config::Config mi = parse_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "anfo.cfg" : argv[1] ) ;
@@ -69,18 +89,14 @@ int main_( int argc, const char * argv[] )
 		 << " larger ones, clumped into " << num_clumps << " clumps."
 		 << endl ;
 
-	deque<alignment_type> ol ;
-	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-	alignment_type best = find_cheapest( ol, std::numeric_limits<uint32_t>::max(), true ) ;
-
-	cout << "Done near " << best.reference.abs() - g.get_base() << " costing " << best.penalty << ':' << endl ;
-
-	deque< pair< alignment_type, const alignment_type* > > ol_ ;
-	reset( best ) ;
-	greedy( best ) ;
-	(enter_bt<alignment_type>( ol_ ))( best ) ;
-	cout << find_cheapest( ol_ ).trace << endl ;
-
-	return 0 ;
+	if( mi.has_aligner() )
+	{
+		simple_adna::configure( mi.aligner() ) ;
+		return do_aln< simple_adna >( g, ps, seeds ) ;
+	}
+	else
+	{
+		return do_aln< flat_alignment >( g, ps, seeds ) ;
+	}
 }
 

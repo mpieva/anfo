@@ -57,7 +57,7 @@ alignment from the best seed and are done, maybe without even \em
 touching the other seeds.  The list of closed states is simply a set.
 
 \todo Consider number of unaligned nucleotides when ordering
-      alignments.
+	  alignments.
 
 \subsection closed_list Closed List
 
@@ -87,7 +87,10 @@ are never removed because they are simply too bad to ever be touched.
 
 \todo Find or create a priority search queue.  
 
-\todo Include penalty for unaligned tails of the query in score.
+\todo Include penalty for unaligned tails of the query in score.  The
+	  expected score for aligning random sequence can be retrieved from
+	  the N column of the subst. matrix.  That also gives an expectation
+	  for aligning random sequence.
 */
 
 
@@ -120,6 +123,8 @@ template< typename T > struct gen_alignment {
 	uint32_t penalty   : 24 ;				// cost so far
 	int32_t ref_offs   : 16 ;				// cur. position
 	int32_t query_offs : 16 ; 				// cur. position
+
+	enum { mask_dir = 1 } ;
 
 	//! \brief default constructor
 	//! Constructs an alignment easily recognizable as invalid.
@@ -163,6 +168,9 @@ template< typename T > struct gen_alignment {
 
 	//! \brief returns the current quality score on the query
 	uint8_t  get_qlt() const { return query.qual( query_offs ) ; }
+
+	void adv_ref() { if( state & mask_dir ) --ref_offs ; else ++ref_offs ; }
+	void adv_qry() { if( state & mask_dir ) --query_offs ; else ++query_offs ; }
 } ;
 
 //! formats an intermediate alignment state to a stream.
@@ -186,7 +194,7 @@ template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.b
 //! derivable from ::gen_alignment should specialze them.
 //!
 //! \page trivial_alignments Trivial Alignments
-//! \subpage basic_alignment_ops
+//! \subpage generic_alignment_ops
 //! @{
 
 //! \brief cheks whether an alignment is already closed
@@ -289,13 +297,14 @@ struct flat_alignment : public gen_alignment<flat_alignment> {
 } ;
 
 //! \brief checks whether an alignment is finished
-//! A \c flat_alignment is finished iff either sequence hit a gap while
-//! doing the second half of an alignment.
+//! The typical alignment is finished iff either sequence hit a gap
+//! while doing the second half of an alignment.
 //! \param s alignment state
 //! \return true iff the alignment is finished
-bool finished( const flat_alignment& s ) {
-	return s.state == 1 &&
-		( s.reference[ s.ref_offs ] == 0 || s.query[ s.query_offs ] == 0 ) ;
+template< typename A > bool finished( const gen_alignment<A>& s )
+{
+	return (s.state & gen_alignment<A>::mask_dir) &&
+		( s.get_ref() == 0 || s.get_qry() == 0 ) ;
 }
 
 //! \brief greedily extends an alignment.
@@ -305,25 +314,16 @@ bool finished( const flat_alignment& s ) {
 //! changing state in greedy(), but only in forward().  greedy() just
 //! advances two pointers synchronously.
 //! \param s alignment state
-void greedy( flat_alignment& s )
+inline void greedy( flat_alignment& s )
 {
-	while( s.query[s.query_offs] && s.reference[s.ref_offs] == s.query[s.query_offs] )
+	while( s.get_qry() && s.get_ref() == s.get_qry() )
 	{
-		s.penalty += flat_alignment::subst_mat( s.reference[s.ref_offs], s.query[s.query_offs] ) ;
-		if( s.state == 0 ) 
-		{
-			++s.ref_offs ;
-			++s.query_offs ;
-		}
-		else
-		{
-			--s.ref_offs ;
-			--s.query_offs ;
-		}
+		s.penalty += flat_alignment::subst_mat( s.get_ref(), s.get_qry() ) ;
+		s.adv_ref() ;
+		s.adv_qry() ;
 	}
 }
 
-//! \todo this is all very ugly; need to abstract the gunk out of here.
 template< typename F > void forward( const flat_alignment& s, F f )
 {
 	// what to do?  
@@ -331,54 +331,32 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	// in state 1: mismatch, gap ref, gap query
 	// In any case, we can rely on the fact that greedy() was called
 	// before.
-	if( s.state == 0 )
+	if( (s.state & flat_alignment::mask_dir) == 0 &&
+			(s.get_ref() == 0 || s.get_qry() == 0) )
 	{
-		if( s.reference[s.ref_offs] == 0 || s.query[s.query_offs] == 0 )
-		{
-			flat_alignment s1 = s ;
-			s1.state = 1 ;
-			s1.ref_offs = -1 ;
-			s1.query_offs = -1 ;
-			f( s1 ) ;
-		}
-		else
-		{
-			flat_alignment s1 = s ;
-			s1.penalty += flat_alignment::subst_mat( s1.reference[s1.ref_offs], s1.query[s1.query_offs] ) ;
-			++s1.ref_offs ;
-			++s1.query_offs ;
-			f( s1 ) ;
-		
-			flat_alignment s2 = s ;
-			s2.penalty += flat_alignment::gap_penalty() ;
-			++s2.ref_offs ;
-			f( s2 ) ;
-	
-			flat_alignment s3 = s ;
-			s3.penalty += flat_alignment::gap_penalty() ;
-			++s3.query_offs ;
-			f( s3 ) ;
-		}
+		flat_alignment s1 = s ;
+		s1.state = 1 ;
+		s1.ref_offs = -1 ;
+		s1.query_offs = -1 ;
+		f( s1 ) ;
 	}
 	else
 	{
-		{
-			flat_alignment s1 = s ;
-			s1.penalty += flat_alignment::subst_mat( s1.reference[s1.ref_offs], s1.query[s1.query_offs] ) ;
-			--s1.ref_offs ;
-			--s1.query_offs ;
-			f( s1 ) ;
-		}{
-			flat_alignment s2 = s ;
-			s2.penalty += flat_alignment::gap_penalty() ;
-			--s2.ref_offs ;
-			f( s2 ) ;
-		}{
-			flat_alignment s3 = s ;
-			s3.penalty += flat_alignment::gap_penalty() ;
-			--s3.query_offs ;
-			f( s3 ) ;
-		}
+		flat_alignment s1 = s ;
+		s1.penalty += flat_alignment::subst_mat( s1.get_ref(), s1.get_qry() ) ;
+		s1.adv_ref() ;
+		s1.adv_qry() ;
+		f( s1 ) ;
+
+		flat_alignment s2 = s ;
+		s2.penalty += flat_alignment::gap_penalty() ;
+		s2.adv_ref() ;
+		f( s2 ) ;
+
+		flat_alignment s3 = s ;
+		s3.penalty += flat_alignment::gap_penalty() ;
+		s3.adv_qry() ;
+		f( s3 ) ;
 	}
 }
 
@@ -392,6 +370,15 @@ template< typename F > void forward( const flat_alignment& s, F f )
 //!
 //! @{
 
+//! \brief substitution matrix
+//! We prepare a full matrix of 16 ambiguity codes vs. 16 ambiguity
+//! codes, this avoid the need for expensive additions in the log-domain
+//! should the need to align ambiguity codes arise.  First index is
+//! "from" (reference code), second index is "to" (query code).
+//! \todo Log-domain additions are still needed to properly support quality
+//!       scores, which is left as an exersize to advanced students...
+typedef uint32_t subst_mat[16][16] ;
+
 //! \brief aDNA alignment automaton
 //! We encode the state as follows: Bit 0 is set if we're in the second
 //! half (5' end), bit 1 is set if we're threating DNA as single
@@ -401,87 +388,76 @@ template< typename F > void forward( const flat_alignment& s, F f )
 
 struct simple_adna : public gen_alignment<simple_adna> {
 	//! \brief DS substitution matrix, forward direction
-	//! \todo Needs to be refined, right now a match costs nothing, a
-	//! mismatch costs 3.
-	static uint32_t ds_mat( Ambicode a, Ambicode b ) { return (a & b) != 0 ? 0 : 3 ; }
+	static subst_mat ds_mat ;
 
 	//! \brief SS substitution matrix, forward direction
-	//! \todo Needs to be refined, too.  Right now a match costs
-	//! nothing, a mismatch costs one, and deamination costs nothing.
-	//! Note that deamination shows up as G->A, since we are near the 3'
-	//! end.
-	static uint32_t ss_mat( Ambicode a, Ambicode b ) {
-		return (a & b) != 0 ? 0 :
-			   (a & 4) != 0 && (b & 1) != 0 ? 0 : 3 ; }
+	//! Deamination shows up as C->T as it is best understood this way.
+	//! To process reverse-complemented deamination, we have to do
+	//! rev-complemented lookups while actually moving in the forward
+	//! (5'->3') direction.  \see simple_adna::subst_penalty()
+	static subst_mat ss_mat ;
+
+	//! \brief does a lookup in the appropriate subst matrix
+	//! This retrieves the current codes in reference and query, if
+	//! necessary complements them, then retrieves the appropriate score
+	//! from the the currently active scoring matrix.  Note that
+	//! complementing is necessary as long as the mask_dir bit is \e not
+	//! set, since in the forward direction, aDNA damage actually
+	//! operates on the reverse strand.
+	uint32_t subst_penalty() const {
+		Ambicode r = get_ref(), q = get_qry() ;
+		if( !(state & mask_dir) ) { r = complement(r) ; q = complement(q) ; }
+		return state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] ;
+	}
 
 	//! \brief Penalty for extending an overhang.
 	//! Having a constant penalty for the overhang length models its
 	//! length distribution as geometric.
-	//! \todo I pulled the number out of my 4$$
-	static uint32_t overhang_ext_penalty() { return 1 ; }
+	static uint32_t overhang_ext_penalty ;
+
+	//! \brief penalty for entering SS state
+	//! This is essentially the probability of having an overhang at
+	//! all.
+	static uint32_t overhang_enter_penalty ;
 
 	//! \brief gap open penalty
-	//! \todo Gaps have affine costs, which are currently somewhat
-	//! arbitrary.
-	static uint32_t gap_open_penalty() { return 5 ; }
+	static uint32_t gap_open_penalty ;
 
 	//! \brief gap extension penalty
-	//! \todo Also arbitrary...
-	static uint32_t gap_ext_penalty() { return 2 ; }
+	static uint32_t gap_ext_penalty ;
+
+	//! \brief sets up parameters from configuration block
+	static void configure( const config::Aligner& ) ;
 
 	simple_adna() : gen_alignment<simple_adna>() {}
 	simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}
 
 	enum {
-		mask_dir     = 1,
-		mask_ss      = 2,
-		mask_gap_ref = 4,
-		mask_gap_qry = 8,
+		mask_gap_ref = 2,
+		mask_gap_qry = 4,
+		mask_ss      = 8,
 
 		mask_gaps = mask_gap_ref | mask_gap_ref
 	} ;
 } ;
 
-//! \brief checks whether an alignment is finished
-//! A \c simple_adna alignment is finished iff either sequence hit a gap
-//! while doing the second half of an alignment, regardless of whether
-//! any gaps are open and what state of aDNA we're in.
-//! \param s alignment state
-//! \return true iff the alignment is finished
-bool finished( const simple_adna& s )
-{
-	return (s.state & simple_adna::mask_dir) &&
-		( s.get_ref() == 0 || s.get_qry() == 0 ) ;
-}
-
 //! \brief greedily extends an alignment.
 //! We extend greedily if no gap is open and the two sequences match.
 //! \see ::greedy( flat_alignment& )
 //! \param s alignment state
-void greedy( simple_adna& s )
+inline void greedy( simple_adna& s )
 {
 	if( (s.state & simple_adna::mask_gaps) == 0 )
 	{
 		while( s.get_qry() && s.get_ref() == s.get_qry() )
 		{
-			s.penalty += s.state & simple_adna::mask_ss
-					? simple_adna::ss_mat( s.get_ref(), s.get_qry() )
-					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ;
-			if( s.state & simple_adna::mask_dir )
-			{
-				--s.ref_offs ;
-				--s.query_offs ;
-			}
-			else
-			{
-				++s.ref_offs ;
-				++s.query_offs ;
-			}
+			s.penalty += s.subst_penalty() ;
+			s.adv_ref() ;
+			s.adv_qry() ;
 		}
 	}
 }
 
-//! \todo this is all very ugly; need to abstract the gunk out of here.
 template< typename F > void forward( const simple_adna& s, F f )
 {
 	// what to do?  
@@ -498,162 +474,82 @@ template< typename F > void forward( const simple_adna& s, F f )
 	// If we hit a gap symbol, we must...
 	// - start over at second half in initial state
 
-	if( (s.state & simple_adna::mask_dir) == 0 )
+	// Note the penalties: The appropriate substitution penalty is
+	// applied whenever we (mis-)match two codes, the gap open penalties
+	// are applied when opening/extending a gap, the
+	// overhang_enter_penalty is applied when changing to SS mode and
+	// the overhang_ext_penalty is applied whenever moving along the
+	// query while single stranded, even when a gap is open!  This gives
+	// correct scores for a geometric distribution of overhang lengths.
+	if( (s.state & simple_adna::mask_dir) == 0 && ( s.get_ref() == 0 || s.get_qry() == 0 ) )
 	{
-		if( s.get_ref() == 0 || s.get_qry() == 0 )
+		// forward dir, hit gap --> start over in reverse dir
+		simple_adna s1 = s ;
+		s1.state = 1 ;
+		s1.ref_offs = -1 ;
+		s1.query_offs = -1 ;
+		f( s1 ) ;
+	}
+	else if( (s.state & simple_adna::mask_gaps) == 0 )
+	{
+		// no gaps open --> mismatch, open either gap, enter SS
 		{
-			// forward dir, hit gap --> start over in reverse dir
 			simple_adna s1 = s ;
-			s1.state = 1 ;
-			s1.ref_offs = -1 ;
-			s1.query_offs = -1 ;
+			s1.penalty += s1.subst_penalty() ;
+			if( s.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty ;
+			s1.adv_ref() ;
+			s1.adv_qry() ;
 			f( s1 ) ;
+		}{
+			simple_adna s2 = s ;
+			s2.penalty += simple_adna::gap_open_penalty ;
+			s2.state |= simple_adna::mask_gap_qry ;
+			s2.adv_ref() ;
+			f( s2 ) ;
+		}{
+			simple_adna s3 = s ;
+			s3.penalty += simple_adna::gap_open_penalty ;
+			if( s.state & simple_adna::mask_ss ) s3.penalty += simple_adna::overhang_ext_penalty ;
+			s3.state |= simple_adna::mask_gap_ref ;
+			s3.adv_qry() ;
+			f( s3 ) ;
 		}
-		else if( (s.state & simple_adna::mask_gaps) == 0 )
+		if( simple_adna::overhang_enter_penalty != ~0U && (s.state & simple_adna::mask_ss) == 0 )
 		{
-			// no gaps open --> mismatch, open either gap, enter SS
-			{
-				simple_adna s1 = s ;
-				s1.penalty += (s.state & simple_adna::mask_ss) != 0
-					? simple_adna::ss_mat( s1.get_ref(), s1.get_qry() )
-					: simple_adna::ds_mat( s1.get_ref(), s1.get_qry() ) ;
-				++s1.ref_offs ;
-				++s1.query_offs ;
-				f( s1 ) ;
-			}{
-				simple_adna s2 = s ;
-				s2.penalty += simple_adna::gap_open_penalty() ;
-				s2.state |= simple_adna::mask_gap_qry ;
-				++s2.ref_offs ;
-				f( s2 ) ;
-			}{
-				simple_adna s3 = s ;
-				s3.penalty += simple_adna::gap_open_penalty() ;
-				s3.state |= simple_adna::mask_gap_ref ;
-				++s3.query_offs ;
-				f( s3 ) ;
-			}
-			if( (s.state & simple_adna::mask_ss) == 0 && s.get_ref() == 8 && s.get_qry() == 1 ) {
-				simple_adna s4 = s ;
-				s4.penalty += simple_adna::ss_mat( 8, 1 ) ;
-				s4.state |= simple_adna::mask_ss ;
-				++s4.ref_offs ;
-				++s4.query_offs ;
+			// To enter single stranded we require that the penalty for
+			// doing so is immediately recovered by the better match.
+			// This is easily the case for the observed deamination
+			// rates in aDNA.
+			simple_adna s4 = s ;
+			s4.state |= simple_adna::mask_ss ;
+			uint32_t p4 = s4.subst_penalty() + simple_adna::overhang_enter_penalty ;
+			uint32_t p0 = s.subst_penalty() ;
+			if( p4 < p0 ) {
+				s4.penalty += p4 ;
+				s4.adv_ref() ;
+				s4.adv_qry() ;
 				f( s4 ) ;
-			}
-		}
-		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref )
-		{
-			// already gapping ref --> continue or close
-			{
-				simple_adna s1 = s ;
-				s1.penalty += simple_adna::gap_ext_penalty() ;
-				++s1.query_offs ;
-				f( s1 ) ;
-			}{
-				simple_adna s2 = s ;
-				s2.penalty += s.state & simple_adna::mask_ss
-					? simple_adna::ss_mat( s.get_ref(), s.get_qry() )
-					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ;
-				s2.state &= ~simple_adna::mask_gap_ref ;
-				++s2.ref_offs ;
-				++s2.query_offs ;
-				f( s2 ) ;
-			}
-		}
-		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_qry )
-		{
-			// already gapping query --> continue or close
-			{
-				simple_adna s1 = s ;
-				s1.penalty += simple_adna::gap_ext_penalty() ;
-				++s1.ref_offs ;
-				f( s1 ) ;
-			}{
-				simple_adna s2 = s ;
-				s2.penalty += s.state & simple_adna::mask_ss
-					? simple_adna::ss_mat( s.get_ref(), s.get_qry() )
-					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ;
-				s2.state &= ~simple_adna::mask_gap_qry ;
-				++s2.ref_offs ;
-				++s2.query_offs ;
-				f( s2 ) ;
 			}
 		}
 	}
-	else
+	else 
 	{
-		// second half; we won't be called if we hit a gap symbol
-		if( (s.state & simple_adna::mask_gaps) == 0 )
+		// already gapping (ref or qry) --> continue or close
 		{
-			// no gaps open --> mismatch, open either gap, enter SS
-			{
-				simple_adna s1 = s ;
-				s1.penalty += (s.state & simple_adna::mask_ss) != 0
-					? simple_adna::ss_mat( s1.get_ref(), s1.get_qry() )		// XXX
-					: simple_adna::ds_mat( s1.get_ref(), s1.get_qry() ) ;	// XXX
-				--s1.ref_offs ;
-				--s1.query_offs ;
-				f( s1 ) ;
-			}{
-				simple_adna s2 = s ;
-				s2.penalty += simple_adna::gap_open_penalty() ;
-				s2.state |= simple_adna::mask_gap_qry ;
-				--s2.ref_offs ;
-				f( s2 ) ;
-			}{
-				simple_adna s3 = s ;
-				s3.penalty += simple_adna::gap_open_penalty() ;
-				s3.state |= simple_adna::mask_gap_ref ;
-				--s3.query_offs ;
-				f( s3 ) ;
-			}
-			if( (s.state & simple_adna::mask_ss) == 0 && s.get_ref() == 2 && s.get_qry() == 4 ) {
-				simple_adna s4 = s ;
-				s4.penalty += simple_adna::ss_mat( 8, 1 ) ;
-				s4.state |= simple_adna::mask_ss ;
-				--s4.ref_offs ;
-				--s4.query_offs ;
-				f( s4 ) ;
-			}
-		}
-		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref )
-		{
-			// already gapping ref --> continue or close
-			{
-				simple_adna s1 = s ;
-				s1.penalty += simple_adna::gap_ext_penalty() ;
-				--s1.query_offs ;
-				f( s1 ) ;
-			}{
-				simple_adna s2 = s ;
-				s2.penalty += s.state & simple_adna::mask_ss
-					? simple_adna::ss_mat( s.get_ref(), s.get_qry() ) // XXX
-					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ; // XXX
-				s2.state &= ~simple_adna::mask_gap_ref ;
-				--s2.ref_offs ;
-				--s2.query_offs ;
-				f( s2 ) ;
-			}
-		}
-		else if( (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_qry )
-		{
-			// already gapping query --> continue or close
-			{
-				simple_adna s1 = s ;
-				s1.penalty += simple_adna::gap_ext_penalty() ;
-				++s1.ref_offs ;
-				f( s1 ) ;
-			}{
-				simple_adna s2 = s ;
-				s2.penalty += s.state & simple_adna::mask_ss
-					? simple_adna::ss_mat( s.get_ref(), s.get_qry() ) // XXX
-					: simple_adna::ds_mat( s.get_ref(), s.get_qry() ) ; // XXX
-				s2.state &= ~simple_adna::mask_gap_qry ;
-				--s2.ref_offs ;
-				--s2.query_offs ;
-				f( s2 ) ;
-			}
+			simple_adna s1 = s ;
+			s1.penalty += simple_adna::gap_ext_penalty ;
+			bool which = (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref ;
+			if( which && (s.state & simple_adna::mask_ss) ) s1.penalty += simple_adna::overhang_ext_penalty ;
+			if( which ) s1.adv_qry() ; else s1.adv_ref() ;
+			f( s1 ) ;
+		}{
+			simple_adna s2 = s ;
+			s2.state &= ~simple_adna::mask_gaps ;
+			s2.penalty += s2.subst_penalty() ;
+			if( s.state & simple_adna::mask_ss ) s2.penalty += simple_adna::overhang_ext_penalty ;
+			s2.adv_ref() ;
+			s2.adv_qry() ;
+			f( s2 ) ;
 		}
 	}
 }

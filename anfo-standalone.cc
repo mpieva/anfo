@@ -209,9 +209,10 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 	else return p.max_penalty_per_nuc() ;
 }
 
-void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result *r )
+void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result *r )
 {
-	alignment_type best = find_cheapest( ol, max_penalty_per_nuc * ps->length() / 1000 ) ;
+	uint32_t max_penalty = (uint32_t)( max_penalty_per_nuc * ps->length() ) ;
+	alignment_type best = find_cheapest( ol, max_penalty ) ;
 	if( !best )
 	{
 		r->set_reason( output::bad_alignment ) ;
@@ -272,14 +273,13 @@ void process_sequence( CommonData *cd, QSequence *ps, int max_penalty_per_nuc, s
 
 		// get rid of overlaps of that first alignment, then look
 		// for the next one
-		// XXX this is cumbersome... need a better PQueue
-		// impl...
+		// XXX this is cumbersome... need a better PQueue impl...
 		// XXX make distance configurable
 		ol.erase( 
 				std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
 				ol.end() ) ;
 		make_heap( ol.begin(), ol.end() ) ;
-		alignment_type second_best = find_cheapest( ol, penalty + 10 ) ;
+		alignment_type second_best = find_cheapest( ol, max_penalty ) ;
 		if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
 	}
 }
@@ -377,7 +377,7 @@ int main_( int argc, const char * argv[] )
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
-		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallen indexer threads", "N" },
+		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "var",          0 , POPT_ARG_STRING, &var_def,     opt_none,    "Set VAR to be expanded in config to S", "S" },
 		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
@@ -419,6 +419,7 @@ int main_( int argc, const char * argv[] )
 		else throw "no config file found" ;
 	}
 
+	if( common_data.mi.has_aligner() ) simple_adna::configure( common_data.mi.aligner() ) ;
 	if( !common_data.mi.policy_size() ) throw "no policies---nothing to do." ;
 
 	for( int i = 0 ; i != common_data.mi.policy_size() ; ++i )
