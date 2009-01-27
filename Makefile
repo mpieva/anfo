@@ -1,4 +1,4 @@
-svnversion := $(shell svnversion)
+svnversion := $(shell svnversion || basename $(PWD))
 version ?= $(svnversion)
 
 PROTOC ?= protoc

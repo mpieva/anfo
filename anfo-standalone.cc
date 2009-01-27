@@ -13,6 +13,8 @@
 #include <popt.h>
 
 #include <algorithm>
+#include <cstring>
+#include <csignal>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -30,6 +32,24 @@ typedef simple_adna alignment_type ;
 using namespace config ;
 using namespace std ;
 
+const std::string* volatile cur_seq_name = 0 ;
+void sig_handler( int sig )
+{
+	std::stringstream s ;
+	s << "Received "
+#ifdef _GNU_SOURCE
+	  << strsignal(sig)
+#else
+          << "signal " << sig
+#endif
+          << " while processing "
+          << (cur_seq_name ? *cur_seq_name : std::string("nothing"))
+	  << ", exiting.\n" ;
+	std::clog << std::endl ;
+	std::cerr << s.str() ;
+	exit( 128+sig ) ;
+}
+	
 //! \page anfo_executable Standalone ANFO executable
 //! This is work in progress; it may morph into an ANFO executable to be
 //! run directly from the command line.  Right now it reads a FASTA or
@@ -76,7 +96,7 @@ Policy select_policy( const Config &c, const QSequence &ps )
  * by "\0\0" turn out wrong.
  *
  * Ignoring the above, it is quite helpful, though...
- * \param title new rpogram title to be displayed
+ * \param title new program title to be displayed
  */
 
 void set_proc_title( const char *title ) 
@@ -401,7 +421,6 @@ int main_( int argc, const char * argv[] )
 
 	if( !common_data.mi.policy_size() ) throw "no policies---nothing to do." ;
 
-	output::Header ohd ;
 	for( int i = 0 ; i != common_data.mi.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != common_data.mi.policy(i).use_compact_index_size() ; ++j )
@@ -415,7 +434,6 @@ int main_( int argc, const char * argv[] )
 				CompactGenome &g = common_data.genomes[ genome_name ] ;
 				if( !g.get_base() )
 				{
-					*ohd.add_genome() = genome_name ;
 					CompactGenome( genome_name, common_data.mi, MADV_WILLNEED ).swap( g ) ;
 				}
 			}
@@ -440,7 +458,14 @@ int main_( int argc, const char * argv[] )
 
 	google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
 	google::protobuf::io::CodedOutputStream cos( &oos ) ;
-	write_delimited_message( cos, ohd ) ;
+	cos.WriteRaw( "ANFO", 4 ) ; // signature
+	common_data.mi.set_version( VERSION ) ;
+	write_delimited_message( cos, common_data.mi ) ;
+
+	signal( SIGUSR1, sig_handler ) ;
+	signal( SIGUSR2, sig_handler ) ;
+	signal( SIGTERM, sig_handler ) ;
+	signal( SIGINT, sig_handler ) ;
 
 	// Running in multiple threads.  The main thread will read the
 	// input and enqueue it, then signal end of input by adding a null
@@ -489,11 +514,14 @@ int main_( int argc, const char * argv[] )
 			if( nthreads ) common_data.input_queue.enqueue( ps ) ;
 			else 
 			{
+				cur_seq_name = &ps->get_name() ;
 				output::Result r ;
 				std::deque< alignment_type > ol ;
 				int pmax = index_sequence( &common_data, ps, &r, ol ) ;
 				if( pmax != INT_MAX ) process_sequence( &common_data, ps, pmax, ol, &r ) ;
 				write_delimited_message( *common_data.output_stream, r ) ;
+				cur_seq_name = 0 ;
+				delete ps ;
 			}
 			++total_count ;
 		}
@@ -518,6 +546,7 @@ int main_( int argc, const char * argv[] )
 	}
 
 	clog << endl ;
+	cerr << "Finished.\n" ;
 	return 0 ;
 }
 

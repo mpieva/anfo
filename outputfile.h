@@ -50,8 +50,10 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 template< typename Hdr, typename Fun >
 void reduce_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Fun f )
 {
-	output::Header hdr ;
+	config::Config hdr ;
 	output::Result res ;
+	std::string buf ;
+	if( !is.ReadString( &buf, 4 ) || buf != "ANFO" ) throw "not an ANFO output file" ;
 	if( !read_delimited_message( is, hdr ) ) throw "cannot read header" ;
 	h( hdr ) ;
 	while( read_delimited_message( is, res ) ) f( hdr, res ) ;

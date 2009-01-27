@@ -1,5 +1,7 @@
 package output ;
 
+import "config.proto" ;
+
 // Result hits... all very ad-hoc and ugly.  We need:
 // - best hit globally
 // - score of best hit globally with different species
@@ -96,13 +98,4 @@ message Result {
     optional sint32 diff_to_next_chromosome_class = 9 ;
 }
 
-// Hrm, put any amount of metadata here.  Subject to further
-// refinement...
-message Header {
-    // one of the genomes that was matched against
-    repeated string genome = 1 ; 
-
-    // E-value cutoff
-    optional float max_evalue = 2 ;
-}
 

@@ -8,6 +8,7 @@
 
 using namespace google::protobuf::io ;
 using namespace google::protobuf ;
+using namespace config ;
 using namespace output ;
 
 template< typename Msg > void print_msg( const Msg& m )
@@ -19,8 +20,8 @@ template< typename Msg > void print_msg( const Msg& m )
 	std::cout << '\n' << std::endl ;
 }
 
-void print_hdr( const Header& h ) { print_msg( h ) ; }
-void print_res( const Header& h, const Result& r ) { print_msg( r ) ; }
+void print_hdr( const Config& h ) { print_msg( h ) ; }
+void print_res( const Config& h, const Result& r ) { print_msg( r ) ; }
 
 int main_( int argc, const char** argv )
 {

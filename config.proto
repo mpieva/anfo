@@ -94,13 +94,26 @@ message Policy {
     optional uint32 min_seed_len = 7 ; 
 
     // distance cutoff scaled by 1000
+    // (need to add an E-Value cutoff at some point)
     required uint32 max_penalty_per_nuc = 8 ;
 }
 
+// Configuration messages are both read from a file to configure the program
+// and written as a kind of header to the output to leave an audit trail.
 message Config {
-    repeated string genome_path = 18 ;
-    repeated string index_path = 19 ;
+    // program version string, obviously useless in configuration files, but
+    // very handy in output files.
+    optional string version = 1 ;
+
+    // path to look for genome and index files (rolled into one, since both are
+    // intrinsically coupled after all)
+    repeated string genome_path = 2 ;
+    
+    // rules to select indices
     repeated Policy policy = 3 ;
+
+    // indicates whether an output file is sorted
+    optional bool is_sorted = 15 [default=false] ;
 }
 
 // vim:expandtab:ts=4:sw=4:cindent

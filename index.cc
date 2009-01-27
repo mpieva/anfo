@@ -99,9 +99,9 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 		std::string fp = name ;
 		fd_ = open_( fp, ".idx" ) ;
 
-		for( int i = 0 ; fd_ == -1 && i != c.index_path_size() ; ++i )
+		for( int i = 0 ; fd_ == -1 && i != c.genome_path_size() ; ++i )
 		{
-			fp = c.index_path(i) + '/' + name ;
+			fp = c.genome_path(i) + '/' + name ;
 			fd_ = open_( fp, ".idx" ) ;
 		}
 		throw_errno_if_minus1( fd_, "opening", name.c_str() ) ;
