@@ -36,6 +36,7 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 {
 	qs.seq.clear() ;
 	qs.seq.push_back( 0 ) ;
+	// skip junk before sequence header
 	while( seq_continues(s) ) s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
 
 	// header follows, don't care for the delimiter, read name and
@@ -59,29 +60,27 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 	}
 
 	// read sequence while it continues
+	// do not read gaps, ignore junk
 	while( seq_continues(s) )
 	{
 		string line ;
 		getline( s, line ) ;
 		for( size_t i = 0 ; i != line.size() ; ++i )
-			qs.seq.push_back( 0x2800 | to_ambicode( line[i] ) ) ;
+			if( encodes_nuc( line[i] ) )
+				qs.seq.push_back( 0x2800 | to_ambicode( line[i] ) ) ;
 	}
 	qs.seq.push_back( 0 ) ;
 
 	// if quality follows...
 	if( s && s.peek() == '+' )
 	{
-		// don't care for the delimiter, but skip name and description
-		s.get() ;
-		string descr_, name_ ;
-		if( s.peek() != '\n' ) s >> name_ ;
-		getline( s, descr_ ) ;
-
-		// if more description follows, drop it
-		while( descr_follows(s) ) getline( s, descr_ ) ;
+		// skip delimiter, name, and description no additional
+		// description lines can follow, since ';' is a valid Q-score
+		s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
 
 		// Q-scores must follow unless the sequence was empty or the stream ends
-		if( s && qs.seq.size() > 2 ) {
+		if( s && qs.length() )
+		{
 			string line ;
 			getline( s, line ) ;
 
@@ -94,7 +93,8 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 				for( int ix = 0 ; s ; )
 				{
 					stringstream ss( line ) ;
-					for( int q = 0 ; ss >> q ; ++ix ) qs.qual( ix, solexa_scores ? sol_to_phred(q) : q ) ;
+					for( int q = 0 ; ss >> q ; ++ix )
+						qs.qual( ix, solexa_scores ? sol_to_phred(q) : q ) ;
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
 				}
@@ -104,16 +104,14 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 			// ignoring line feeds.
 			else
 			{
-				size_t total = qs.length() ; 
-				for( size_t ix = 0 ; s && ix != total ; ++ix )
+				size_t total = qs.length(), ix = 0 ; 
+				while( ix != total && getline( s, line ) )
 				{
 					for( size_t j = 0 ; ix != total && j != line.size() ; ++j, ++ix )
 					{
 						int q = line[j] ;
 						qs.qual( ix, solexa_scores ? sol_to_phred( q-64 ) : q-33 ) ;
 					}
-					if( !seq_continues(s) ) break ;
-					getline( s, line ) ;
 				}
 				// There might be some junk left over; it will be eaten
 				// away in the next call.

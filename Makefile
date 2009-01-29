@@ -2,7 +2,7 @@ svnversion := $(shell svnversion || basename $(PWD))
 version ?= $(svnversion)
 
 PROTOC ?= protoc
-LDLIBS += -lprotobuf -lpopt -lJudy -lpthread
+LDLIBS += -lprotobuf -lpopt -lJudy -lpthread -lz -lm
 # LDFLAGS += -p
 CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -ggdb 
@@ -15,7 +15,7 @@ DATABASES := ../data/chr21.dna ../data/chr21_10.idx
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o
+OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o gzstream.o
 
 fa2dna: $(OBJECTS)
 dnaindex: $(OBJECTS)

@@ -11,11 +11,12 @@
 #include <google/protobuf/text_format.h>
 
 #include <popt.h>
+#include <gzstream.h>
 
 #include <algorithm>
 #include <cstring>
 #include <csignal>
-#include <fstream>
+// #include <fstream>
 #include <limits>
 #include <map>
 #include <sstream>
@@ -373,6 +374,10 @@ int main_( int argc, const char * argv[] )
 	int nxthreads = 1 ;
 	int solexa_quals = 0 ;
 
+	for( const char **arg = argv ; arg != argv+argc ; ++arg )
+		std::clog << *arg << ' ' ;
+	std::clog << std::endl ;
+
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
@@ -401,7 +406,7 @@ int main_( int argc, const char * argv[] )
 			return 0 ;
 
 		default:
-			std::cerr << argv[0] << ": " << poptStrerror( rc ) 
+			std::cerr << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 	}
@@ -488,7 +493,8 @@ int main_( int argc, const char * argv[] )
 
 	for( int total_count = 1 ; !files.empty() ; files.pop_front() )
 	{
-		ifstream input_file_stream ;
+		// ifstream input_file_stream ;
+		igzstream input_file_stream ;
 		istream *inp = &cin ;
 		if( !files.front().empty() && files.front() != "-" )
 		{
