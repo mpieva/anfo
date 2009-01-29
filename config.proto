@@ -66,6 +66,12 @@ message CompactIndex {
 message CompactIndexSpec {
     required string name = 2 ;
     optional uint32 cutoff = 4 ;
+
+    // If the index has slices, declare them here.  The value of
+    // SGE_TASK_ID % number_of_slices is the slice to use.  We start
+    // counting at 0, naturally.  The number is spliced in for $$ in the
+    // index name.  Leave undefined to turn this gross hack off.
+    optional uint32 number_of_slices = 15 ;
 }
 
 // Configuration of mapper/aligner for a subset of sequences.  The idea
@@ -130,10 +136,6 @@ message Aligner {
 // Configuration messages are both read from a file to configure the program
 // and written as a kind of header to the output to leave an audit trail.
 message Config {
-    // program version string, obviously useless in configuration files, but
-    // very handy in output files.
-    optional string version = 1 ;
-
     // path to look for genome and index files (rolled into one, since both are
     // intrinsically coupled after all)
     repeated string genome_path = 2 ;
@@ -145,15 +147,6 @@ message Config {
     // There can be only one kind of aligner in a run, if none is configured,
     // you get the trivial ("flat") alignment.
     optional Aligner aligner = 4 ;
-
-    // indicates whether an output file is sorted by read name
-    // (needed to merge files)
-    optional bool is_sorted_by_name = 15 [default=false] ;
-
-    // indicates whether an output file is sorted by genome coordinate
-    // (that is genome name, then sequence name, then earliest matching
-    // position; useful for consensus calling)
-    optional bool is_sorted_by_coordinate = 14 [default=false] ;
 }
 
 // vim:expandtab:ts=4:sw=4:cindent

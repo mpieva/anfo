@@ -33,23 +33,8 @@ typedef simple_adna alignment_type ;
 using namespace config ;
 using namespace std ;
 
-const std::string* volatile cur_seq_name = 0 ;
-void sig_handler( int sig )
-{
-	std::stringstream s ;
-	s << "Received "
-#ifdef _GNU_SOURCE
-	  << strsignal(sig)
-#else
-          << "signal " << sig
-#endif
-          << " while processing "
-          << (cur_seq_name ? *cur_seq_name : std::string("nothing"))
-	  << ", exiting.\n" ;
-	std::clog << std::endl ;
-	std::cerr << s.str() ;
-	exit( 128+sig ) ;
-}
+volatile int exit_with = 0 ;
+extern "C" void sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
 //! \page anfo_executable Standalone ANFO executable
 //! This is work in progress; it may morph into an ANFO executable to be
@@ -71,7 +56,8 @@ void sig_handler( int sig )
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
-//! \todo GZipped input and output would be beautiful.
+//! \todo GZipped input is a bit awkward and gzipped output would be
+//!       beautiful, too.
 //! \todo Memory management and pointer/reference conventions are
 //! somewhat wonky in here.  Deserves a thourough audit.
 
@@ -327,10 +313,11 @@ void* run_worker_thread( void* cd_ )
 	return 0 ;
 }
 
-void expand_var( string &s, const string& r )
+void expand_placeholcer( string &s, int x )
 {
-	for( size_t p ; string::npos != (p = s.find( "$VAR" )) ; )
-		s.replace( p, 4, r ) ;
+	stringstream ss ; ss << x ;
+	for( size_t p ; string::npos != (p = s.find( "$$" )) ; )
+		s.replace( p, 2, ss.str() ) ;
 }
 
 //! \page finding_alns How to find everything we need
@@ -369,14 +356,9 @@ int main_( int argc, const char * argv[] )
 
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
-	const char* var_def = "" ;
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_quals = 0 ;
-
-	for( const char **arg = argv ; arg != argv+argc ; ++arg )
-		std::clog << *arg << ' ' ;
-	std::clog << std::endl ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
@@ -384,7 +366,6 @@ int main_( int argc, const char * argv[] )
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
-		{ "var",          0 , POPT_ARG_STRING, &var_def,     opt_none,    "Set VAR to be expanded in config to S", "S" },
 		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -427,12 +408,25 @@ int main_( int argc, const char * argv[] )
 	if( common_data.mi.has_aligner() ) simple_adna::configure( common_data.mi.aligner() ) ;
 	if( !common_data.mi.policy_size() ) throw "no policies---nothing to do." ;
 
+	unsigned slicenum = 0, total_slices = 1, stride = 1 ;
+	if( const char* tid = getenv("SGE_TASK_ID") ) slicenum = atoi(tid) -1 ;
+	if( const char* tid = getenv("SGE_TASK_LAST") ) stride = atoi(tid) ;
+
 	for( int i = 0 ; i != common_data.mi.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != common_data.mi.policy(i).use_compact_index_size() ; ++j )
 		{
 			CompactIndexSpec &ixs = *common_data.mi.mutable_policy(i)->mutable_use_compact_index(j) ;
-			expand_var( *ixs.mutable_name(), var_def ) ;
+			if( ixs.has_number_of_slices() ) 
+			{
+				if( ixs.number_of_slices() != total_slices )
+				{
+					if( total_slices == 1 ) total_slices = ixs.number_of_slices() ;
+					else throw "multiple differently sliced indices won't work" ;
+				}
+				expand_placeholcer( *ixs.mutable_name(), slicenum % total_slices ) ;
+			}
+
 			FixedIndex &ix = common_data.indices[ ixs.name() ] ;
 			if( !ix ) {
 				FixedIndex( ixs.name(), common_data.mi, MADV_WILLNEED ).swap( ix ) ;
@@ -445,6 +439,7 @@ int main_( int argc, const char * argv[] )
 			}
 		}
 	}
+	slicenum /= total_slices ;
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
@@ -462,11 +457,20 @@ int main_( int argc, const char * argv[] )
 	ostream& output_stream = strcmp( output_file, "-" ) ?
 		(output_file_stream.open( output_file ), output_file_stream) : cout ;
 
+	output::Header ohdr ;
 	google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
 	google::protobuf::io::CodedOutputStream cos( &oos ) ;
 	cos.WriteRaw( "ANFO", 4 ) ; // signature
-	common_data.mi.set_version( VERSION ) ;
-	write_delimited_message( cos, common_data.mi ) ;
+	*ohdr.mutable_config() = common_data.mi ;
+	ohdr.set_version( VERSION ) ;
+	if( stride > 1 ) 
+	{
+		ohdr.set_stride( stride ) ;
+		ohdr.add_index( slicenum ) ;
+	}
+	for( const char **arg = argv ; arg != argv+argc ; ++arg )
+		*ohdr.add_command_line() = *arg ;
+	write_delimited_message( cos, ohdr ) ;
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
@@ -491,7 +495,7 @@ int main_( int argc, const char * argv[] )
 		for( int i = 0 ; i != nxthreads ; ++i )
 			pthread_create( indexer_thread+i, 0, run_indexer_thread, &common_data ) ;
 
-	for( int total_count = 1 ; !files.empty() ; files.pop_front() )
+	for( int total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
 		// ifstream input_file_stream ;
 		igzstream input_file_stream ;
@@ -502,10 +506,10 @@ int main_( int argc, const char * argv[] )
 			inp = &input_file_stream ;
 		}
 
-		for(;;)
+		for(;; ++total_count )
 		{
 			QSequence *ps = new QSequence ;
-			if( !read_fastq( *inp, *ps, solexa_quals ) ) {
+			if( exit_with || !read_fastq( *inp, *ps, solexa_quals ) ) {
 				delete ps ;
 				break ;
 			}
@@ -518,19 +522,20 @@ int main_( int argc, const char * argv[] )
 			clog << '\r' << progress.str() << "\33[K" << flush ;
 			set_proc_title( progress.str().c_str() ) ;
 
-			if( nthreads ) common_data.input_queue.enqueue( ps ) ;
-			else 
-			{
-				cur_seq_name = &ps->get_name() ;
-				output::Result r ;
-				std::deque< alignment_type > ol ;
-				int pmax = index_sequence( &common_data, ps, &r, ol ) ;
-				if( pmax != INT_MAX ) process_sequence( &common_data, ps, pmax, ol, &r ) ;
-				write_delimited_message( *common_data.output_stream, r ) ;
-				cur_seq_name = 0 ;
-				delete ps ;
+			if( total_count % stride == slicenum ) {
+				if( nthreads ) common_data.input_queue.enqueue( ps ) ;
+				else 
+				{
+					// cur_seq_name = &ps->get_name() ;
+					output::Result r ;
+					std::deque< alignment_type > ol ;
+					int pmax = index_sequence( &common_data, ps, &r, ol ) ;
+					if( pmax != INT_MAX ) process_sequence( &common_data, ps, pmax, ol, &r ) ;
+					write_delimited_message( *common_data.output_stream, r ) ;
+					// cur_seq_name = 0 ;
+					delete ps ;
+				}
 			}
-			++total_count ;
 		}
 		if( total_size != -1 ) total_done += input_file_stream.tellg() ;
 	}
@@ -553,7 +558,9 @@ int main_( int argc, const char * argv[] )
 	}
 
 	clog << endl ;
-	cerr << "Finished.\n" ;
+	output::Footer ofoot ;
+	if( exit_with ) ofoot.set_exit_code( exit_with ) ;
+	write_delimited_message( cos, ofoot ) ;
 	return 0 ;
 }
 

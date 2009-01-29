@@ -24,6 +24,9 @@
 //! used to create it (an option would be to include the full set of
 //! policies).  Subsequent messages are of type output::Result.
 //!
+//! \todo The output is delimited, but not tagged.  We should do both,
+//!       in essence incrementally writing a protobuf message.
+//!
 //! @{
 
 template< typename Msg >
@@ -47,16 +50,27 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 	return true ;
 }
 
-template< typename Hdr, typename Fun >
-void reduce_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Fun f )
+template< typename Hdr, typename Foot, typename Fun >
+void reduce_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Foot t, Fun f )
 {
-	config::Config hdr ;
+	output::Header hdr ;
 	output::Result res ;
+	output::Footer foot ;
+
+	uint32_t size ;
 	std::string buf ;
 	if( !is.ReadString( &buf, 4 ) || buf != "ANFO" ) throw "not an ANFO output file" ;
 	if( !read_delimited_message( is, hdr ) ) throw "cannot read header" ;
 	h( hdr ) ;
-	while( read_delimited_message( is, res ) ) f( hdr, res ) ;
+
+	for(;;)
+	{
+		if( !is.ReadVarint32( &size ) ) return ;
+		if( !is.ReadString( &buf, size ) ) return ;
+		if( res.ParseFromString( buf ) ) f( hdr, res ) ;
+		else if( foot.ParseFromString( buf ) ) t( foot ) ;
+		else throw "error while deserializing" ;
+	}
 }
 
 //! @}

@@ -20,8 +20,9 @@ template< typename Msg > void print_msg( const Msg& m )
 	std::cout << '\n' << std::endl ;
 }
 
-void print_hdr( const Config& h ) { print_msg( h ) ; }
-void print_res( const Config& h, const Result& r ) { print_msg( r ) ; }
+void print_hdr( const Header& h ) { print_msg( h ) ; }
+void print_foot( const Footer& h ) { print_msg( h ) ; }
+void print_res( const Header&, const Result& r ) { print_msg( r ) ; }
 
 int main_( int argc, const char** argv )
 {
@@ -31,7 +32,7 @@ int main_( int argc, const char** argv )
 		std::ifstream is( argv[argi] ) ;
 		IstreamInputStream iis( &is ) ;
 		CodedInputStream cis( &iis ) ;
-		reduce_output_file( cis, &print_hdr, &print_res ) ;
+		reduce_output_file( cis, &print_hdr, &print_foot, &print_res ) ;
 	}
 	return 0 ;
 }

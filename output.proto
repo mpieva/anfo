@@ -1,6 +1,37 @@
+import "config.proto" ;
+
 package output ;
 
-import "config.proto" ;
+message Header {
+    // program version string
+    required string version = 1 ;
+
+	// copy of the config block used in the run
+	required .config.Config config = 2 ;
+
+	// index of first processed input, if input is sliced
+	// multiple starts are possible after merging multiple outputs
+	repeated uint32 index = 3 ;
+
+	// number of slices if input is sliced
+	optional uint32 stride = 4 [ default=1 ] ;
+
+	// copy of command line
+	repeated string command_line = 5 ;
+
+    // indicates whether an output file is sorted by read name
+    // (needed to merge files)
+    optional bool is_sorted_by_name = 15 [default=false] ;
+
+    // indicates whether an output file is sorted by genome coordinate
+    // (that is genome name, then sequence name, then earliest matching
+    // position; useful for consensus calling)
+    optional bool is_sorted_by_coordinate = 14 [default=false] ;
+}
+
+message Footer {
+	optional uint32 exit_code = 1 ;
+}
 
 // Result hits... all very ad-hoc and ugly.  We need:
 // - best hit globally
