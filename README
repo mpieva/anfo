@@ -1,0 +1,113 @@
+Where to start?
+
+Get the prerequisites, compile, create documentation, test.
+
+Prerequisites are...
+
+ - Not too ancient G++; 4.0 and later work fine, 3.x might cause some
+   difficulties.  Also make, a shell, and so on.
+
+ - protobuf.  Find it at http://code.google.com/p/protobuf. 
+
+ - Judy.  Find it at http://judy.sf.net or ask your friendly admin.
+
+ - popt.  You might already have it, else ask your admin or grab it at
+   http://rpm5.org/files/popt/
+
+ - Doxygen, if you want the documentation.  Can be found at http://doxygen.org
+
+If you have those, call 'make', then 'make doc' to create the documentation.
+
+
+How to use it?
+
+To test, you need a genome, an index, and some input in FASTA or FASTQ format.
+Genomes and indices are littered everywhere (/ltmp/anfo at Garching,
+/var/tmp/udo on bionc02), but here's how to do it yourself:
+
+ - Locate a genome in FASTA format (or any other format that has a converter;
+   2bit is fine, my own .dna isn't (yet)).  Run fa2dna on it (--help tells you
+   how); you can pipe the input if you want.
+
+ - On your new .dna file, run file-info.  It should spit out the meta data for
+   that genome.  If now, you're hosed...
+
+ - Build an index for the .dna file using dnaindex.  Choosing an
+   appropriate word size is the only parameter that really matters.
+
+ - You can run file-info on that, too.  It well tell you the word size
+   you just set.
+
+ - Write a sensible anfo.cfg using the example and config.proto as
+   guideline.
+
+ - You could run index-test now.  It maps a single sequence that has a
+   reasonable hit to human chromosome 21.  If it produces a segfault or
+   nonsense, something is fucked up.
+
+ - anfo-standalone can be run on any FASTA/FASTQ file now.  No offically
+   blessed, "correct" sets of output exist, yet.
+
+
+What's stable and what isn't?
+
+Pretty much stabilized are...
+
+ - Genome handling and creation (files sequence.h, sequence.cc, index.h, index.cc, fa2dna.cc)
+
+   I store genomes with four bits per nucleotide, which sounded like a fucking
+   brilliant idea, since it's only half as wasteful as the text form and still
+   allows ambiguity code.  The headaches came with the implementation of the
+   auxilliary DnaP class...  Anyway, the nucleotides A,C,T,G map to bits
+   0,1,2,3.  That order (you did notice T coming before G, didn't you?) also
+   sounded like a fucking brilliant idea, but in realilty it doesn't matter and
+   I keep forgetting.  Chromosomes are split at long stretches of Ns into
+   contigs, contigs are separated by gaps and the first and last ones terminate
+   in a gap at either side.
+
+ - Index handling and creation (files index.h, index.cc, dnaindex.cc)
+
+   The index is quite simple: oligos are mapped to integers, a first array
+   contains a pointer to a second array for each of the possible oligos, and
+   the second array contains one long list of positions where these oligos were
+   found.  Only the forward strand is indexed, but lookup is of course done for
+   both strands.  (This primitive thing seems such a waste when the much better
+   FM-index is just out of reach... to bad, for now.)
+
+ - Handling of reads (files sequence.h and sequence.cc)
+
+   Just a compact format for sequences with quality scores and a FASTA/FASTQ
+   reader.  There's no support for unmerged mate pairs, I haven't evan decided
+   what to do with them.
+
+ - File formats (genome, index, config file, output)
+
+   Genome and index files are documented somewhere in the code.  Metadata,
+   config, complex output, etc. is encapsulated in protobuf messages.  That way
+   I don't need to mess with parsers and pretty printers and the messages are
+   extensible.  The two .proto files are more or less finalized, but it's easy
+   to change them without breaking stuff.
+
+
+Somewhat less stable:
+
+ - The aligner (align.h, align.cc)
+
+   In principle, this code is in it's final form, it is supposed to do what was
+   planned, and it works in principle.  However, I do get memory corruption and
+   segfaults (rarely, but I get them), so I suspect there's something fishy
+   going on in there.  Also, the general structure and the specific alignment
+   mechanisms could be separated from each other.
+
+
+Royal mess:
+
+ - the main program (anfo-standalone.cc) and aux. tools (anfo-type, file-info)
+
+   These have just grown.  The aux. tools might work the way they are or may
+   change chape; just treat them as debugging aid.  The main program was never
+   planned (the original plan is to have a set of interconnected, networked
+   services), but I'm afraid we're stuck with it for the time being.  Parts of
+   it should be abstracted out, especially the interfaces to the indexer(s) and
+   aligner(s) are absolutely unclean.  Oh well...
+

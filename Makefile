@@ -57,7 +57,7 @@ doc:
 	doxygen
 
 tags: *.cc *.h
-	ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
+	-ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
 
 clean:
 	-rm $(TARGETS)

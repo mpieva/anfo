@@ -80,13 +80,14 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 		// if more description follows, drop it
 		while( descr_follows(s) ) getline( s, descr_ ) ;
 
-		if( seq_continues(s) ) {
+		// Q-scores must follow unless the sequence was empty or the stream ends
+		if( s && qs.seq.size() > 2 ) {
 			string line ;
 			getline( s, line ) ;
 
 			// Check one line; if it contains only spaces and numbers in
 			// groups of no more than three with an optional sign, it's
-			// an Alta Cyclic or U Rockefeller file and we decode ACSII
+			// an Alta Cyclic or U Rockefeller file and we decode ASCII
 			// numbers until the next header
 			if( all_acsii_qscores(line) ) 
 			{
