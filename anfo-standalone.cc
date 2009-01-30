@@ -440,6 +440,7 @@ int main_( int argc, const char * argv[] )
 		}
 	}
 	slicenum /= total_slices ;
+	stride /= total_slices ;
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;

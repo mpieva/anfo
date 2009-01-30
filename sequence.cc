@@ -105,13 +105,14 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 			else
 			{
 				size_t total = qs.length(), ix = 0 ; 
-				while( ix != total && getline( s, line ) )
+				while( ix != total && s )
 				{
 					for( size_t j = 0 ; ix != total && j != line.size() ; ++j, ++ix )
 					{
 						int q = line[j] ;
 						qs.qual( ix, solexa_scores ? sol_to_phred( q-64 ) : q-33 ) ;
 					}
+					if( ix != total ) getline( s, line ) ;
 				}
 				// There might be some junk left over; it will be eaten
 				// away in the next call.
