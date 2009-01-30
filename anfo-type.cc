@@ -32,7 +32,7 @@ int main_( int argc, const char** argv )
 		std::ifstream is( argv[argi] ) ;
 		IstreamInputStream iis( &is ) ;
 		CodedInputStream cis( &iis ) ;
-		reduce_output_file( cis, &print_hdr, &print_foot, &print_res ) ;
+		scan_output_file( cis, print_msg<Header>, print_msg<Result>, print_msg<Footer> ) ;
 	}
 	return 0 ;
 }

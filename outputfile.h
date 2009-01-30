@@ -30,12 +30,13 @@
 //! @{
 
 template< typename Msg >
-void write_delimited_message( google::protobuf::io::CodedOutputStream& os, const Msg& m )
+void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int tag, const Msg& m )
 {
-	std::string code ;
-	if( !m.SerializeToString( &code ) ||
-			!os.WriteVarint32( code.size() ) ||
-			!os.WriteString( code ) )
+	if(
+			!os.WriteTag( (tag << 3) | 2 ) ||
+			!os.WriteVarint32( m.ByteSize() ) ||
+			!m.SerializeToCodedStream( &os )
+	  )
 		throw "error while serializing" ;
 }
 
@@ -45,31 +46,34 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 	uint32_t size ;
 	std::string code ;
 	if( !is.ReadVarint32( &size ) ) return false ;
-	if( !is.ReadString( &code, size ) || !m.ParseFromString( code ) )
-		throw "error while deserializing" ;
+	int lim = is.PushLimit( size ) ;
+	if( !m.ParseFromCodedStream( &is ) ) throw "error while deserializing" ;
+	is.PopLimit( lim ) ;
 	return true ;
 }
 
-template< typename Hdr, typename Foot, typename Fun >
-void reduce_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Foot t, Fun f )
+template< typename Hdr, typename Fun, typename Foot >
+void scan_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Fun f, Foot t )
 {
-	output::Header hdr ;
-	output::Result res ;
-	output::Footer foot ;
-
-	uint32_t size ;
 	std::string buf ;
 	if( !is.ReadString( &buf, 4 ) || buf != "ANFO" ) throw "not an ANFO output file" ;
-	if( !read_delimited_message( is, hdr ) ) throw "cannot read header" ;
-	h( hdr ) ;
-
-	for(;;)
+	while( uint32_t tag = is.ReadTag() )
 	{
-		if( !is.ReadVarint32( &size ) ) return ;
-		if( !is.ReadString( &buf, size ) ) return ;
-		if( res.ParseFromString( buf ) ) f( hdr, res ) ;
-		else if( foot.ParseFromString( buf ) ) t( foot ) ;
-		else throw "error while deserializing" ;
+		if( (tag>>3) == 1 ) {
+			output::Header hdr ;
+			read_delimited_message( is, hdr ) ;
+			h( hdr ) ;
+		}
+		else if( (tag>>3) == 2 ) {
+			output::Result res ;
+			read_delimited_message( is, res ) ;
+			f( res ) ;
+		}
+		else if( (tag>>3) == 3 ) {
+			output::Footer foot ;
+			read_delimited_message( is, foot ) ;
+			t( foot ) ;
+		}
 	}
 }
 

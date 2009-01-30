@@ -19,6 +19,7 @@
 // #include <fstream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -136,7 +137,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		write_delimited_message( *q->output_stream, *r ) ;
+		write_delimited_message( *q->output_stream, 2, *r ) ;
 		delete r ;
 	}
 	return 0 ;
@@ -454,9 +455,12 @@ int main_( int argc, const char * argv[] )
 		if( good ) total_size += s.st_size ; else total_size = -1 ;
 	}
 
+	std::string output_file_ = output_file ;
+	output_file_ += ".#new#" ;
+
 	ofstream output_file_stream ;
 	ostream& output_stream = strcmp( output_file, "-" ) ?
-		(output_file_stream.open( output_file ), output_file_stream) : cout ;
+		(output_file_stream.open( output_file_.c_str() ), output_file_stream) : cout ;
 
 	output::Header ohdr ;
 	google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
@@ -471,7 +475,7 @@ int main_( int argc, const char * argv[] )
 	}
 	for( const char **arg = argv ; arg != argv+argc ; ++arg )
 		*ohdr.add_command_line() = *arg ;
-	write_delimited_message( cos, ohdr ) ;
+	write_delimited_message( cos, 1, ohdr ) ;
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
@@ -509,11 +513,9 @@ int main_( int argc, const char * argv[] )
 
 		for(;; ++total_count )
 		{
-			QSequence *ps = new QSequence ;
-			if( exit_with || !read_fastq( *inp, *ps, solexa_quals ) ) {
-				delete ps ;
-				break ;
-			}
+			std::auto_ptr<QSequence> ps( new QSequence ) ;
+			if( exit_with || !read_fastq( *inp, *ps, solexa_quals ) ) break ;
+			
 			stringstream progress ;
 			progress << ps->get_name() << " (#" << total_count ;
 			if( total_size != -1 )
@@ -524,17 +526,16 @@ int main_( int argc, const char * argv[] )
 			set_proc_title( progress.str().c_str() ) ;
 
 			if( total_count % stride == slicenum ) {
-				if( nthreads ) common_data.input_queue.enqueue( ps ) ;
+				if( nthreads ) common_data.input_queue.enqueue( ps.release() ) ;
 				else 
 				{
 					// cur_seq_name = &ps->get_name() ;
 					output::Result r ;
 					std::deque< alignment_type > ol ;
-					int pmax = index_sequence( &common_data, ps, &r, ol ) ;
-					if( pmax != INT_MAX ) process_sequence( &common_data, ps, pmax, ol, &r ) ;
-					write_delimited_message( *common_data.output_stream, r ) ;
+					int pmax = index_sequence( &common_data, ps.get(), &r, ol ) ;
+					if( pmax != INT_MAX ) process_sequence( &common_data, ps.get(), pmax, ol, &r ) ;
+					write_delimited_message( *common_data.output_stream, 2, r ) ;
 					// cur_seq_name = 0 ;
-					delete ps ;
 				}
 			}
 		}
@@ -561,7 +562,12 @@ int main_( int argc, const char * argv[] )
 	clog << endl ;
 	output::Footer ofoot ;
 	if( exit_with ) ofoot.set_exit_code( exit_with ) ;
-	write_delimited_message( cos, ofoot ) ;
+	write_delimited_message( cos, 3, ofoot ) ;
+
+	if( strcmp( output_file, "-" ) )
+		throw_errno_if_minus1(
+				rename( output_file_.c_str(), output_file ),
+				"renaming output" ) ;
 	return 0 ;
 }
 

@@ -129,4 +129,11 @@ message Result {
     optional sint32 diff_to_next_chromosome_class = 9 ;
 }
 
+// An output file is a magic number ("ANFO") folowed by an Output
+// message.  We read and write it one field at a time, though.
+message Output {
+    required Header header = 1 ;
+    repeated Result result = 2 ;
+    required Footer footer = 3 ;
+}
 
