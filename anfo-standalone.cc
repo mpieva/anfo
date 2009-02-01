@@ -349,6 +349,8 @@ void expand_placeholcer( string &s, int x )
 //! Assignment:
 //! For every alignment, just check if it fits anywhere, then store it
 //! appropriately.  Expand the two we were interested in.
+//!
+//! \todo Actually implement this in its full generality...
 
 int main_( int argc, const char * argv[] )
 {
@@ -470,11 +472,12 @@ int main_( int argc, const char * argv[] )
 	ohdr.set_version( VERSION ) ;
 	if( stride > 1 ) 
 	{
-		ohdr.set_stride( stride ) ;
-		ohdr.add_index( slicenum ) ;
+		ohdr.set_sge_slicing_stride( stride ) ;
+		ohdr.add_sge_slicing_index( slicenum ) ;
 	}
-	for( const char **arg = argv ; arg != argv+argc ; ++arg )
-		*ohdr.add_command_line() = *arg ;
+	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
+	if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
+	if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
 	write_delimited_message( cos, 1, ohdr ) ;
 
 	signal( SIGUSR1, sig_handler ) ;

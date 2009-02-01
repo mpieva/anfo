@@ -6,26 +6,31 @@ message Header {
     // program version string
     required string version = 1 ;
 
-	// copy of the config block used in the run
-	required .config.Config config = 2 ;
+    // copy of the config block used in the run
+    required .config.Config config = 2 ;
 
-	// index of first processed input, if input is sliced
-	// multiple starts are possible after merging multiple outputs
-	repeated uint32 index = 3 ;
+    // index of first processed input, if input is sliced
+    // multiple starts are possible after merging multiple outputs
+    repeated uint32 sge_slicing_index = 3 ;
 
-	// number of slices if input is sliced
-	optional uint32 stride = 4 [ default=1 ] ;
+    // number of slices if input is sliced
+    optional uint32 sge_slicing_stride = 4 [ default=1 ] ;
 
-	// copy of command line
-	repeated string command_line = 5 ;
+    // copy of command line
+    repeated string command_line = 5 ;
+
+    // to ease tracking of problems: grid engine job id and task id, if
+    // available
+    optional uint32 sge_job_id = 6 ;
+    optional uint32 sge_task_id = 7 ;
 
     // indicates whether an output file is sorted by read name
-    // (needed to merge files)
+    // (needed to merge files?)
     optional bool is_sorted_by_name = 15 [default=false] ;
 
     // indicates whether an output file is sorted by genome coordinate
     // (that is genome name, then sequence name, then earliest matching
-    // position; useful for consensus calling)
+    // position; useful for consensus calling?)
     optional bool is_sorted_by_coordinate = 14 [default=false] ;
 }
 
