@@ -8,21 +8,22 @@ CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -ggdb 
 CXXFLAGS += -O3
 
-TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone
+TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone anfo-combine
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
 
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o gzstream.o
+OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o gzstream.o outputfile.o
 
-fa2dna: $(OBJECTS)
-dnaindex: $(OBJECTS)
-file-info: $(OBJECTS)
-index_test: $(OBJECTS)
-anfo-standalone: $(OBJECTS)
-anfo-type: $(OBJECTS)
+fa2dna.o: config.pb.h
+dnaindex.cc: config.pb.h
+index_test.o: config.pb.h
+file-info.o: config.pb.h output.pb.h
+anfo-type.o: output.pb.h
+anfo-standalone.o: config.pb.h output.pb.h
+anfo-combine: output.pb.h
 
 ../data/hg18.dna: fa2dna
 	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -O ${@D} -v \
@@ -38,7 +39,7 @@ anfo-type: $(OBJECTS)
 ../data/chr21_10.idx: ../data/chr21.dna dnaindex
 	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
 
-%: %.o 
+%: %.o $(OBJECTS)
 	$(CXX) $(LDFLAGS) $(LDLIBS) $^ -o $@
  
 %.o: %.cc

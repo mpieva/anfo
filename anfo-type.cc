@@ -32,6 +32,7 @@ int main_( int argc, const char** argv )
 		std::ifstream is( argv[argi] ) ;
 		IstreamInputStream iis( &is ) ;
 		CodedInputStream cis( &iis ) ;
+		cis.SetTotalBytesLimit( INT_MAX, INT_MAX ) ;
 		scan_output_file( cis, print_msg<Header>, print_msg<Result>, print_msg<Footer> ) ;
 	}
 	return 0 ;

@@ -3,6 +3,9 @@
 
 #include "output.pb.h"
 #include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+#include <fstream>
 
 //! \defgroup outputfile Convenience functions to handle output file
 //! The output file is a series of protocol buffer messages.  This makes
@@ -78,5 +81,25 @@ void scan_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Fun f,
 }
 
 //! @}
+
+class AnfoFile
+{
+    private:
+	const char *name_ ;
+	std::ifstream ifs_ ;
+	google::protobuf::io::IstreamInputStream iis_ ;
+	google::protobuf::io::CodedInputStream cis_ ;
+	bool legacy_ ;
+	bool error_ ;
+	output::Footer foot_ ;
+
+    public: 
+	AnfoFile( const char *name ) ;
+
+	output::Header read_header() ;
+	output::Result read_result() ;
+	output::Footer read_footer() { if( error_ ) foot_.set_exit_code( 1 | foot_.exit_code() ) ; return foot_ ; }
+} ;
+
 
 #endif
