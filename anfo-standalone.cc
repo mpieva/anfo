@@ -155,6 +155,9 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 	r->set_seqid( ps->get_name() ) ;
 	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
 	r->set_sequence( ps->as_string() ) ;
+	if( ps->has_quality() ) 
+		for( size_t i = 0 ; i != ps->length() ; ++i )
+			r->mutable_quality()->push_back( ps->qual(i) ) ;
 	// XXX: set trim points?
 
 	Policy p = select_policy( cd->mi, *ps ) ;
