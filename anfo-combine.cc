@@ -85,7 +85,6 @@ int main_( int argc, const char** argv )
     Header hdr ;
     for( size_t i = 0 ; i != inputs.size() ; ++i )
 	hdr.MergeFrom( inputs[i]->read_header() ) ;
-    hdr.set_is_sorted_by_coordinate( true ) ;
     write_delimited_message( cos, 1, hdr ) ;
 
     typedef map< string, pair< size_t, Result > > Buffer ;

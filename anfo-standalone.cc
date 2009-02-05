@@ -16,13 +16,13 @@
 #include <algorithm>
 #include <cstring>
 #include <csignal>
-// #include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <sstream>
 #include <string>
 
+#include <fnmatch.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -69,7 +69,8 @@ Policy select_policy( const Config &c, const QSequence &ps )
 	{
 		const Policy &pi = c.policy(i) ;
 		if( ( !pi.has_minlength() || pi.minlength() <= ps.length() ) &&
-			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) )
+			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) &&
+			( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), ps.get_name().c_str(), 0 ) ) )
 			p.MergeFrom( pi ) ;
 	}
 	return p ;
