@@ -265,44 +265,46 @@ inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
 class QSequence
 {
 	private:
-		std::vector< uint16_t > seq ;
-		std::string name ;
-		std::string description ;
+		std::vector< uint16_t > seq_ ;
+		std::string name_ ;
+		std::string description_ ;
+		bool has_quality_ ;
 
 	public:
-		QSequence() : seq(), name(), description() 
+		QSequence() : seq_(), name_(), description_(), has_quality_(false)
 		{
-			seq.push_back(0) ; 
-			seq.push_back(0) ; 
+			seq_.push_back(0) ; 
+			seq_.push_back(0) ; 
 		}
 
-		QSequence( const char* p ) : seq(), name(), description()
+		QSequence( const char* p ) : seq_(), name_(), description_(), has_quality_(false)
 		{
-			seq.push_back( 0 ) ;
+			seq_.push_back( 0 ) ;
 			for( ; *p ; ++p )
 			{
 				if( encodes_nuc( *p ) ) 
-					seq.push_back( 0x2800 | to_ambicode( *p ) ) ;
+					seq_.push_back( 0x2800 | to_ambicode( *p ) ) ;
 			}
-			seq.push_back( 0 ) ;
+			seq_.push_back( 0 ) ;
 		}
 					
-		QDnaP start() const { return QDnaP( &seq[1] ) ; }
-		unsigned length() const { return seq.size() - 2 ; }
+		QDnaP start() const { return QDnaP( &seq_[1] ) ; }
+		unsigned length() const { return seq_.size() - 2 ; }
 
-		const std::string &get_name() const { return name ; }
-		const std::string &get_descr() const { return description ; } 
+		const std::string &get_name() const { return name_ ; }
+		const std::string &get_descr() const { return description_ ; } 
+		bool has_quality() const { return has_quality_ ; }
 
 		std::string as_string() const {
-			std::vector<uint16_t>::const_iterator a = seq.begin(), b = seq.end() ;
+			std::vector<uint16_t>::const_iterator a = seq_.begin(), b = seq_.end() ;
 			std::string r ;
 			for( ++a, --b ; a != b ; ++a ) r.push_back( from_ambicode( *a & 0xf ) ) ;
 			return r ;
 		}
 
-		Ambicode operator [] ( size_t ix ) const { return seq[1+ix] & 0xf ; }
-		uint8_t qual( size_t ix ) const { return seq[1+ix] >> 8 ; }
-		void qual( size_t ix, uint8_t q ) { seq[1+ix] = seq[1+ix] & 0xff | (uint16_t)q << 8 ; }
+		Ambicode operator [] ( size_t ix ) const { return seq_[1+ix] & 0xf ; }
+		uint8_t qual( size_t ix ) const { return seq_[1+ix] >> 8 ; }
+		void qual( size_t ix, uint8_t q ) { seq_[1+ix] = seq_[1+ix] & 0xff | (uint16_t)q << 8 ; }
 
 		friend std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores ) ;
 } ;
@@ -311,16 +313,16 @@ class QSequence
 //! To unify both formats (well-defined or not...) this function accepts
 //! both '@' and '>' as header delimiter.  Any lines starting ';' and
 //! following the header are treated as extended description.  Quality
-//! score can be either ASCII (U Rockefeller idiocy) or 33-based raw
-//! phred-like values (Sanger standard).  If they are 64-based
-//! (Solexa idiocy), you're hosed...
+//! score can be either ASCII (U Rockefeller idiocy), or 33-based raw
+//! Phred scale values (Sanger standard), or 64-based Solexa scale
+//! values (Solexa idiocy).
 //!
 //! \param s stream to read from
 //! \param qs sequence-with-quality to read into
 //! \param solexa_scores 
 //!     If set, quality scores are converted from Solexa to Phred
 //!     conventions and the origin for raw scores is 64.  Else the
-//!     origin is 33 and no conversion is done.
+//!     origin for raw scores is 33 and no conversion is done.
 //! \return the stream \c s
 std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores = false ) ;
 

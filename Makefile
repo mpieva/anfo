@@ -8,7 +8,7 @@ CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -ggdb 
 CXXFLAGS += -O3
 
-TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone anfo-combine
+TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone anfo-combine anfo-sort
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
 

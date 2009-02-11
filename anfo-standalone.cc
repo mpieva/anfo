@@ -16,13 +16,13 @@
 #include <algorithm>
 #include <cstring>
 #include <csignal>
-// #include <fstream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <sstream>
 #include <string>
 
+#include <fnmatch.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -69,7 +69,8 @@ Policy select_policy( const Config &c, const QSequence &ps )
 	{
 		const Policy &pi = c.policy(i) ;
 		if( ( !pi.has_minlength() || pi.minlength() <= ps.length() ) &&
-			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) )
+			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) &&
+			( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), ps.get_name().c_str(), 0 ) ) )
 			p.MergeFrom( pi ) ;
 	}
 	return p ;
@@ -155,6 +156,9 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 	r->set_seqid( ps->get_name() ) ;
 	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
 	r->set_sequence( ps->as_string() ) ;
+	if( ps->has_quality() ) 
+		for( size_t i = 0 ; i != ps->length() ; ++i )
+			r->mutable_quality()->push_back( ps->qual(i) ) ;
 	// XXX: set trim points?
 
 	Policy p = select_policy( cd->mi, *ps ) ;
@@ -362,6 +366,7 @@ int main_( int argc, const char * argv[] )
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_quals = 0 ;
+	int stride = 1 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
@@ -370,6 +375,7 @@ int main_( int argc, const char * argv[] )
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
+		{ "sge-task-last", 0, POPT_ARG_INT,    &stride,      opt_none,    "Override SGE_TASK_LAST env var", "N" },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
@@ -411,9 +417,9 @@ int main_( int argc, const char * argv[] )
 	if( common_data.mi.has_aligner() ) simple_adna::configure( common_data.mi.aligner() ) ;
 	if( !common_data.mi.policy_size() ) throw "no policies---nothing to do." ;
 
-	unsigned slicenum = 0, total_slices = 1, stride = 1 ;
+	unsigned slicenum = 0, total_slices = 1 ;
 	if( const char* tid = getenv("SGE_TASK_ID") ) slicenum = atoi(tid) -1 ;
-	if( const char* tid = getenv("SGE_TASK_LAST") ) stride = atoi(tid) ;
+	if( const char* tid = getenv("SGE_TASK_LAST") ) if( stride == 1 ) stride = atoi(tid) ;
 
 	for( int i = 0 ; i != common_data.mi.policy_size() ; ++i )
 	{
@@ -567,7 +573,7 @@ int main_( int argc, const char * argv[] )
 	if( exit_with ) ofoot.set_exit_code( exit_with ) ;
 	write_delimited_message( cos, 3, ofoot ) ;
 
-	if( strcmp( output_file, "-" ) )
+	if( !exit_with && strcmp( output_file, "-" ) )
 		throw_errno_if_minus1(
 				rename( output_file_.c_str(), output_file ),
 				"renaming output" ) ;

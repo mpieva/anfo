@@ -34,16 +34,16 @@ static inline int sol_to_phred( int sol )
 
 istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 {
-	qs.seq.clear() ;
-	qs.seq.push_back( 0 ) ;
+	qs.seq_.clear() ;
+	qs.seq_.push_back( 0 ) ;
 	// skip junk before sequence header
 	while( seq_continues(s) ) s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
 
 	// header follows, don't care for the delimiter, read name and
 	// description
 	s.get() ;
-	s >> qs.name ;
-	getline( s, qs.description ) ;
+	s >> qs.name_ ;
+	getline( s, qs.description_ ) ;
 
 	// If at this point we have a valid stream, we definitely have a
 	// sequence.  Bail out if reading the header failed.
@@ -55,8 +55,8 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 		s.get() ;
 		string line ;
 		getline( s, line ) ;
-		qs.description.push_back( '\n' ) ;
-		qs.description += line ;
+		qs.description_.push_back( '\n' ) ;
+		qs.description_ += line ;
 	}
 
 	// read sequence while it continues
@@ -67,9 +67,9 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 		getline( s, line ) ;
 		for( size_t i = 0 ; i != line.size() ; ++i )
 			if( encodes_nuc( line[i] ) )
-				qs.seq.push_back( 0x2800 | to_ambicode( line[i] ) ) ;
+				qs.seq_.push_back( 0x2800 | to_ambicode( line[i] ) ) ;
 	}
-	qs.seq.push_back( 0 ) ;
+	qs.seq_.push_back( 0 ) ;
 
 	// if quality follows...
 	if( s && s.peek() == '+' )
@@ -81,6 +81,8 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 		// Q-scores must follow unless the sequence was empty or the stream ends
 		if( s && qs.length() )
 		{
+			qs.has_quality_ = true ;
+
 			string line ;
 			getline( s, line ) ;
 
