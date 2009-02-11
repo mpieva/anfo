@@ -8,7 +8,9 @@ CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -ggdb 
 CXXFLAGS += -O3
 
-TARGETS := fa2dna dnaindex index_test file-info anfo-type anfo-standalone anfo-combine
+PROGS := fa2dna dnaindex file-info anfo-type anfo-standalone anfo-combine anfo-sort
+TARGETS := $(PROGS) index_test 
+
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
 
@@ -16,6 +18,10 @@ all: tags $(TARGETS)
 dbs: $(DATABASES)
 
 OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o gzstream.o outputfile.o
+
+install: $(PROGS)
+	[ -d $(prefix) ] || install -d -m 755 $(prefix)
+	install -s -m 755 $(PROGS) $(prefix)
 
 fa2dna.o: config.pb.h
 dnaindex.cc: config.pb.h

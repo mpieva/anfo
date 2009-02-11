@@ -102,6 +102,9 @@ message Policy {
     // distance cutoff scaled by 1000
     // (need to add an E-Value cutoff at some point)
     required uint32 max_penalty_per_nuc = 8 ;
+
+    // pattern to match names against
+    optional string name_pattern = 9 ;
 }
 
 message Aligner {

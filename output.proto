@@ -100,6 +100,9 @@ message Result {
     // optional description (taken e.g. from FASTA file)
     optional string description = 13 ;
 
+    // quality scores (Phred scale, raw, without silly offsets)
+    optional bytes quality = 14 ;
+
     // the sequence itself, if so desired (ASCII encoding---do we want
     // something more compact?)
     optional string sequence = 2 ;

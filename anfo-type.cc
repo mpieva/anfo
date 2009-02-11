@@ -3,37 +3,42 @@
 
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/text_format.h>
-#include <fstream>
-#include <iostream>
 
 using namespace google::protobuf::io ;
 using namespace google::protobuf ;
 using namespace config ;
 using namespace output ;
 
+FileOutputStream cout(1) ;
+
 template< typename Msg > void print_msg( const Msg& m )
 {
-	{
-		OstreamOutputStream oos( &std::cout ) ;
-		TextFormat::Print( m, &oos ) ;
-	}
-	std::cout << '\n' << std::endl ;
+	TextFormat::Print( m, &cout ) ;
+	void* data ; int size ;
+	cout.Next( &data, &size ) ;
+	*(char*)data = '\n' ;
+	data = (char*)data + 1 ;
+	--size ;
+	if( !size ) cout.Next( &data, &size ) ;
+	*(char*)data = '\n' ;
+	data = (char*)data + 1 ;
+	--size ;
+	if( size ) cout.BackUp( size ) ;
 }
-
-void print_hdr( const Header& h ) { print_msg( h ) ; }
-void print_foot( const Footer& h ) { print_msg( h ) ; }
-void print_res( const Header&, const Result& r ) { print_msg( r ) ; }
 
 int main_( int argc, const char** argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	for( int argi = 1 ; argi != argc ; ++argi )
 	{
-		std::ifstream is( argv[argi] ) ;
-		IstreamInputStream iis( &is ) ;
-		CodedInputStream cis( &iis ) ;
-		cis.SetTotalBytesLimit( INT_MAX, INT_MAX ) ;
-		scan_output_file( cis, print_msg<Header>, print_msg<Result>, print_msg<Footer> ) ;
+		AnfoFile af( argv[argi] ) ;
+		print_msg( af.read_header() ) ;
+		for(;;) {
+			Result r = af.read_result() ;
+			if( !r.has_seqid() ) break ;
+			print_msg( r ) ;
+		}
+		print_msg( af.read_footer() ) ;
 	}
 	return 0 ;
 }

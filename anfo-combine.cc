@@ -77,7 +77,11 @@ int main_( int argc, const char** argv )
 {
     vector<AnfoFile*> inputs ;
     for( const char** arg = argv+1 ; arg != argv+argc ; ++arg )
+    {
+	clog << "open " << *arg << endl ;
 	inputs.push_back( new AnfoFile( *arg ) ) ;
+    }
+    clog << inputs.size() << " input files" << endl ;
 
     OstreamOutputStream oos( &cout ) ;
     CodedOutputStream cos( &oos ) ;
@@ -85,7 +89,6 @@ int main_( int argc, const char** argv )
     Header hdr ;
     for( size_t i = 0 ; i != inputs.size() ; ++i )
 	hdr.MergeFrom( inputs[i]->read_header() ) ;
-    hdr.set_is_sorted_by_coordinate( true ) ;
     write_delimited_message( cos, 1, hdr ) ;
 
     typedef map< string, pair< size_t, Result > > Buffer ;
