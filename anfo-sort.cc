@@ -1,3 +1,24 @@
+#include "outputfile.h"
+#include "util.h"
+
+#include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <deque>
+#include <iostream>
+
+#include <unistd.h>
+
+using namespace google::protobuf::io ;
+using namespace std ;
+using namespace output ;
+
+static unsigned max_que_size = 256 ;
+static unsigned max_arr_size = 4*1024*1024 ;
+
 // read ANFO files, sort and merge them
 // Outline: keep a queue of opened files and a deque of results.  A new
 // file (e.g. from command line) is added to the queue if it is sorted,
@@ -8,7 +29,7 @@
 // and the contents of the deque are merged and written out.
 
 struct by_genome_coordinate {
-    bool operator() ( const Result *a, const Result* b ) {
+    bool operator() ( const Result *a, const Result *b ) {
 	if( a->has_best_to_genome() && !b->has_best_to_genome() ) return true ;
 	if( !a->has_best_to_genome() ) return false ;
 	const Hit& u = a->best_to_genome(), v = b->best_to_genome() ;
@@ -20,11 +41,151 @@ struct by_genome_coordinate {
     }
 } ;
 
+deque< const Result* > arr ;
+deque< AnfoFile* > que ;
 
-    deque< const Result* > arr ;
-    for( map<string,Result>::const_iterator b = buffer.begin(), e = buffer.end() ; b!=e ; ++b )
-	arr.push_back( &b->second ) ;
+Header hdr ;
+Footer ftr ;
+
+void sort_arr() {
+    if( arr.size() > 1 ) clog << "sorting " << arr.size() << " results in memory" << endl ;
     sort( arr.begin(), arr.end(), by_genome_coordinate() ) ;
-    for( deque< const Result* >::const_iterator b = arr.begin(), e = arr.end() ; b!=e ; ++b )
-	write_delimited_message( cos, 2, **b ) ;
+}
+
+void dump_arr() {
+    sort_arr() ;
+    char name[] = "anfo_sort_XXXXXX" ;
+    int fd = throw_errno_if_minus1( mkstemp( name ), "making temp file" ) ;
+    FileOutputStream fos( fd ) ;
+    CodedOutputStream cos( &fos ) ;
+    hdr.set_is_sorted_by_coordinate( true ) ;
+    cos.WriteRaw( "ANFO", 4 ) ;
+    write_delimited_message( cos, 1, hdr ) ;
+    clog << "writing temp file" << endl ;
+    for( deque< const Result* >::iterator i = arr.begin(), j = arr.end() ; i!=j ; ++i )
+    {
+	write_delimited_message( cos, 2, **i ) ;
+	delete *i ;
+    }
+    arr.clear() ;
+    write_delimited_message( cos, 3, ftr ) ;
+    que.push_back( new AnfoFile( name ) ) ;
+    que.back()->read_header() ;
+    close( fd ) ;
+    unlink( name ) ;
+}
+
+void merge_footer( AnfoFile* f ) 
+{
+    ftr.set_exit_code( ftr.exit_code() | f->read_footer().exit_code() ) ;
+}
+
+void merge_all( int fd, bool with_arr ) 
+{
+    FileOutputStream fos( fd ) ;
+    CodedOutputStream cos( &fos ) ;
+    cos.WriteRaw( "ANFO", 4 ) ;
+    write_delimited_message( cos, 1 , hdr ) ;
+
+    deque< Result > rs ;
+    for( size_t i = 0 ; i != que.size() ; ++i )
+    {
+	Result r = que[i]->read_result() ;
+	if( r.has_seqid() ) rs.push_back( r ) ;
+	else {
+	    merge_footer( que[i] ) ;
+	    delete que[i] ;
+	    que.erase( que.begin()+i ) ;
+	}
+    }
+
+    while( rs.size() ) 
+    {
+	int m = 0 ;
+	Result rm = rs[0] ;
+	for( size_t i = 1 ; i != rs.size() ; ++i ) 
+	{
+	    if( by_genome_coordinate()( &rs[i], &rm ) ) {
+		m = i ;
+		rm = rs[i] ;
+	    }
+	}
+	if( with_arr && !arr.empty() && by_genome_coordinate()( arr[0], &rm ) ) {
+	    m = -1 ;
+	    rm = *arr[0] ;
+	}
+
+	write_delimited_message( cos, 2, rm ) ;
+	if( m == -1 ) {
+	    delete arr.front() ;
+	    arr.pop_front() ;
+	} else {
+	    rs[m] = que[m]->read_result() ;
+	    if( !rs[m].has_seqid() ) {
+		merge_footer( que[m] ) ;
+		delete que[m] ;
+		que.erase( que.begin() + m ) ;
+		rs.erase( rs.begin() + m ) ;
+	    }
+	}
+    }
+
+    for( deque< const Result* >::iterator i = arr.begin(), j = arr.end() ; i!=j ; ++i )
+    {
+	write_delimited_message( cos, 2, **i ) ;
+	delete *i ;
+    }
+    arr.clear() ;
+    write_delimited_message( cos, 3, ftr ) ;
+}
+
+void flush_queue() {
+    char name[] = "anfo_sort_XXXXXX" ;
+    int fd = throw_errno_if_minus1( mkstemp( name ), "making temp file" ) ;
+    FileOutputStream fos( fd ) ;
+    CodedOutputStream cos( &fos ) ;
+    hdr.set_is_sorted_by_coordinate( true ) ;
+    cos.WriteRaw( "ANFO", 4 ) ;
+    write_delimited_message( cos, 1, hdr ) ;
+    clog << "merging to temp file" << endl ;
+    merge_all( fd, false ) ;
+    write_delimited_message( cos, 3, ftr ) ;
+    que.push_back( new AnfoFile( name ) ) ;
+    que.back()->read_header() ;
+    close( fd ) ;
+    unlink( name ) ;
+}
+
+int main_( int argc, const char **argv )
+{
+    for( const char **arg = argv+1 ; arg != argv+argc ; ++arg )
+    {
+	AnfoFile *f = new AnfoFile( *arg ) ;
+	Header h = f->read_header() ;
+	hdr.MergeFrom( h ) ;
+	if( h.is_sorted_by_coordinate() ) {
+	    que.push_back( f ) ;
+	    if( que.size() == max_que_size ) flush_queue() ;
+	} else {
+	    clog << "reading " << *arg << endl ;
+	    for(;;) {
+		Result r = f->read_result() ;
+		if( !r.has_seqid() ) break ;
+		arr.push_back( new Result( r ) ) ;
+		if( arr.size() == max_arr_size ) {
+		    dump_arr() ;
+		    if( que.size() == max_que_size ) flush_queue() ;
+		}
+	    }
+	    merge_footer( f ) ;
+	    delete f ;
+	}
+    }
+			
+    sort_arr() ;
+    clog << "merging everything to output" << endl ;
+    merge_all( 1, true ) ;
+    return ftr.exit_code() ;
+}
+
 

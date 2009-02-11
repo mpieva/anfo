@@ -77,7 +77,11 @@ int main_( int argc, const char** argv )
 {
     vector<AnfoFile*> inputs ;
     for( const char** arg = argv+1 ; arg != argv+argc ; ++arg )
+    {
+	clog << "open " << *arg << endl ;
 	inputs.push_back( new AnfoFile( *arg ) ) ;
+    }
+    clog << inputs.size() << " input files" << endl ;
 
     OstreamOutputStream oos( &cout ) ;
     CodedOutputStream cos( &oos ) ;
