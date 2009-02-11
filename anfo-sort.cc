@@ -17,7 +17,7 @@ using namespace std ;
 using namespace output ;
 
 static unsigned max_que_size = 256 ;
-static unsigned max_arr_size = 4*1024*1024 ;
+static unsigned max_arr_size = 1024*1024*1024 ;
 
 // read ANFO files, sort and merge them
 // Outline: keep a queue of opened files and a deque of results.  A new
@@ -43,6 +43,7 @@ struct by_genome_coordinate {
 
 deque< const Result* > arr ;
 deque< AnfoFile* > que ;
+unsigned total_arr_size = 0 ;
 
 Header hdr ;
 Footer ftr ;
@@ -68,11 +69,11 @@ void dump_arr() {
 	delete *i ;
     }
     arr.clear() ;
+    total_arr_size = 0 ;
     write_delimited_message( cos, 3, ftr ) ;
-    que.push_back( new AnfoFile( name ) ) ;
-    que.back()->read_header() ;
     close( fd ) ;
-    unlink( name ) ;
+    que.push_back( new AnfoFile( name, true ) ) ;
+    que.back()->read_header() ;
 }
 
 void merge_footer( AnfoFile* f ) 
@@ -136,6 +137,7 @@ void merge_all( int fd, bool with_arr )
 	delete *i ;
     }
     arr.clear() ;
+    total_arr_size = 0 ;
     write_delimited_message( cos, 3, ftr ) ;
 }
 
@@ -150,10 +152,9 @@ void flush_queue() {
     clog << "merging to temp file" << endl ;
     merge_all( fd, false ) ;
     write_delimited_message( cos, 3, ftr ) ;
-    que.push_back( new AnfoFile( name ) ) ;
-    que.back()->read_header() ;
     close( fd ) ;
-    unlink( name ) ;
+    que.push_back( new AnfoFile( name, true ) ) ;
+    que.back()->read_header() ;
 }
 
 int main_( int argc, const char **argv )
@@ -172,7 +173,8 @@ int main_( int argc, const char **argv )
 		Result r = f->read_result() ;
 		if( !r.has_seqid() ) break ;
 		arr.push_back( new Result( r ) ) ;
-		if( arr.size() == max_arr_size ) {
+		total_arr_size += r.SpaceUsed() ;
+		if( total_arr_size >= max_arr_size ) {
 		    dump_arr() ;
 		    if( que.size() == max_que_size ) flush_queue() ;
 		}

@@ -27,8 +27,11 @@
 //! used to create it (an option would be to include the full set of
 //! policies).  Subsequent messages are of type output::Result.
 //!
-//! \todo The output is delimited, but not tagged.  We should do both,
-//!       in essence incrementally writing a protobuf message.
+//! \note The output file is essentially a single, giant protobuf message.
+//!       However, it is impossible to read it in one go (due to memory
+//!       constraints), but it's also impossible to read it through a single
+//!       CodedInputStream.  That's why methods in here tend to construct and
+//!       destruct a fresh CodedInputStream on each invocation.
 //!
 //! @{
 
@@ -55,46 +58,22 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 	return true ;
 }
 
-template< typename Hdr, typename Fun, typename Foot >
-void scan_output_file( google::protobuf::io::CodedInputStream& is, Hdr h, Fun f, Foot t )
-{
-	std::string buf ;
-	if( !is.ReadString( &buf, 4 ) || buf != "ANFO" ) throw "not an ANFO output file" ;
-	while( uint32_t tag = is.ReadTag() )
-	{
-		if( (tag>>3) == 1 ) {
-			output::Header hdr ;
-			read_delimited_message( is, hdr ) ;
-			h( hdr ) ;
-		}
-		else if( (tag>>3) == 2 ) {
-			output::Result res ;
-			read_delimited_message( is, res ) ;
-			f( res ) ;
-		}
-		else if( (tag>>3) == 3 ) {
-			output::Footer foot ;
-			read_delimited_message( is, foot ) ;
-			t( foot ) ;
-		}
-	}
-}
-
 //! @}
 
 class AnfoFile
 {
     private:
-	const char *name_ ;
-	std::ifstream ifs_ ;
-	google::protobuf::io::IstreamInputStream iis_ ;
-	google::protobuf::io::CodedInputStream cis_ ;
+	std::string name_ ;
+	int fd_ ;
+	google::protobuf::io::FileInputStream iis_ ;
 	bool legacy_ ;
 	bool error_ ;
+	bool unlink_on_delete_ ;
 	output::Footer foot_ ;
 
     public: 
-	AnfoFile( const char *name ) ;
+	AnfoFile( const char *name, bool unlink_on_delete = false ) ;
+	~AnfoFile() ;
 
 	output::Header read_header() ;
 	output::Result read_result() ;

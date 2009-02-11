@@ -509,7 +509,7 @@ int main_( int argc, const char * argv[] )
 		for( int i = 0 ; i != nxthreads ; ++i )
 			pthread_create( indexer_thread+i, 0, run_indexer_thread, &common_data ) ;
 
-	for( int total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
+	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
 		// ifstream input_file_stream ;
 		igzstream input_file_stream ;
