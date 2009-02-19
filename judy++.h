@@ -85,6 +85,7 @@ template< typename value > class const_ref
 		const value* operator -> () const { return p_ ; }
 		const value& operator * () const { return *p_ ; }
 		bool operator ! () const { return !p_ ; }
+		operator const void* () const { return p_ ; }
 } ;
 
 
@@ -132,7 +133,7 @@ template< typename value > class JudyL
 
 		const_ref<value> lookup( Word_t index ) const { return const_ref<value>( (value*)JudyLGet( arr, index, 0 ) ) ; }
 
-		int remove( Word_t index ) { if( const_ref<value> v = (*this)[ index ] ) v->~value() ; return JudyLDel( &arr, index, 0 ) ; }
+		int remove( Word_t index ) { if( const_ref<value> v = lookup( index ) ) v->~value() ; return JudyLDel( &arr, index, 0 ) ; }
 		int mem_used() const { return JudyLMemUsed( arr ) ; }
 		int count( Word_t i1 = 0, Word_t i2 = (Word_t)(-1) ) const { return JudyLCount( arr, i1, i2, 0 ) ; }
 
