@@ -4,9 +4,11 @@
 #include "index.h"
 #include "judy++.h"
 
+#include <cmath>
 #include <deque>
-
 #include <sstream>
+
+inline uint32_t to_log_dom( double p ) { return (uint32_t)( -10 * std::log( p ) + 0.5 ) ; }
 
 /*!
 \page alignment_algorithm Alignment by Dijkstra's Algorithm
@@ -118,7 +120,7 @@ are never removed because they are simply too bad to ever be touched.
 
 template< typename T > struct gen_alignment {
 	DnaP reference ; 						// entry point
-	QDnaP query ;							// entry point
+	const QSequence::Base *query ;						// entry point
 	uint32_t state     :  8 ;				// state
 	uint32_t penalty   : 24 ;				// cost so far
 	int32_t ref_offs   : 16 ;				// cur. position
@@ -164,10 +166,10 @@ template< typename T > struct gen_alignment {
 	Ambicode get_ref() const { return reference[ref_offs] ; }
 
 	//! \brief returns the current nucleotide on the query
-	Ambicode get_qry() const { return query[query_offs] ; }
+	QSequence::Base get_qry() const { return query[query_offs] ; }
 
 	//! \brief returns the current quality score on the query
-	uint8_t  get_qlt() const { return query.qual( query_offs ) ; }
+	// uint8_t  get_qlt() const { return query[query_offs].qualities[.qual( query_offs ) ; }
 
 	void adv_ref() { if( state & mask_dir ) --ref_offs ; else ++ref_offs ; }
 	void adv_qry() { if( state & mask_dir ) --query_offs ; else ++query_offs ; }
@@ -203,9 +205,9 @@ template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.b
 //! \return true iff \c s in contained in \c cl
 template< typename A > bool is_present( const typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
 {
-	return cl, s.reference.get(), s.query.get(),
+	return cl, s.reference.get(), (Word_t)s.query,
 #if SMALL_SYS
-			   s.reference.high() << 16 | s.query.high(),
+			   s.reference.high(), //  << 16 | s.query.high(),
 #endif
 			   s.ref_offs, s.query_offs | s.state << 16 ;
 }
@@ -213,9 +215,9 @@ template< typename A > bool is_present( const typename gen_alignment<A>::ClosedS
 template< typename A > const_ref<const A*> lookup(
 		const typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s )
 {
-	return cl, s.reference.get(), s.query.get(),
+	return cl, s.reference.get(), (Word_t)s.query,
 #if SMALL_SYS
-			   s.reference.high() << 16 | s.query.high(),
+			   s.reference.high(), //  << 16 | s.query.high(),
 #endif
 			   s.ref_offs, s.query_offs | s.state << 16 ;
 }
@@ -223,9 +225,9 @@ template< typename A > const_ref<const A*> lookup(
 template< typename A > void set_bit( typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
 {
 	cl.insert( s.reference.get() )
-	  ->insert( s.query.get() )
+	  ->insert( (Word_t)s.query )
 #if SMALL_SYS
-	  ->insert( s.reference.high() << 16 | s.query.high() )
+	  ->insert( s.reference.high() ) // << 16 | s.query.high() )
 #endif
 	  ->insert( s.ref_offs )
 	  ->set( s.query_offs | s.state << 16 ) ;
@@ -235,9 +237,9 @@ template< typename A > void insert(
 		typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s, const A *p )
 { 
 	*cl.insert( s.reference.get() )
-	   ->insert( s.query.get() )
+	   ->insert( (Word_t)s.query )
 #if SMALL_SYS
-       ->insert( s.reference.high() << 16 | s.query.high() )
+       ->insert( s.reference.high() ) // << 16 | s.query.high() )
 #endif
 	   ->insert( s.ref_offs )
 	   ->insert( s.query_offs | s.state << 16 ) = p ;
@@ -304,7 +306,7 @@ struct flat_alignment : public gen_alignment<flat_alignment> {
 template< typename A > bool finished( const gen_alignment<A>& s )
 {
 	return (s.state & gen_alignment<A>::mask_dir) &&
-		( s.get_ref() == 0 || s.get_qry() == 0 ) ;
+		( s.get_ref() == 0 || s.get_qry().ambicode == 0 ) ;
 }
 
 //! \brief greedily extends an alignment.
@@ -316,9 +318,9 @@ template< typename A > bool finished( const gen_alignment<A>& s )
 //! \param s alignment state
 inline void greedy( flat_alignment& s )
 {
-	while( s.get_qry() && s.get_ref() == s.get_qry() )
+	while( s.get_qry().ambicode && s.get_ref() == s.get_qry().ambicode )
 	{
-		s.penalty += flat_alignment::subst_mat( s.get_ref(), s.get_qry() ) ;
+		s.penalty += flat_alignment::subst_mat( s.get_ref(), s.get_qry().ambicode ) ;
 		s.adv_ref() ;
 		s.adv_qry() ;
 	}
@@ -332,7 +334,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	// In any case, we can rely on the fact that greedy() was called
 	// before.
 	if( (s.state & flat_alignment::mask_dir) == 0 &&
-			(s.get_ref() == 0 || s.get_qry() == 0) )
+			(s.get_ref() == 0 || s.get_qry().ambicode == 0) )
 	{
 		flat_alignment s1 = s ;
 		s1.state = 1 ;
@@ -343,7 +345,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 	else
 	{
 		flat_alignment s1 = s ;
-		s1.penalty += flat_alignment::subst_mat( s1.get_ref(), s1.get_qry() ) ;
+		s1.penalty += flat_alignment::subst_mat( s1.get_ref(), s1.get_qry().ambicode ) ;
 		s1.adv_ref() ;
 		s1.adv_qry() ;
 		f( s1 ) ;
@@ -375,9 +377,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 //! codes, this avoid the need for expensive additions in the log-domain
 //! should the need to align ambiguity codes arise.  First index is
 //! "from" (reference code), second index is "to" (query code).
-//! \todo Log-domain additions are still needed to properly support quality
-//!       scores, which is left as an exersize to advanced students...
-typedef uint32_t subst_mat[16][16] ;
+typedef float subst_mat[16][16] ;
 
 //! \brief aDNA alignment automaton
 //! We encode the state as follows: Bit 0 is set if we're in the second
@@ -405,9 +405,15 @@ struct simple_adna : public gen_alignment<simple_adna> {
 	//! set, since in the forward direction, aDNA damage actually
 	//! operates on the reverse strand.
 	uint32_t subst_penalty() const {
-		Ambicode r = get_ref(), q = get_qry() ;
-		if( !(state & mask_dir) ) { r = complement(r) ; q = complement(q) ; }
-		return state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] ;
+		Ambicode r = state & mask_dir ? get_ref() : complement( get_ref() ) ;
+		float prob = 0 ;
+		for( uint8_t p = 0 ; p != 4 ; ++p )
+		{
+			Ambicode q = state & mask_dir ? (1<<p) : complement(1<<p) ;
+			prob += ( state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] )
+				    * get_qry().qualities[p] ;
+		}
+		return to_log_dom( prob ) ;
 	}
 
 	//! \brief Penalty for extending an overhang.
@@ -449,7 +455,7 @@ inline void greedy( simple_adna& s )
 {
 	if( (s.state & simple_adna::mask_gaps) == 0 )
 	{
-		while( s.get_qry() && s.get_ref() == s.get_qry() )
+		while( s.get_qry().ambicode && s.get_ref() == s.get_qry().ambicode )
 		{
 			s.penalty += s.subst_penalty() ;
 			s.adv_ref() ;
@@ -481,7 +487,7 @@ template< typename F > void forward( const simple_adna& s, F f )
 	// the overhang_ext_penalty is applied whenever moving along the
 	// query while single stranded, even when a gap is open!  This gives
 	// correct scores for a geometric distribution of overhang lengths.
-	if( (s.state & simple_adna::mask_dir) == 0 && ( s.get_ref() == 0 || s.get_qry() == 0 ) )
+	if( (s.state & simple_adna::mask_dir) == 0 && ( s.get_ref() == 0 || s.get_qry().ambicode == 0 ) )
 	{
 		// forward dir, hit gap --> start over in reverse dir
 		simple_adna s1 = s ;
@@ -718,7 +724,7 @@ Trace backtrace( const typename State::ClosedMap &cl, const State *a )
 				ro != b->ref_offs || qo != b->query_offs ; )
 		{
 			Ambicode x = ro == b->ref_offs   ? 0 : a->reference[++ro] ;
-			Ambicode y = qo == b->query_offs ? 0 : a->query[++qo] ;
+			Ambicode y = qo == b->query_offs ? 0 : a->query[++qo].ambicode ;
 			r.trace.push_back( std::make_pair( x,y ) ) ;
 		}
 		a = b ;
@@ -728,7 +734,7 @@ Trace backtrace( const typename State::ClosedMap &cl, const State *a )
 	for( signed short ro = a->ref_offs, qo = a->query_offs ; ro != -1 || qo != -1 ; )
 	{
 		Ambicode x = ro ? a->reference[++ro] : 0 ;
-		Ambicode y = qo ? a->query[++qo] : 0 ;
+		Ambicode y = qo ? a->query[++qo].ambicode : 0 ;
 		r.trace.push_back( std::make_pair( x,y ) ) ;
 	}
 
@@ -748,7 +754,7 @@ Trace backtrace( const typename State::ClosedMap &cl, const State *a )
 				ro != b->ref_offs || qo != b->query_offs ; )
 		{
 			Ambicode x = ro == b->ref_offs   ? 0 : a->reference[--ro] ;
-			Ambicode y = qo == b->query_offs ? 0 : a->query[--qo] ;
+			Ambicode y = qo == b->query_offs ? 0 : a->query[--qo].ambicode ;
 			t2.push_back( std::make_pair( x,y ) ) ;
 		}
 		a = b ;
@@ -761,7 +767,7 @@ Trace backtrace( const typename State::ClosedMap &cl, const State *a )
 	for( signed short ro = a->ref_offs, qo = a->query_offs ; ro || qo ; )
 	{
 		Ambicode x = ro ? a->reference[--ro] : 0 ;
-		Ambicode y = qo ? a->query[--qo] : 0 ;
+		Ambicode y = qo ? a->query[--qo].ambicode : 0 ;
 		t2.push_back( std::make_pair( x,y ) ) ;
 	}
 

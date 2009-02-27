@@ -199,7 +199,7 @@ unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_
 		o_r = (o_r << 2) & mask ;
 		++filled ;
 
-		switch( dna[offset] )
+		switch( dna[offset].ambicode )
 		{
 			case 1: o_f |= 0 << s ; o_r |= 2 ; break ;
 			case 2: o_f |= 1 << s ; o_r |= 3 ; break ;

@@ -1,6 +1,5 @@
 #include "align.h"
 
-#include <cmath>
 // #include <iostream>
 
 subst_mat simple_adna::ds_mat ;
@@ -10,14 +9,15 @@ uint32_t simple_adna::overhang_enter_penalty ;
 uint32_t simple_adna::gap_open_penalty ;
 uint32_t simple_adna::gap_ext_penalty ;
 
-uint32_t to_log_dom( double p ) { return (uint32_t)( -10 * std::log( p ) + 0.5 ) ; }
-
 //! \brief sets up aDNA alignments according to parameter set
 //! Penalties are logs of probabilities.  We calculate a probability in
 //! a straightforward manner, then take the log, then multiply by (say)
 //! 10 and round to an integer (effectively shifting the base).
 //! Afterwards we could shift the score up so the minimum score is zero,
-//! but it will be zero to within accuracy anyway.
+//! but it will be zero to within accuracy anyway.  Here we
+//! precalculate the penalties and log-transform them, however, the
+//! substitution matrices are left in the linear scale, because they
+//! need to be added later.
 //!
 //! For ambiguity codes, we sum over all the possible codes, divide by
 //! the number of possibilities, the go to the log domain.  Note that
@@ -108,8 +108,8 @@ void simple_adna::configure( const config::Aligner& conf )
 				}
 			}
 
-			ds_mat[ref][qry] = to_log_dom( p_ds / npairs ) ;
-			ss_mat[ref][qry] = to_log_dom( p_ss / npairs ) ;
+			ds_mat[ref][qry] = p_ds / npairs ;
+			ss_mat[ref][qry] = p_ss / npairs ;
 
 			// std::cerr << ds_mat[ref][qry] << " (" << ss_mat[ref][qry] << ")\t" ;
 		}

@@ -260,62 +260,111 @@ inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
 }
 
 //! \brief sequence with quality scores
-//! A sequence is stored as vector of ambiguity codes interleaved with
-//! raw quality scores.  A suitable pointer abstraction is provided.
+//! We store four qualities for the four possible bases.  If the
+//! sequence was read from a 4Q file, that's okay.  If it came from
+//! FASTQ or even FASTA, they are just an extrapolation.  That's why we
+//! keep a flag saying which data set is actually valid.  Qualities are
+//! actual probabilities (they should sum to one), because calculation
+//! would involve logarithms anyway and we needn't fear loss of
+//! precision here.
+//! 
+//! In theory, we don't need to store the bases themselves.  However, to
+//! support weird base callers and to keep the legacy indexing code
+//! working, we still store them.
 class QSequence
 {
+	public:
+		//! \brief An ambiguity code and four qualities together.
+		//! The qualities are invalid if the ambiguity code encodes a
+		//! gap.
+		struct Base {
+			uint8_t ambicode ;
+			float   qualities[4] ;
+
+			Base() : ambicode(0) { qualities[0] = qualities[1] = qualities[2] = qualities[3] = 0 ; }
+			Base( uint8_t a, int q_score ) ;
+		} ;
+
+		enum Validity { bases_only, bases_with_quality, qualities_only, bases_with_qualities } ;
 	private:
-		std::vector< uint16_t > seq_ ;
+		std::vector< Base > seq_ ;
 		std::string name_ ;
 		std::string description_ ;
-		bool has_quality_ ;
+		Validity validity_ ;
 
 	public:
-		QSequence() : seq_(), name_(), description_(), has_quality_(false)
+		typedef std::vector< Base >::const_iterator const_iterator ;
+		typedef std::vector< Base >::iterator iterator ;
+		typedef Base const *const_pointer ;
+		typedef Base const &const_reference ;
+		typedef Base pointer ;
+		typedef Base &reference ;
+		typedef Base value_type ;
+
+		//! \brief creates an empty sequence
+		//! The sequence is terminated correctly by two gaps and has no
+		//! bases.  It is basically considered invalid and used as a
+		//! placeholder where necessary.
+		QSequence() : seq_(), name_(), description_(), validity_( bases_only )
 		{
-			seq_.push_back(0) ; 
-			seq_.push_back(0) ; 
+			seq_.push_back( Base() ) ; 
+			seq_.push_back( Base() ) ; 
 		}
 
-		QSequence( const char* p ) : seq_(), name_(), description_(), has_quality_(false)
-		{
-			seq_.push_back( 0 ) ;
-			for( ; *p ; ++p )
-			{
-				if( encodes_nuc( *p ) ) 
-					seq_.push_back( 0x2800 | to_ambicode( *p ) ) ;
-			}
-			seq_.push_back( 0 ) ;
-		}
-					
-		QDnaP start() const { return QDnaP( &seq_[1] ) ; }
+		//! \brief creates a sequence from ACSII encoded bases
+		//! All qualities are set to a reasonable constant, which is
+		//! equivalent to a Q score of 30 by default.  Useful mostly for
+		//! debugging.
+		QSequence( const char* p, int q_score = 30 ) ;
+
+		const_pointer start() const { return &seq_[1] ; }
 		unsigned length() const { return seq_.size() - 2 ; }
 
 		const std::string &get_name() const { return name_ ; }
 		const std::string &get_descr() const { return description_ ; } 
-		bool has_quality() const { return has_quality_ ; }
+
+		Validity get_validity() const { return validity_ ; }
 
 		std::string as_string() const {
-			std::vector<uint16_t>::const_iterator a = seq_.begin(), b = seq_.end() ;
+			const_iterator a = seq_.begin(), b = seq_.end() ;
 			std::string r ;
-			for( ++a, --b ; a != b ; ++a ) r.push_back( from_ambicode( *a & 0xf ) ) ;
+			for( ++a, --b ; a != b ; ++a ) r.push_back( from_ambicode( a->ambicode ) ) ;
 			return r ;
 		}
 
-		Ambicode operator [] ( size_t ix ) const { return seq_[1+ix] & 0xf ; }
-		uint8_t qual( size_t ix ) const { return seq_[1+ix] >> 8 ; }
-		void qual( size_t ix, uint8_t q ) { seq_[1+ix] = seq_[1+ix] & 0xff | (uint16_t)q << 8 ; }
+		reference operator [] ( size_t ix ) { return seq_[1+ix] ; }
+		const_reference operator [] ( size_t ix ) const { return seq_[1+ix] ; }
+
+		// Ambicode operator [] ( size_t ix ) const { return seq_[1+ix]->ambicode ; }
+
+		//! \todo How do you calculate the quality value of an ambiguity
+		//! code given the qualities of the individual bases?  Just
+		//! adding them doesn't seem right somehow.
+		
+		// uint8_t qual( size_t ix ) const { return seq_[1+ix] >> 8 ; }
+		// void qual( size_t ix, uint8_t q ) { seq_[1+ix] = seq_[1+ix] & 0xff | (uint16_t)q << 8 ; }
 
 		friend std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores ) ;
 } ;
 
-//! \brief reads a sequence from a FASTA or FASTQ file
-//! To unify both formats (well-defined or not...) this function accepts
+//! \brief reads a sequence from a FASTA, FASTQ or 4Q file
+//! To unify all formats (well-defined or not...) this function accepts
 //! both '@' and '>' as header delimiter.  Any lines starting ';' and
 //! following the header are treated as extended description.  Quality
-//! score can be either ASCII (U Rockefeller idiocy), or 33-based raw
-//! Phred scale values (Sanger standard), or 64-based Solexa scale
-//! values (Solexa idiocy).
+//! scores are optional and introduced by '+'; they can be either ASCII
+//! (U Rockefeller idiocy), or 33-based raw Phred scale values (Sanger
+//! standard), or 64-based Solexa scale values (Solexa idiocy).  The tag
+//! "SQ " (4Q definition) is ignored in a sequence line.  Quality scores
+//! can also be introduced by '*', in which case the quality line tag is
+//! read and the remainder is parsed as quality scores in 4Q format.  If
+//! no bases are found, but four Q scores are available, bases are
+//! "called" internally.
+//!
+//!	\todo Add sensible error checking (e.g. consistent line lengths, no
+//!	      additional junk, no wrong characters).
+//!	\todo Going from log domain to probabilities and back to log domain
+//!	      may cause loss of precision.  Maybe unaltered Q scores should
+//!	      be stored, too.
 //!
 //! \param s stream to read from
 //! \param qs sequence-with-quality to read into

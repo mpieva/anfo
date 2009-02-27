@@ -92,6 +92,16 @@ enum Reason {
     no_policy = 4 ;
 }
 
+// Quality scores for each of the possible bases (raw, Phred scale)
+// Obviously this is strictly more powerful than the sequence and/or one
+// quality score, 
+message FourQuality {
+    required bytes quality_a = 1 ;
+    required bytes quality_c = 2 ;
+    required bytes quality_g = 3 ;
+    required bytes quality_t = 4 ;
+} 
+
 message Result {
     // sequence identifier, can be left out iff it is implicit, e.g.
     // from being contained in a database where the id is the key
@@ -102,6 +112,8 @@ message Result {
 
     // quality scores (Phred scale, raw, without silly offsets)
     optional bytes quality = 14 ;
+    // alternatively, detailed quality scores
+    optional FourQuality four_quality = 15 ;
 
     // the sequence itself, if so desired (ASCII encoding---do we want
     // something more compact?)

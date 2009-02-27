@@ -5,13 +5,20 @@
 
 using namespace std ;
 
-static inline bool seq_continues( std::istream& s )
-{ return s && s.peek() != '@' && s.peek() != '>' && s.peek() != '+' ; }
+namespace {
 
-static inline bool descr_follows( std::istream& s )
+inline bool seq_continues( std::istream& s )
+{ return s && s.peek() != '@' && s.peek() != '>'
+	       && s.peek() != '+' && s.peek() != '*' ; }
+
+inline bool descr_follows( std::istream& s )
 { return s && s.peek() == ';' ; }
 
-static inline bool all_acsii_qscores( const std::string& s )
+//! \brief test whether a line contains ASCII Q-scores
+//! \internal
+//! This is a small DFA that test whether a line contains only small
+//! ACSII encoded numbers separated by spaces.
+inline bool all_acsii_qscores( const std::string& s )
 {
 	int st = 0 ;
 	for( size_t i = 0 ; i != s.length() ; ++i )
@@ -27,15 +34,44 @@ static inline bool all_acsii_qscores( const std::string& s )
 	return true ;
 }
 
-static inline int sol_to_phred( int sol )
+inline float sol_to_prob( int sol ) { return 1.0 / ( 1 + std::pow( 10, -sol / 10.0 ) ) ; }
+inline float phred_to_prob( int phred ) { return 1 - std::pow( 10, -phred / 10.0 ) ; }
+
+/*
+inline int sol_to_phred( int sol )
 {
 	return (int)( 0.5 + 10.0/log(10.0) * log( 1.0 + exp( sol*log(10.0)/10.0 ))) ;
 }
+*/
 
+int bits_in[] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 } ;
+
+}
+
+QSequence::Base::Base( uint8_t a, int q_score ) : ambicode( a )
+{
+	int bits = bits_in[ a ] ;
+	float prob = phred_to_prob( q_score ) ;
+	for( int i = 0 ; i != 4 ; ++i )
+		qualities[i] = a & (1<<i) ? prob / bits : (1-prob) / (4-bits) ;
+}
+
+QSequence::QSequence( const char* p, int q_score ) 
+		: seq_(), name_(), description_(), validity_( bases_only )
+{
+	seq_.push_back( Base() ) ;
+	for( ; *p ; ++p )
+		if( encodes_nuc( *p ) ) 
+			seq_.push_back( Base( to_ambicode( *p ), q_score ) ) ;
+	seq_.push_back( Base() ) ;
+}
+					
 istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 {
+	bool got_seq = false, got_qual = false, got_quals = false ;
+
 	qs.seq_.clear() ;
-	qs.seq_.push_back( 0 ) ;
+	qs.seq_.push_back( QSequence::Base() ) ;
 	// skip junk before sequence header
 	while( seq_continues(s) ) s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
 
@@ -46,7 +82,7 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 	getline( s, qs.description_ ) ;
 
 	// If at this point we have a valid stream, we definitely have a
-	// sequence.  Bail out if reading the header failed.
+	// sequence.  Bail out iff reading of the header failed.
 	if( !s ) return s ;
 
 	// if more description follows, read it in, dropping the delimiter
@@ -65,11 +101,18 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 	{
 		string line ;
 		getline( s, line ) ;
-		for( size_t i = 0 ; i != line.size() ; ++i )
+		// If line starts with "SQ ", we ignore it.  Scan the rest for
+		// nucleotide codes.
+		for( size_t i = line.substr(0,3) == "SQ " ? 3 : 0 ; i != line.size() ; ++i )
+		{
 			if( encodes_nuc( line[i] ) )
-				qs.seq_.push_back( 0x2800 | to_ambicode( line[i] ) ) ;
+			{
+				got_seq = true ;
+				qs.seq_.push_back( QSequence::Base( to_ambicode( line[i] ), 30 ) ) ;
+			}
+		}
 	}
-	qs.seq_.push_back( 0 ) ;
+	qs.seq_.push_back( QSequence::Base() ) ;
 
 	// if quality follows...
 	if( s && s.peek() == '+' )
@@ -81,7 +124,7 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 		// Q-scores must follow unless the sequence was empty or the stream ends
 		if( s && qs.length() )
 		{
-			qs.has_quality_ = true ;
+			got_qual = true ;
 
 			string line ;
 			getline( s, line ) ;
@@ -92,27 +135,39 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 			// numbers until the next header
 			if( all_acsii_qscores(line) ) 
 			{
-				for( int ix = 0 ; s ; )
+				for( int ix = 1 ; s ; )
 				{
 					stringstream ss( line ) ;
 					for( int q = 0 ; ss >> q ; ++ix )
-						qs.qual( ix, solexa_scores ? sol_to_phred(q) : q ) ;
+					{
+						QSequence::Base &b = qs.seq_[ix] ;
+						//! \todo handle single quality scores for ambiguity codes
+						int tag = b.ambicode == 1 ? 0 : b.ambicode == 2 ? 1 : b.ambicode == 4 ? 2 : 3 ;
+						b.qualities[tag] = solexa_scores ? sol_to_prob(q) : phred_to_prob(q) ;
+					}
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
 				}
 			}
 			// No ASCII coding.  Since delimiters aren't very useful
 			// now, we'll take exactly one Q-score for each nucleotide,
-			// ignoring line feeds.
+			// ignoring LF and CR.
 			else
 			{
 				size_t total = qs.length(), ix = 0 ; 
 				while( ix != total && s )
 				{
-					for( size_t j = 0 ; ix != total && j != line.size() ; ++j, ++ix )
+					for( size_t j = 0 ; ix != total && j != line.size() ; ++j )
 					{
 						int q = line[j] ;
-						qs.qual( ix, solexa_scores ? sol_to_phred( q-64 ) : q-33 ) ;
+						if( q != 13 )
+						{
+							QSequence::Base &b = qs.seq_[ix] ;
+							//! \todo handle single quality scores for ambiguity codes
+							int tag = b.ambicode == 1 ? 0 : b.ambicode == 2 ? 1 : b.ambicode == 4 ? 2 : 3 ;
+							b.qualities[tag] = solexa_scores ? sol_to_prob(q-64) : phred_to_prob(q-33) ;
+							++ix ;
+						}
 					}
 					if( ix != total ) getline( s, line ) ;
 				}
@@ -121,7 +176,43 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 			}
 		}
 	}
+	else
+	{
+		size_t pos[4] = {1,1,1,1} ;
 
+		// We might get quality in 4Q format.  We'll handle it as
+		// any number of optional quality lines, so FASTA degerates to a
+		// special case of 4Q.
+		while( s && s.peek() == '*' ) 
+		{
+			s.get() ;	// drop the star
+			int tag = s.get() & ~32 ;
+			tag = tag == 'A' ? 0 : tag == 'C' ? 1 : tag == 'T' ? 2 : 3 ;
+			while( s && isspace(s.peek()) && s.peek() != '\n' ) s.get() ;
+
+			while( s && s.peek() != '\n' ) 
+			{
+				int q = s.get() ;
+				if( q != 13 ) 
+				{
+					got_quals = true ;
+					if( pos[tag] == qs.seq_.size()-1 ) qs.seq_.push_back( QSequence::Base() ) ;
+					qs.seq_[pos[tag]].qualities[tag] = phred_to_prob( q-33 ) ;
+				}
+			}
+		}
+		for( size_t p = qs.seq_.size()-2 ; p>0 && !qs.seq_[p].ambicode ; --p )
+		{
+			// simple basecall, in case we have Q scores, but no
+			// sequence
+			qs.seq_[p].ambicode = 1 << (
+					std::max_element( qs.seq_[p].qualities, qs.seq_[p].qualities+4 ) 
+					- qs.seq_[p].qualities ) ;
+		}
+	}
+
+	qs.validity_ = got_quals ? got_seq ? QSequence::bases_with_qualities : QSequence::qualities_only
+		                     : got_qual ? QSequence::bases_with_quality : QSequence::bases_only ;
 	// We did get a sequence, no matter the stream state now, so no
 	// failure.  If we reached EOF, the flags must remain.
 	s.clear( s.rdstate() & ~istream::failbit ) ;

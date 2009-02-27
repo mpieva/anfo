@@ -155,10 +155,30 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 {
 	r->set_seqid( ps->get_name() ) ;
 	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
-	r->set_sequence( ps->as_string() ) ;
-	if( ps->has_quality() ) 
-		for( size_t i = 0 ; i != ps->length() ; ++i )
-			r->mutable_quality()->push_back( ps->qual(i) ) ;
+	switch( ps->get_validity() ) 
+	{
+		// case QSequence::bases_with_quality:
+			// for( size_t i = 0 ; i != ps->length() ; ++i )
+				// r->mutable_quality()->push_back( 0 /*ps[i].quali->qual(i)*/ ) ; // XXX
+
+		case QSequence::bases_only:
+			r->set_sequence( ps->as_string() ) ;
+			break ;
+
+		case QSequence::bases_with_quality:
+		case QSequence::bases_with_qualities:
+			r->set_sequence( ps->as_string() ) ;
+
+		case QSequence::qualities_only:
+			for( size_t i = 0 ; i != ps->length() ; ++i )
+			{
+				r->mutable_four_quality()->mutable_quality_a()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[0] ) / std::log(10.0) + 0.5 ) ;
+				r->mutable_four_quality()->mutable_quality_c()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[1] ) / std::log(10.0) + 0.5 ) ;
+				r->mutable_four_quality()->mutable_quality_t()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[2] ) / std::log(10.0) + 0.5 ) ;
+				r->mutable_four_quality()->mutable_quality_g()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[3] ) / std::log(10.0) + 0.5 ) ;
+			}
+	}
+
 	// XXX: set trim points?
 
 	Policy p = select_policy( cd->mi, *ps ) ;
