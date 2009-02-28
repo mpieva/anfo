@@ -406,6 +406,7 @@ struct simple_adna : public gen_alignment<simple_adna> {
 	//! operates on the reverse strand.
 	uint32_t subst_penalty() const {
 		Ambicode r = state & mask_dir ? get_ref() : complement( get_ref() ) ;
+		if( !r ) r = 15 ; // if reference has a gap, pretend it was an N
 		float prob = 0 ;
 		for( uint8_t p = 0 ; p != 4 ; ++p )
 		{
@@ -459,6 +460,19 @@ inline void greedy( simple_adna& s )
 		{
 			s.penalty += s.subst_penalty() ;
 			s.adv_ref() ;
+			s.adv_qry() ;
+		}
+	}
+	if( !s.get_ref() ) {
+		// We hit a gap in the reference, whatever is left of the query
+		// must be penalized.  To do this, we virtually extend the
+		// reference with Ns and align to those.  This is a white lie in
+		// that it wil overestimate the real penalty, but that's okay,
+		// because such an alignment isn't all that interesting in
+		// reality anyway.
+		while( s.get_qry().ambicode )
+		{
+			s.penalty += s.subst_penalty() ;
 			s.adv_qry() ;
 		}
 	}
