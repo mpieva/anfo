@@ -124,9 +124,9 @@ struct AlignmentWorkload
 
 struct CommonData
 {
-	Queue<output::Result*, 10> output_queue ;
-	Queue<AlignmentWorkload*, 10> intermed_queue ;
-	Queue<QSequence*, 10> input_queue ;
+	Queue<output::Result*, 4> output_queue ;
+	Queue<AlignmentWorkload*, 4> intermed_queue ;
+	Queue<QSequence*, 4> input_queue ;
 	google::protobuf::io::CodedOutputStream *output_stream ;
 	Config mi ;
 	Genomes genomes ;
@@ -224,7 +224,8 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result *r )
 {
 	uint32_t max_penalty = (uint32_t)( max_penalty_per_nuc * ps->length() ) ;
-	alignment_type best = find_cheapest( ol, max_penalty ) ;
+	alignment_type::ClosedSet cl ;
+	alignment_type best = find_cheapest( ol, cl, max_penalty ) ;
 	if( !best )
 	{
 		r->set_reason( output::bad_alignment ) ;
@@ -291,7 +292,7 @@ void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc
 				std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
 				ol.end() ) ;
 		make_heap( ol.begin(), ol.end() ) ;
-		alignment_type second_best = find_cheapest( ol, max_penalty ) ;
+		alignment_type second_best = find_cheapest( ol, cl, max_penalty ) ;
 		if( second_best ) r->set_diff_to_next( second_best.penalty - penalty ) ;
 	}
 }
@@ -473,6 +474,7 @@ int main_( int argc, const char * argv[] )
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
+	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
 	int64_t total_size = 0, total_done = 0 ;

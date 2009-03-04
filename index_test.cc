@@ -47,8 +47,9 @@ template< typename alignment_type >
 int do_aln( const CompactGenome& g, const QSequence& ps, const vector<Seed>& seeds )
 {
 	deque<alignment_type> ol ;
+	typename alignment_type::ClosedSet cl ;
 	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-	alignment_type best = find_cheapest( ol, std::numeric_limits<uint32_t>::max(), true ) ;
+	alignment_type best = find_cheapest( ol, cl, std::numeric_limits<uint32_t>::max(), true ) ;
 
 	cout << "Done near " << best.reference.abs() - g.get_base() << " costing " << best.penalty << ':' << endl ;
 

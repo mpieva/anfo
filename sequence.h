@@ -177,6 +177,7 @@ class DnaP
 		unsigned long high() const { return p_ >> sizeof( unsigned long ) * CHAR_BIT ; }
 #else
 		unsigned long get() const { return p_ ; }
+		unsigned long high() const { return 0 ; }
 #endif
 
 		friend inline int64_t operator -  ( const DnaP &a, const DnaP &b ) { return a.p_  - b.p_ ; }

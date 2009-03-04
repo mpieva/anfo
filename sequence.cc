@@ -34,8 +34,8 @@ inline bool all_acsii_qscores( const std::string& s )
 	return true ;
 }
 
-inline float sol_to_prob( int sol ) { return 1.0 / ( 1 + std::pow( 10, -sol / 10.0 ) ) ; }
-inline float phred_to_prob( int phred ) { return 1 - std::pow( 10, -phred / 10.0 ) ; }
+inline float sol_to_prob( int sol ) { return 1.0 / ( 1.0 + std::pow( 10.0, -sol / 10.0 ) ) ; }
+inline float phred_to_prob( int phred ) { return 1.0 - std::pow( 10.0, -phred / 10.0 ) ; }
 
 /*
 inline int sol_to_phred( int sol )
@@ -160,10 +160,10 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 					for( size_t j = 0 ; ix != total && j != line.size() ; ++j )
 					{
 						int q = line[j] ;
-						if( q != 13 )
+						if( q != 13 ) // skip CRs
 						{
 							QSequence::Base &b = qs.seq_[ix] ;
-							//! \todo handle single quality scores for ambiguity codes
+							//! \todo handle single quality scores for ambiguity codes (how?)
 							int tag = b.ambicode == 1 ? 0 : b.ambicode == 2 ? 1 : b.ambicode == 4 ? 2 : 3 ;
 							b.qualities[tag] = solexa_scores ? sol_to_prob(q-64) : phred_to_prob(q-33) ;
 							++ix ;
@@ -171,8 +171,8 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 					}
 					if( ix != total ) getline( s, line ) ;
 				}
-				// There might be some junk left over; it will be eaten
-				// away in the next call.
+				// There might be some junk left over; but it will be
+				// eaten away in the next call.
 			}
 		}
 	}
@@ -187,13 +187,14 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 		{
 			s.get() ;	// drop the star
 			int tag = s.get() & ~32 ;
-			tag = tag == 'A' ? 0 : tag == 'C' ? 1 : tag == 'T' ? 2 : 3 ;
+			tag = tag == 'A' ? 0 : tag == 'C' ? 1 : tag == 'T' ? 2 : tag == 'G' ? 3 : -1 ;
 			while( s && isspace(s.peek()) && s.peek() != '\n' ) s.get() ;
 
 			while( s && s.peek() != '\n' ) 
 			{
 				int q = s.get() ;
-				if( q != 13 ) 
+				// skip lines with unrecognized tag, skip CRs
+				if( tag != -1 && q != 13 ) 
 				{
 					got_quals = true ;
 					if( pos[tag] == qs.seq_.size()-1 ) qs.seq_.push_back( QSequence::Base() ) ;

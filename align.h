@@ -150,7 +150,8 @@ template< typename T > struct gen_alignment {
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)
 	// - map of closed nodes to ancestor states
 	//   (ClosedMap :: flat_alignment -> Maybe flat_alignment)
-#if SMALL_SYS
+#if 0
+	// SMALL_SYS
 	typedef JudyL< JudyL< JudyL< JudyL< Judy1 > > > > ClosedSet ;
 	typedef JudyL< JudyL< JudyL< JudyL< JudyL< const T* > > > > > ClosedMap ;
 #else
@@ -206,30 +207,23 @@ template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.b
 template< typename A > bool is_present( const typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
 {
 	return cl, s.reference.get(), (Word_t)s.query,
-#if SMALL_SYS
-			   s.reference.high(), //  << 16 | s.query.high(),
-#endif
-			   s.ref_offs, s.query_offs | s.state << 16 ;
+			   s.reference.high() << 16 | s.ref_offs,
+			   s.query_offs | s.state << 16 ;
 }
 
 template< typename A > const_ref<const A*> lookup(
 		const typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s )
 {
 	return cl, s.reference.get(), (Word_t)s.query,
-#if SMALL_SYS
-			   s.reference.high(), //  << 16 | s.query.high(),
-#endif
-			   s.ref_offs, s.query_offs | s.state << 16 ;
+			   s.reference.high() << 16 | s.ref_offs,
+			   s.query_offs | s.state << 16 ;
 }
 
 template< typename A > void set_bit( typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
 {
 	cl.insert( s.reference.get() )
 	  ->insert( (Word_t)s.query )
-#if SMALL_SYS
-	  ->insert( s.reference.high() ) // << 16 | s.query.high() )
-#endif
-	  ->insert( s.ref_offs )
+	  ->insert( s.reference.high() << 16 | s.ref_offs )
 	  ->set( s.query_offs | s.state << 16 ) ;
 }
 
@@ -238,10 +232,7 @@ template< typename A > void insert(
 { 
 	*cl.insert( s.reference.get() )
 	   ->insert( (Word_t)s.query )
-#if SMALL_SYS
-       ->insert( s.reference.high() ) // << 16 | s.query.high() )
-#endif
-	   ->insert( s.ref_offs )
+       ->insert( s.reference.high() << 16 | s.ref_offs )
 	   ->insert( s.query_offs | s.state << 16 ) = p ;
 }
 
@@ -640,10 +631,11 @@ template< typename State > struct enter_bt {
 template< typename State >
 State find_cheapest( 
 		std::deque< State > &open_list, 
+		typename State::ClosedSet &closed_list,
 		uint32_t max_penalty = std::numeric_limits<uint32_t>::max(),
 		bool report_success = false )
 {
-	typename State::ClosedSet closed_list ;
+	int iter = 0 ;
 	while( !open_list.empty() )
 	{
 		State s = open_list.front() ;
@@ -668,6 +660,13 @@ State find_cheapest(
 				return s ;
 			}
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
+		}
+		++iter ;
+		if( /*report_success &*/ iter % 20000 == 0 ) {
+			std::clog 
+				<< "\n\33[KAfter " << iter << " expansions, open list contains "
+				<< open_list.size() << " nodes, and " << deep_count( closed_list )
+				<< " nodes are closed." << std::endl ;
 		}
 	}
 	return State() ;
