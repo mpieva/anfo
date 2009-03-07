@@ -234,22 +234,23 @@ void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc
 		reset( best ) ;
 		greedy( best ) ;
 		(enter_bt<alignment_type>( ol_ ))( best ) ;
-		Trace t = find_cheapest( ol_ ) ;
+		DnaP minpos, maxpos ;
+		std::vector<uint8_t> t = find_cheapest( ol_, minpos, maxpos ) ;
 
 		output::Hit *h = r->mutable_best_to_genome() ;
 
 		for( Genomes::const_iterator g = cd->genomes.begin(), ge = cd->genomes.end() ; g != ge ; ++g )
 		{
 			uint32_t start_pos ;
-			int32_t len = t.maxpos - t.minpos - 1 ;
-			if( const Sequence *sequ = g->second.translate_back( t.minpos+1, start_pos ) )
+			int32_t len = maxpos - minpos - 1 ;
+			if( const Sequence *sequ = g->second.translate_back( minpos+1, start_pos ) )
 			{
 				h->set_genome( g->first ) ;
 				h->set_sequence( sequ->name() ) ;
 				if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
 				else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
 
-				if( t.minpos.is_reversed() )
+				if( minpos.is_reversed() )
 				{
 					h->set_start_pos( start_pos - len + 1 ) ;
 					h->set_aln_length( -len ) ;
@@ -263,13 +264,7 @@ void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc
 			}
 		}
 
-		for( Trace_::const_iterator i = t.trace.begin(), e = t.trace.end() ; i != e ; ++i )
-		{
-			h->mutable_ref()->push_back( from_ambicode( i->first ) ) ;
-			h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
-			h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
-		}
-		h->mutable_cigar()->assign( t.cigar.begin(), t.cigar.end() ) ;
+		h->mutable_cigar()->assign( t.begin(), t.end() ) ;
 		h->set_score( penalty ) ;
 		// XXX: h->set_evalue
 
@@ -286,7 +281,7 @@ void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc
 		// XXX this is cumbersome... need a better PQueue impl...
 		// XXX make distance configurable
 		ol.erase( 
-				std::remove_if( ol.begin(), ol.end(), reference_overlaps( t.minpos, t.maxpos ) ),
+				std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
 				ol.end() ) ;
 		make_heap( ol.begin(), ol.end() ) ;
 		alignment_type second_best = find_cheapest( ol, cl, max_penalty ) ;
@@ -557,13 +552,11 @@ int main_( int argc, const char * argv[] )
 				if( nthreads ) common_data.input_queue.enqueue( ps.release() ) ;
 				else 
 				{
-					// cur_seq_name = &ps->get_name() ;
 					output::Result r ;
 					std::deque< alignment_type > ol ;
 					int pmax = index_sequence( &common_data, *ps, &r, ol ) ;
 					if( pmax != INT_MAX ) process_sequence( &common_data, ps.get(), pmax, ol, &r ) ;
 					write_delimited_message( *common_data.output_stream, 2, r ) ;
-					// cur_seq_name = 0 ;
 				}
 			}
 		}

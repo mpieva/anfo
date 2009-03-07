@@ -57,7 +57,8 @@ int do_aln( const CompactGenome& g, const QSequence& ps, const vector<Seed>& see
 	reset( best ) ;
 	greedy( best ) ;
 	(enter_bt<alignment_type>( ol_ ))( best ) ;
-	cout << find_cheapest( ol_ ).trace << endl ;
+	DnaP minpos, maxpos ;
+	// XXX cout << find_cheapest( ol_, minpos, maxpos ) << endl ;
 
 	return 0 ;
 }

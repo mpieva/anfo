@@ -656,7 +656,7 @@ State find_cheapest(
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
 		++iter ;
-		if( /*report_success &*/ iter % 1000000 == 0 ) {
+		if( /*report_success &*/ iter % 10000000 == 0 ) {
 			std::clog 
 				<< "\n\33[KAfter " << iter << " expansions, open list contains "
 				<< open_list.size() << " nodes, and " << deep_count( closed_list )
@@ -666,127 +666,6 @@ State find_cheapest(
 	return State() ;
 }
 
-//! \todo once debugged, traces should be completely replaced by CIGAR
-//! lines
-typedef std::deque< std::pair< Ambicode, Ambicode > > Trace_ ;
-struct Trace
-{
-	Trace_ trace ;
-	DnaP minpos, maxpos ;
-	std::vector<uint8_t> cigar ;
-} ;
-
-//! prints a backtrace in three-line format.
-//! This is intended for debugging, it prints a backtraced alignment in
-//! two lines of sequence and one "conservation" line.
-//! \internal
-inline std::ostream& operator << ( std::ostream& s, const Trace_& t )
-{
-	for( Trace_::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
-		s << from_ambicode( i->first ) ; 
-	s << '\n' ;
-	for( Trace_::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
-		s << from_ambicode( i->second ) ; 
-	s << '\n' ;
-	for( Trace_::const_iterator i = t.begin(), e = t.end() ; i != e ; ++i )
-		s << ( i->first == i->second ? '*' : i->first & i->second ? '.' : ' ') ;
-	s << '\n' ;
-	return s ;
-}
-
-//! \brief backtraces an alignment and returns sequences
-//!
-//! This backtraces an alignment after it has been created by
-//! find_cheapest() called with a backtracing structure.  Backtracing
-//! works by looking at two intermediate states, the \em current one and
-//! its \em predecessor.  In between those two states, exactly one
-//! invocation of forward() and one of greedy() have happened.  To
-//! backtrace, we first check in which direction we moved (depends on
-//! which half of the alignment we were in).  Next, if both the reference
-//! and the query offsets differ between states, we copy symbols from
-//! both (this corresponds to the greedy extension or a mismatch).  If
-//! only one differs, we copy one symbol and fill it up with a gap.
-//! Depending on the direction we moved in, the pair is added at the
-//! front or the end of the trace.  If the internal state changed, we
-//! don't trace at all (we just jump).
-//!
-//! \param cl the ClosedMap that was used in find_cheapest()
-//! \param a pointer to the alignment that needs to be traced
-//! \return a trace, that is a sequence of pairs of Ambicodes
-//! \internal
-
-template< typename State >
-Trace backtrace( const typename State::ClosedMap &cl, const State *a )
-{
-	Trace r ;
-
-	// When the alignment finished, it pointed to the minimum
-	// coordinate (to a gap actually).  Just store it.
-	r.minpos = a->reference + a->ref_offs ;
-
-	// Only trace back second state here, this ends up at the front of
-	// the alignment, but we add stuff to the back as we generate it in
-	// the wrong order.
-	while( const State *b = *lookup( cl, *a ) ) 
-	{
-		if( (b->state & simple_adna::mask_dir) == 0 ) break ;
-		for( signed short ro = a->ref_offs, qo = a->query_offs ; 
-				ro != b->ref_offs || qo != b->query_offs ; )
-		{
-			Ambicode x = ro == b->ref_offs   ? 0 : a->reference[++ro] ;
-			Ambicode y = qo == b->query_offs ? 0 : a->query[++qo].ambicode ;
-			r.trace.push_back( std::make_pair( x,y ) ) ;
-		}
-		a = b ;
-	}
-
-	// Trace further to initiation of second state
-	for( signed short ro = a->ref_offs, qo = a->query_offs ; ro != -1 || qo != -1 ; )
-	{
-		Ambicode x = ro ? a->reference[++ro] : 0 ;
-		Ambicode y = qo ? a->query[++qo].ambicode : 0 ;
-		r.trace.push_back( std::make_pair( x,y ) ) ;
-	}
-
-	// Skip one state, this is the one aligning the terminal gap.
-	a = *lookup( cl, *a ) ; 
-		
-	// Now at the end of the first phase, we got a pointer to the
-	// maximum coordinate (again a gap).  Store it.
-	r.maxpos = a->reference + a->ref_offs ;
-
-	// Trace back first state now, generating a new trace which needs to
-	// be reversed in the end.
-	Trace_ t2 ;
-	while( const State *b = *lookup( cl, *a ) ) 
-	{
-		for( signed short ro = a->ref_offs, qo = a->query_offs ; 
-				ro != b->ref_offs || qo != b->query_offs ; )
-		{
-			Ambicode x = ro == b->ref_offs   ? 0 : a->reference[--ro] ;
-			Ambicode y = qo == b->query_offs ? 0 : a->query[--qo].ambicode ;
-			t2.push_back( std::make_pair( x,y ) ) ;
-		}
-		a = b ;
-	}
-
-	// Now (*b) is null, (*a) is the last state ever generated.  Now
-	// trace further until we hit the initial state (both offsets
-	// vanish).  We can again add this to t2, as we're going in the same
-	// direction.
-	for( signed short ro = a->ref_offs, qo = a->query_offs ; ro || qo ; )
-	{
-		Ambicode x = ro ? a->reference[--ro] : 0 ;
-		Ambicode y = qo ? a->query[--qo].ambicode : 0 ;
-		t2.push_back( std::make_pair( x,y ) ) ;
-	}
-
-	// To see the crack between the two halves, use this:
-	// t2.push_back( std::make_pair( 0,0 ) ) ;
-
-	r.trace.insert( r.trace.end(), t2.rbegin(), t2.rend() ) ;
-	return r ;
-}
 
 inline void push_m( std::vector<uint8_t>& s, int m )
 {
@@ -816,19 +695,42 @@ inline void push_d( std::vector<uint8_t>& s, int d )
 	if( d ) s.push_back( d+0xc0 ) ;
 }
 
-//! backtrace and produce something like a CIGAR line
-//! Out CIGAR is a sequence of bytes b.  b==0 is a mark (we mark the
-//! place where the seed started), b==1..127 is a match of length b,
+//! \brief backtraces an alignment and return a CIGAR line
+//!
+//! This backtraces an alignment after it has been created by
+//! find_cheapest() called with a backtracing structure.  Backtracing
+//! works by looking at two intermediate states, the \em current one and
+//! its \em predecessor.  In between those two states, exactly one
+//! invocation of forward() and one of greedy() have happened.  To
+//! backtrace, we first check in which direction we moved (depends on
+//! which half of the alignment we were in).  Next, if both the reference
+//! and the query offsets differ between states, we copy symbols from
+//! both (this corresponds to the greedy extension or a mismatch).  If
+//! only one differs, we copy one symbol and fill it up with a gap.
+//! Depending on the direction we moved in, the pair is added at the
+//! front or the end of the trace.  If the internal state changed, we
+//! don't trace at all (we just jump).
+//!
+//! Our CIGAR is a sequence of bytes b.  b==0 is a mark (we mark the
+//! place where the seeding started), b==1..127 is a match of length b,
 //! b==129..191 is an insert of length (b-128), b==193..255 is a
 //! deletion of length (b-192).  b==128,192 are reserved.
-template< typename State >
-std::vector<uint8_t> backtrace_cigar( const typename State::ClosedMap &cl, const State *a )
+//!
+//! \param cl the ClosedMap that was used in find_cheapest()
+//! \param a final state to start backtracing from
+//! \param minpos will be filled by position of smaller end of alignment
+//! \param maxpos will be filled by position of greater end of alignment
+//! \return binary CIGAR string
+//! \internal
+
+template< typename State > std::vector<uint8_t>
+backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, DnaP &maxpos )
 {
 	std::vector<uint8_t> fwd, rev ;
 
 	// When the alignment finished, it pointed to the minimum
 	// coordinate (to a gap actually).  Just store it.
-	// r.minpos = a->reference + a->ref_offs ;
+	minpos = a->reference + a->ref_offs ;
 
 	// Only trace back second state here, this ends up at the front of
 	// the alignment, but we add stuff to the back as we generate it in
@@ -852,20 +754,12 @@ std::vector<uint8_t> backtrace_cigar( const typename State::ClosedMap &cl, const
 	push_m( fwd, -a->ref_offs-1 ) ;
 	fwd.push_back( 0 ) ;
 
-	// Trace further to initiation of second state
-	// for( signed short ro = a->ref_offs, qo = a->query_offs ; ro != -1 || qo != -1 ; )
-	// {
-		// Ambicode x = ro ? a->reference[++ro] : 0 ;
-		// Ambicode y = qo ? a->query[++qo].ambicode : 0 ;
-		// r.trace.push_back( std::make_pair( x,y ) ) ;
-	// }
-
 	// Skip one state, this is the one aligning the terminal gap.
 	a = *lookup( cl, *a ) ; 
 		
 	// Now at the end of the first phase, we got a pointer to the
 	// maximum coordinate (again a gap).  Store it.
-	// r.maxpos = a->reference + a->ref_offs ;
+	maxpos = a->reference + a->ref_offs ;
 
 	// Trace back first state now, generating a new trace which needs to
 	// be reversed in the end.
@@ -890,30 +784,19 @@ std::vector<uint8_t> backtrace_cigar( const typename State::ClosedMap &cl, const
 	assert( a->ref_offs == a->query_offs ) ;
 	push_m( rev, a->ref_offs ) ;
 
-	/*
-	for( signed short ro = a->ref_offs, qo = a->query_offs ; ro || qo ; )
-	{
-		Ambicode x = ro ? a->reference[--ro] : 0 ;
-		Ambicode y = qo ? a->query[--qo].ambicode : 0 ;
-		t2.push_back( std::make_pair( x,y ) ) ;
-	}
-	*/
-
-	// To see the crack between the two halves, use this:
-	// t2.push_back( std::make_pair( 0,0 ) ) ;
-
-	// r.trace.insert( r.trace.end(), t2.rbegin(), t2.rend() ) ;
 	fwd.insert( fwd.end(), rev.rbegin(), rev.rend() ) ;
 	return fwd ;
 }
+
 /*! \brief Dijkstra's with backtracing.
  *
  * See \c find_cheapest, but this implementation also does backtracing
  * (at higher memory cost, naturally).  
  */
 template< typename State >
-Trace find_cheapest(
+std::vector<uint8_t> find_cheapest(
 		std::deque< std::pair< State, const State *> > &open_list,
+		DnaP &minpos, DnaP &maxpos,
 		uint32_t max_penalty = std::numeric_limits<uint32_t>::max() ) 
 {
 	typename State::ClosedMap closed_list ;
@@ -926,17 +809,13 @@ Trace find_cheapest(
 		if( !lookup( closed_list, p.first ) ) 
 		{
 			insert( closed_list, p.first, p.second ) ;
-			if( finished( p.first ) ) {
-				Trace T = backtrace( closed_list, &p.first ) ;
-				T.cigar = backtrace_cigar( closed_list, &p.first ) ;
-				return T ;
-			}
+			if( finished( p.first ) ) return backtrace( closed_list, &p.first, minpos, maxpos ) ;
 
 			used_states.push_back( p.first ) ;
 			forward( p.first, enter_bt<State>( open_list, max_penalty, &closed_list, &used_states.back() ) ) ;
 		}
 	}
-	return Trace() ;
+	return std::vector<uint8_t>() ;
 }
 
 //! \brief initializes alignments from a list of seeds
