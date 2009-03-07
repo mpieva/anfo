@@ -101,6 +101,10 @@ class CompactGenome
 		//! \return pointer to sequence that includes the hit, else null
 		const config::Sequence *translate_back( DnaP pos, uint32_t& offset ) const ;
 
+		//! \brief translates "human" cooordinates into a pointer
+		//! Return 0 if anything goes wrong.
+		DnaP find_pos( const std::string& seq, uint32_t pos ) const ;
+
 		enum { signature = 0x31414e44u } ; // DNA1 
 
 	private:

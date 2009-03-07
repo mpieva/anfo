@@ -151,37 +151,33 @@ struct reference_overlaps {
 		return a.reference >= x && a.reference <= y ; }
 } ;
 
-int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque< alignment_type >& ol )
+int index_sequence( CommonData *cd, QSequence &ps, output::Result *r, std::deque< alignment_type >& ol )
 {
-	r->set_seqid( ps->get_name() ) ;
-	if( !ps->get_descr().empty() ) r->set_description( ps->get_descr() ) ;
-	switch( ps->get_validity() ) 
+	r->set_seqid( ps.get_name() ) ;
+	if( !ps.get_descr().empty() ) r->set_description( ps.get_descr() ) ;
+	switch( ps.get_validity() ) 
 	{
-		// case QSequence::bases_with_quality:
-			// for( size_t i = 0 ; i != ps->length() ; ++i )
-				// r->mutable_quality()->push_back( 0 /*ps[i].quali->qual(i)*/ ) ; // XXX
+		case QSequence::bases_with_quality:
+			r->set_quality( ps.qualities() ) ;
 
 		case QSequence::bases_only:
-			r->set_sequence( ps->as_string() ) ;
+			r->set_sequence( ps.as_string() ) ;
 			break ;
 
-		case QSequence::bases_with_quality:
 		case QSequence::bases_with_qualities:
-			r->set_sequence( ps->as_string() ) ;
+			r->set_sequence( ps.as_string() ) ;
 
 		case QSequence::qualities_only:
-			for( size_t i = 0 ; i != ps->length() ; ++i )
-			{
-				r->mutable_four_quality()->mutable_quality_a()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[0] ) / std::log(10.0) + 0.5 ) ;
-				r->mutable_four_quality()->mutable_quality_c()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[1] ) / std::log(10.0) + 0.5 ) ;
-				r->mutable_four_quality()->mutable_quality_t()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[2] ) / std::log(10.0) + 0.5 ) ;
-				r->mutable_four_quality()->mutable_quality_g()->push_back( -10.0 * std::log( 1.0-(*ps)[i].qualities[3] ) / std::log(10.0) + 0.5 ) ;
-			}
+			std::string *qs[] = { r->mutable_four_quality()->mutable_quality_a(),
+				                  r->mutable_four_quality()->mutable_quality_c(),
+				                  r->mutable_four_quality()->mutable_quality_t(),
+				                  r->mutable_four_quality()->mutable_quality_g() } ;
+			ps.four_qualities( qs ) ;
 	}
 
 	// XXX: set trim points?
 
-	Policy p = select_policy( cd->mi, *ps ) ;
+	Policy p = select_policy( cd->mi, ps ) ;
 
 	int num_raw = 0, num_comb = 0, num_clumps = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
@@ -192,12 +188,12 @@ int index_sequence( CommonData *cd, QSequence *ps, output::Result *r, std::deque
 		assert( ix ) ; assert( g.get_base() ) ;
 
 		vector<Seed> seeds ;
-		num_raw += ix.lookup( *ps, seeds, cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
+		num_raw += ix.lookup( ps, seeds, cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
 		num_comb += seeds.size() ;
 		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
 		num_clumps += seeds.size() ;
 
-		setup_alignments( g, *ps, seeds.begin(), seeds.end(), ol ) ;
+		setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
 	}
 	r->set_num_raw_seeds( num_raw ) ;
 	r->set_num_grown_seeds( num_comb ) ;
@@ -273,6 +269,7 @@ void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc
 			h->mutable_qry()->push_back( from_ambicode( i->second ) ) ;
 			h->mutable_con()->push_back( i->first == i->second ? '*' : ' ' ) ;
 		}
+		h->mutable_cigar()->assign( t.cigar.begin(), t.cigar.end() ) ;
 		h->set_score( penalty ) ;
 		// XXX: h->set_evalue
 
@@ -304,7 +301,7 @@ void* run_indexer_thread( void* cd_ )
 	{
 		output::Result *r = new output::Result ;
 		std::deque< alignment_type > *ol = new std::deque< alignment_type >() ;
-		int pmax = index_sequence( cd, ps, r, *ol ) ;
+		int pmax = index_sequence( cd, *ps, r, *ol ) ;
 		if( pmax!= INT_MAX ) 
 		{
 			AlignmentWorkload *w = new AlignmentWorkload ;
@@ -563,7 +560,7 @@ int main_( int argc, const char * argv[] )
 					// cur_seq_name = &ps->get_name() ;
 					output::Result r ;
 					std::deque< alignment_type > ol ;
-					int pmax = index_sequence( &common_data, ps.get(), &r, ol ) ;
+					int pmax = index_sequence( &common_data, *ps, &r, ol ) ;
 					if( pmax != INT_MAX ) process_sequence( &common_data, ps.get(), pmax, ol, &r ) ;
 					write_delimited_message( *common_data.output_stream, 2, r ) ;
 					// cur_seq_name = 0 ;

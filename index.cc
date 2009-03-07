@@ -229,3 +229,15 @@ const config::Sequence *CompactGenome::translate_back( DnaP pos, uint32_t& offse
 	return &sequ ;
 }
 
+DnaP CompactGenome::find_pos( const std::string& seq, uint32_t pos ) const
+{
+	for( int i = 0 ; i != g_.sequence_size() ; ++i )
+		if( g_.sequence(i).name() == seq )
+			for( int j = 0 ; j != g_.sequence(i).contig_size() ; ++j )
+				if( g_.sequence(i).contig(j).range_start() <= pos &&
+				    g_.sequence(i).contig(j).range_end() >= pos )
+					return base_ + g_.sequence(i).contig(j).offset() + (pos - g_.sequence(i).contig(j).range_start()) ;
+	return DnaP(0) ;
+}
+
+

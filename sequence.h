@@ -277,12 +277,19 @@ class QSequence
 	public:
 		//! \brief An ambiguity code and four qualities together.
 		//! The qualities are invalid if the ambiguity code encodes a
-		//! gap.
+		//! gap.  We keep copies of the quality scores to avoid loss of
+		//! precision.
 		struct Base {
 			uint8_t ambicode ;
+			uint8_t qscore ;
+			uint8_t qscores[4] ;
 			float   qualities[4] ;
 
-			Base() : ambicode(0) { qualities[0] = qualities[1] = qualities[2] = qualities[3] = 0 ; }
+			Base() : ambicode(0), qscore(0)
+			{
+				qualities[0] = qualities[1] = qualities[2] = qualities[3] = 0 ; 
+				qscores[0] = qscores[1] = qscores[2] = qscores[3] = 0 ;
+			}
 			Base( uint8_t a, int q_score ) ;
 		} ;
 
@@ -326,11 +333,37 @@ class QSequence
 
 		Validity get_validity() const { return validity_ ; }
 
+		//! \brief returns the nucleotide sequence in ASCII coding
+		//! This will always work, if no nucleatides were known, they
+		//! are base called from the quality scores.
 		std::string as_string() const {
 			const_iterator a = seq_.begin(), b = seq_.end() ;
 			std::string r ;
 			for( ++a, --b ; a != b ; ++a ) r.push_back( from_ambicode( a->ambicode ) ) ;
 			return r ;
+		}
+
+		//! \brief returns the quality scores (raw, Phred scale)
+		//! This will always work, if four qualities were given, the
+		//! right one is returned, if none were given, an appropriate
+		//! constant will be returned.
+		std::string qualities() const {
+			const_iterator a = seq_.begin(), b = seq_.end() ;
+			std::string r ;
+			for( ++a, --b ; a != b ; ++a ) r.push_back( a->qscore ) ;
+			return r ;
+		}
+
+		//! \brief returns the four quality scores
+		//! This always works, if only one quality score was given, the
+		//! others are calculated by assuming equal error rates, if none
+		//! were given, a constant is assumed.
+		void four_qualities( std::string *q[4] ) const {
+			const_iterator a = seq_.begin(), b = seq_.end() ;
+			for( int i = 0 ; i != 4 ; ++i ) q[i]->clear() ;
+			for( ++a, --b ; a != b ; ++a ) 
+				for( int i = 0 ; i != 4 ; ++i )
+					q[i]->push_back( a->qscores[i] ) ;
 		}
 
 		reference operator [] ( size_t ix ) { return seq_[1+ix] ; }

@@ -58,21 +58,30 @@ message Hit {
     required uint32 start_pos = 3 ;
     required sint32 aln_length = 4 ;
 
-    // the alignment itself as pair of strings
-    // XXX: find more compact encoding
-    required string ref = 32 ;
-    required string qry = 33 ;
-    optional string con = 34 ;
-
     // Score and E-value (because it's customary to have one)
     required sint32 score = 5 ;
     optional float evalue = 6 ;
+
+    // alignment as (binary equivalent of) a CIGAR line
+    // Bytes 1..127 encode matches of 1..127nt, 129..191 is an insert of
+    // 1..63nt, 193..255 a deletion of 1..63nt.  A NUL byte is a marker
+    // for the place where the alignment started, bytes 128 and 192 are
+    // reserved.
+    required bytes cigar = 7 ;
 
     // taxids if known: most specific, species and order
     // An absent taxid means it's not known.
     optional int32 taxid = 16 ;
     optional int32 taxid_species = 17 ;
     optional int32 taxid_order = 18 ;
+
+    // The alignment itself as pair of strings, along with a CLUSTAL
+	// style "conservation" line.  This is not normally stored in a
+	// file, it is generated from the CIGAR line; but it's cool to have
+	// for human readable output.
+    optional string ref = 32 ;
+    optional string qry = 33 ;
+    optional string con = 34 ;
 }
 
 enum Reason {

@@ -150,14 +150,8 @@ template< typename T > struct gen_alignment {
 	// - set of closed nodes (ClosedSet :: flat_alignment -> Bool)
 	// - map of closed nodes to ancestor states
 	//   (ClosedMap :: flat_alignment -> Maybe flat_alignment)
-#if 0
-	// SMALL_SYS
-	typedef JudyL< JudyL< JudyL< JudyL< Judy1 > > > > ClosedSet ;
-	typedef JudyL< JudyL< JudyL< JudyL< JudyL< const T* > > > > > ClosedMap ;
-#else
 	typedef JudyL< JudyL< JudyL< Judy1 > > > ClosedSet ;
 	typedef JudyL< JudyL< JudyL< JudyL< const T* > > > > ClosedMap ;
-#endif
 
 	//! \brief checks whether this alignment is valid
 	//! \return a null pointer iff this is an invalid alignment
@@ -662,7 +656,7 @@ State find_cheapest(
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
 		++iter ;
-		if( /*report_success &*/ iter % 20000 == 0 ) {
+		if( /*report_success &*/ iter % 1000000 == 0 ) {
 			std::clog 
 				<< "\n\33[KAfter " << iter << " expansions, open list contains "
 				<< open_list.size() << " nodes, and " << deep_count( closed_list )
@@ -672,11 +666,14 @@ State find_cheapest(
 	return State() ;
 }
 
+//! \todo once debugged, traces should be completely replaced by CIGAR
+//! lines
 typedef std::deque< std::pair< Ambicode, Ambicode > > Trace_ ;
 struct Trace
 {
 	Trace_ trace ;
 	DnaP minpos, maxpos ;
+	std::vector<uint8_t> cigar ;
 } ;
 
 //! prints a backtrace in three-line format.
@@ -697,7 +694,7 @@ inline std::ostream& operator << ( std::ostream& s, const Trace_& t )
 	return s ;
 }
 
-//! \brief backtraces a simple alignment returning sequences
+//! \brief backtraces an alignment and returns sequences
 //!
 //! This backtraces an alignment after it has been created by
 //! find_cheapest() called with a backtracing structure.  Backtracing
@@ -791,6 +788,124 @@ Trace backtrace( const typename State::ClosedMap &cl, const State *a )
 	return r ;
 }
 
+inline void push_m( std::vector<uint8_t>& s, int m )
+{
+	if( !s.empty() && ((s.back() & 0x80) == 0) && (s.back() & 0x7f) ) {
+		m += s.back() ;
+		s.pop_back() ;
+	}
+	for( ; m > 0x7f ; m -= 0x7f ) s.push_back( 0x7f ) ;
+	if( m ) s.push_back( m ) ;
+}
+inline void push_i( std::vector<uint8_t>& s, int i )
+{
+	if( !s.empty() && ((s.back() & 0xc0) == 0x80) && (s.back() & 0x3f) ) {
+		i += s.back() & 0x3f ;
+		s.pop_back() ;
+	}
+	for( ; i > 0x3f ; i -= 0x3f ) s.push_back( 0x3f+0x80 ) ;
+	if( i ) s.push_back( i+0x80 ) ;
+}
+inline void push_d( std::vector<uint8_t>& s, int d )
+{
+	if( !s.empty() && ((s.back() & 0xc0) == 0xc0) && (s.back() & 0x3f) ) {
+		d += s.back() & 0x3f ;
+		s.pop_back() ;
+	}
+	for( ; d > 0x3f ; d -= 0x3f ) s.push_back( 0x3f+0xc0 ) ;
+	if( d ) s.push_back( d+0xc0 ) ;
+}
+
+//! backtrace and produce something like a CIGAR line
+//! Out CIGAR is a sequence of bytes b.  b==0 is a mark (we mark the
+//! place where the seed started), b==1..127 is a match of length b,
+//! b==129..191 is an insert of length (b-128), b==193..255 is a
+//! deletion of length (b-192).  b==128,192 are reserved.
+template< typename State >
+std::vector<uint8_t> backtrace_cigar( const typename State::ClosedMap &cl, const State *a )
+{
+	std::vector<uint8_t> fwd, rev ;
+
+	// When the alignment finished, it pointed to the minimum
+	// coordinate (to a gap actually).  Just store it.
+	// r.minpos = a->reference + a->ref_offs ;
+
+	// Only trace back second state here, this ends up at the front of
+	// the alignment, but we add stuff to the back as we generate it in
+	// the wrong order.
+	while( const State *b = *lookup( cl, *a ) ) 
+	{
+		if( (b->state & simple_adna::mask_dir) == 0 ) break ;
+		int dr = b->ref_offs - a->ref_offs ;
+		int dq = b->query_offs - a-> query_offs ;
+		if( int m = std::min( dr, dq ) ) {
+			dr -= m ;
+			dq -= m ;
+			push_m( fwd, m ) ;
+		}
+		push_i( fwd, dq ) ;
+		push_d( fwd, dr ) ;
+		a = b ;
+	}
+
+	assert( a->ref_offs == a->query_offs ) ;
+	push_m( fwd, -a->ref_offs-1 ) ;
+	fwd.push_back( 0 ) ;
+
+	// Trace further to initiation of second state
+	// for( signed short ro = a->ref_offs, qo = a->query_offs ; ro != -1 || qo != -1 ; )
+	// {
+		// Ambicode x = ro ? a->reference[++ro] : 0 ;
+		// Ambicode y = qo ? a->query[++qo].ambicode : 0 ;
+		// r.trace.push_back( std::make_pair( x,y ) ) ;
+	// }
+
+	// Skip one state, this is the one aligning the terminal gap.
+	a = *lookup( cl, *a ) ; 
+		
+	// Now at the end of the first phase, we got a pointer to the
+	// maximum coordinate (again a gap).  Store it.
+	// r.maxpos = a->reference + a->ref_offs ;
+
+	// Trace back first state now, generating a new trace which needs to
+	// be reversed in the end.
+	while( const State *b = *lookup( cl, *a ) ) 
+	{
+		int dr = a->ref_offs - b->ref_offs ;
+		int dq = a->query_offs - b-> query_offs ;
+		if( int m = std::min( dr, dq ) ) {
+			dr -= m ;
+			dq -= m ;
+			push_m( rev, m ) ; 
+		}
+		push_i( rev, dq ) ;
+		push_d( rev, dr ) ;
+		a = b ;
+	}
+
+	// Now (*b) is null, (*a) is the last state ever generated.  Now
+	// trace further until we hit the initial state (both offsets
+	// vanish).  We can again add this to t2, as we're going in the same
+	// direction.
+	assert( a->ref_offs == a->query_offs ) ;
+	push_m( rev, a->ref_offs ) ;
+
+	/*
+	for( signed short ro = a->ref_offs, qo = a->query_offs ; ro || qo ; )
+	{
+		Ambicode x = ro ? a->reference[--ro] : 0 ;
+		Ambicode y = qo ? a->query[--qo].ambicode : 0 ;
+		t2.push_back( std::make_pair( x,y ) ) ;
+	}
+	*/
+
+	// To see the crack between the two halves, use this:
+	// t2.push_back( std::make_pair( 0,0 ) ) ;
+
+	// r.trace.insert( r.trace.end(), t2.rbegin(), t2.rend() ) ;
+	fwd.insert( fwd.end(), rev.rbegin(), rev.rend() ) ;
+	return fwd ;
+}
 /*! \brief Dijkstra's with backtracing.
  *
  * See \c find_cheapest, but this implementation also does backtracing
@@ -811,7 +926,12 @@ Trace find_cheapest(
 		if( !lookup( closed_list, p.first ) ) 
 		{
 			insert( closed_list, p.first, p.second ) ;
-			if( finished( p.first ) ) return backtrace( closed_list, &p.first ) ;
+			if( finished( p.first ) ) {
+				Trace T = backtrace( closed_list, &p.first ) ;
+				T.cigar = backtrace_cigar( closed_list, &p.first ) ;
+				return T ;
+			}
+
 			used_states.push_back( p.first ) ;
 			forward( p.first, enter_bt<State>( open_list, max_penalty, &closed_list, &used_states.back() ) ) ;
 		}

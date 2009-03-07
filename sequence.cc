@@ -18,7 +18,7 @@ inline bool descr_follows( std::istream& s )
 //! \internal
 //! This is a small DFA that test whether a line contains only small
 //! ACSII encoded numbers separated by spaces.
-inline bool all_acsii_qscores( const std::string& s )
+inline bool all_ascii_qscores( const std::string& s )
 {
 	int st = 0 ;
 	for( size_t i = 0 ; i != s.length() ; ++i )
@@ -34,26 +34,25 @@ inline bool all_acsii_qscores( const std::string& s )
 	return true ;
 }
 
-inline float sol_to_prob( int sol ) { return 1.0 / ( 1.0 + std::pow( 10.0, -sol / 10.0 ) ) ; }
-inline float phred_to_prob( int phred ) { return 1.0 - std::pow( 10.0, -phred / 10.0 ) ; }
-
-/*
-inline int sol_to_phred( int sol )
-{
-	return (int)( 0.5 + 10.0/log(10.0) * log( 1.0 + exp( sol*log(10.0)/10.0 ))) ;
-}
-*/
+// inline double sol_to_err_prob( int sol ) { return 1.0 / ( 1.0 + std::pow( 10.0, sol / 10.0 ) ) ; }
+inline double phred_to_err_prob( int phred ) { return std::pow( 10.0, -phred / 10.0 ) ; }
+inline int err_prob_to_phred( double p ) { return (int)( -10.0 * std::log( p ) / std::log( 10.0 ) ) ; }
+inline int sol_to_phred( int sol ) { return sol + (int)( 0.5 + 10 * log( 1.0 + pow( 10.0, -sol / 10.0 ) ) / log( 10.0 ) ) ; }
 
 int bits_in[] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 } ;
 
 }
 
-QSequence::Base::Base( uint8_t a, int q_score ) : ambicode( a )
+QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
 {
 	int bits = bits_in[ a ] ;
-	float prob = phred_to_prob( q_score ) ;
+	double prob = phred_to_err_prob( q ) ;
 	for( int i = 0 ; i != 4 ; ++i )
-		qualities[i] = a & (1<<i) ? prob / bits : (1-prob) / (4-bits) ;
+	{
+		qualities[i] = a & (1<<i) ? (1.0-prob) / bits : prob / (4-bits) ;
+		qscores[i] = a & (1<<i) ? err_prob_to_phred( (1.0-prob)/bits )
+			                    : q + (uint8_t)(0.5 + 10*std::log(4-bits)/std::log(10)) ;
+	}
 }
 
 QSequence::QSequence( const char* p, int q_score ) 
@@ -133,18 +132,15 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 			// groups of no more than three with an optional sign, it's
 			// an Alta Cyclic or U Rockefeller file and we decode ASCII
 			// numbers until the next header
-			if( all_acsii_qscores(line) ) 
+			if( all_ascii_qscores(line) ) 
 			{
 				for( int ix = 1 ; s ; )
 				{
 					stringstream ss( line ) ;
 					for( int q = 0 ; ss >> q ; ++ix )
-					{
-						QSequence::Base &b = qs.seq_[ix] ;
-						//! \todo handle single quality scores for ambiguity codes
-						int tag = b.ambicode == 1 ? 0 : b.ambicode == 2 ? 1 : b.ambicode == 4 ? 2 : 3 ;
-						b.qualities[tag] = solexa_scores ? sol_to_prob(q) : phred_to_prob(q) ;
-					}
+						qs.seq_[ix] = QSequence::Base(
+								qs.seq_[ix].ambicode, solexa_scores ? sol_to_phred(q) : q
+								) ; 
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
 				}
@@ -162,10 +158,8 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 						int q = line[j] ;
 						if( q != 13 ) // skip CRs
 						{
-							QSequence::Base &b = qs.seq_[ix] ;
-							//! \todo handle single quality scores for ambiguity codes (how?)
-							int tag = b.ambicode == 1 ? 0 : b.ambicode == 2 ? 1 : b.ambicode == 4 ? 2 : 3 ;
-							b.qualities[tag] = solexa_scores ? sol_to_prob(q-64) : phred_to_prob(q-33) ;
+							qs.seq_[ix+1] = QSequence::Base(
+									qs.seq_[ix+1].ambicode, solexa_scores ? sol_to_phred(q-64) : q-33 ) ; 
 							++ix ;
 						}
 					}
@@ -198,17 +192,22 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 				{
 					got_quals = true ;
 					if( pos[tag] == qs.seq_.size()-1 ) qs.seq_.push_back( QSequence::Base() ) ;
-					qs.seq_[pos[tag]].qualities[tag] = phred_to_prob( q-33 ) ;
+					qs.seq_[pos[tag]].qualities[tag] = phred_to_err_prob( q-33 ) ;
+					qs.seq_[pos[tag]].qscores[tag] = q-33 ;
 				}
 			}
 		}
-		for( size_t p = qs.seq_.size()-2 ; p>0 && !qs.seq_[p].ambicode ; --p )
+		for( size_t p = qs.seq_.size()-2 ; p>0 ; --p )
 		{
 			// simple basecall, in case we have Q scores, but no
 			// sequence
-			qs.seq_[p].ambicode = 1 << (
-					std::max_element( qs.seq_[p].qualities, qs.seq_[p].qualities+4 ) 
-					- qs.seq_[p].qualities ) ;
+			if( !qs.seq_[p].ambicode ) qs.seq_[p].ambicode = 1 << (
+						std::max_element( qs.seq_[p].qualities, qs.seq_[p].qualities+4 ) 
+						- qs.seq_[p].qualities ) ;
+			// generate single Q-Score (take minimum, that's a good
+			// approximation)
+			qs.seq_[p].qscore = std::min( std::min( qs.seq_[p].qscores[0], qs.seq_[p].qscores[1] ),
+					                      std::min( qs.seq_[p].qscores[2], qs.seq_[p].qscores[3] ) ) ;
 		}
 	}
 
