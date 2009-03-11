@@ -419,7 +419,7 @@ struct simple_adna : public gen_alignment<simple_adna> {
 	static uint32_t gap_ext_penalty ;
 
 	//! \brief sets up parameters from configuration block
-	static void configure( const config::Aligner& ) ;
+	static void configure( const config::Aligner&, std::ostream* ) ;
 
 	simple_adna() : gen_alignment<simple_adna>() {}
 	simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}

@@ -1,6 +1,7 @@
 #include "align.h"
 
-// #include <iostream>
+#include <ostream>
+#include <iomanip>
 
 subst_mat simple_adna::ds_mat ;
 subst_mat simple_adna::ss_mat ;
@@ -8,6 +9,26 @@ uint32_t simple_adna::overhang_ext_penalty ;
 uint32_t simple_adna::overhang_enter_penalty ;
 uint32_t simple_adna::gap_open_penalty ;
 uint32_t simple_adna::gap_ext_penalty ;
+
+namespace {
+	void print_subst_mat( std::ostream& s, const subst_mat mat )
+	{
+		s << "   r\\q " ;
+		for( Ambicode qry = 1 ; qry != 16 ; ++qry )
+		{
+			s << std::setw(2) << from_ambicode( qry ) << "  " ;
+		}
+		for( Ambicode ref = 1 ; ref != 16 ; ++ref )
+		{
+			s << "\n   " << from_ambicode( ref ) << "   " ;
+			for( Ambicode qry = 1 ; qry != 16 ; ++qry )
+			{
+				s << std::setw(2) << to_log_dom( mat[ref][qry] ) << "  " ;
+			}
+		}
+		s << '\n' ;
+	}
+}
 
 //! \brief sets up aDNA alignments according to parameter set
 //! Penalties are logs of probabilities.  We calculate a probability in
@@ -20,19 +41,27 @@ uint32_t simple_adna::gap_ext_penalty ;
 //! need to be added later.
 //!
 //! For ambiguity codes, we sum over all the possible codes, divide by
-//! the number of possibilities, the go to the log domain.  Note that
-//! matches end up costing nothing, matching to an N *does* cost
-//! something, and matching a T to a C might be dirt cheap.
+//! the number of possibilities, and later (when aligning) go to the log
+//! domain.  Note that matches end up costing nothing (almost nothing,
+//! but accuracy isn't good enough to pick that up), matching to an N
+//! *does* cost something, and matching a T to a C might be dirt cheap.
 //!
 //! For gaps, we already have probabilities.  Taking the log is all it
-//! takes.
+//! takes to make scores from that.
 //!
 //! For the overhang, we want something that's easy to parameterize.  We
 //! assume a geometric distribution of overhang length with parameter p,
 //! but half the overhangs end up pointing in the wrong direction, which
 //! maps them to zero length.  The mean overhang length ends up being
-//! (1-p)/(2p), and we take that as parameter.
-void simple_adna::configure( const config::Aligner& conf ) 
+//! (1-p)/(2p), and we take that as parameter.  Entering an overhang
+//! involves a penalty (since the probability is less than one), but so
+//! does not entering it.  We simply take the difference of the two,
+//! leaving the penalty for a perfect alignment at zero.
+//!
+//! \param conf set of configuration parameters
+//! \param out if not NULL, receives a protocol of the calculated
+//!            internal parameters
+void simple_adna::configure( const config::Aligner& conf, std::ostream *out ) 
 {
 	gap_ext_penalty = to_log_dom( conf.gap_extension_rate() ) ;
 	gap_open_penalty = conf.has_gap_open_rate() ? to_log_dom( conf.gap_open_rate() ) : gap_ext_penalty ;
@@ -40,17 +69,14 @@ void simple_adna::configure( const config::Aligner& conf )
 	if( conf.has_mean_overhang_length() )
 	{
 		double p_comp = 1 - 1 / (2*conf.mean_overhang_length() + 1) ;
-		overhang_enter_penalty = to_log_dom( p_comp / 2 ) ;
+		overhang_enter_penalty = to_log_dom( p_comp / 2 ) - to_log_dom( 1 - p_comp / 2 ) ;
 		overhang_ext_penalty = to_log_dom( p_comp ) ;
-		// std::cerr << p_comp << ' ' << overhang_ext_penalty << ' ' << overhang_enter_penalty << '\n' << '\n' ;
 	}
 	else
 	{
 		overhang_enter_penalty = ~0U ;
 		overhang_ext_penalty = ~0U ;
 	}
-
-	// std::cerr << gap_ext_penalty << ' ' << gap_open_penalty << '\n' 
 
 	double tv = conf.rate_of_transversions() ;
 	double ts = conf.has_rate_of_transitions() ? conf.rate_of_transitions() : tv ;
@@ -70,18 +96,6 @@ void simple_adna::configure( const config::Aligner& conf )
 		{     tv,    ts,      r,    tv }, // from T
 		{ ts+dss,    tv,     tv, r-dss }  // from G
 	} ;
-
-#if 0
-	for( int i = 0 ; i != 4 ; ++i )
-	{
-		for( int j = 0 ; j != 4 ; ++j )
-		{
-			std::cerr << to_log_dom(prim_mat_ds[i][j]) << " (" << to_log_dom(prim_mat_ss[i][j]) << ") " ;
-		}
-		std::cerr << '\n' ;
-	}
-	std::cerr << '\n' ;
-#endif
 
 	// filling the matrices
 	// The entry for any ambiguity code is the sum of the entries in the
@@ -110,12 +124,25 @@ void simple_adna::configure( const config::Aligner& conf )
 
 			ds_mat[ref][qry] = p_ds / npairs ;
 			ss_mat[ref][qry] = p_ss / npairs ;
-
-			// std::cerr << ds_mat[ref][qry] << " (" << ss_mat[ref][qry] << ")\t" ;
 		}
-		// std::cerr << '\n' ;
 	}
-	// std::cerr << '\n' ;
-	// exit(0) ;
+	
+	if( out ) 
+	{
+		*out << "\n\e[1mALIGNMENT PARAMETERS\e[0m:\n\n"
+			 << "  \e[4mDouble Stranded Substitution Matrix\e[0m:\n\n" ;
+		print_subst_mat( *out, ds_mat ) ;
+		*out << "\n  \e[4mSingle Stranded Substitution Matrix\e[0m:" ;
+		if( conf.has_rate_of_ss_deamination() ) {
+			*out << "\n\n" ; print_subst_mat( *out, ss_mat ) ;
+		} else *out << " N/A\n" ;
+		*out << "\n  \e[4mGap Open Penalty\e[0m: " << gap_open_penalty
+			 << "\n  \e[4mGap Extension Penalty\e[0m: " << gap_ext_penalty
+			 << "\n\n  \e[4mOverhang Penalty\e[0m: " ;
+		if( overhang_enter_penalty == ~0U ) *out << "N/A" ; else *out << overhang_enter_penalty ;
+		*out << "\n  \e[4mOverhang Extension Penalty\e[0m: " ;
+		if( overhang_ext_penalty == ~0U ) *out << "N/A" ; else *out << overhang_ext_penalty ;
+		*out << '\n' << std::endl ;
+	}
 }
 

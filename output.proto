@@ -67,7 +67,9 @@ message Hit {
     // 1..63nt, 193..255 a deletion of 1..63nt.  A NUL byte is a marker
     // for the place where the alignment started, bytes 128 and 192 are
     // reserved.
-    required bytes cigar = 7 ;
+	// This is now actually required, it's declared optional to support
+	// old files.
+    optional bytes cigar = 7 ;
 
     // taxids if known: most specific, species and order
     // An absent taxid means it's not known.

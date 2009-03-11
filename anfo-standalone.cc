@@ -380,10 +380,12 @@ int main_( int argc, const char * argv[] )
 	int nxthreads = 1 ;
 	int solexa_quals = 0 ;
 	int stride = 1 ;
+	int log_params = 0 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
+		{ "dump-params",  0 , POPT_ARG_NONE,   &log_params,  opt_none,    "Print out alignment paramters", 0 },
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
@@ -414,9 +416,6 @@ int main_( int argc, const char * argv[] )
 			return 1 ; 
 	}
 
-	if( !output_file ) throw "no output file" ;
-	if( nthreads < 0 ) throw "invalid thread number" ;
-
 	CommonData common_data ;
 	if( config_file ) common_data.mi = parse_text_config( config_file ) ;
 	else if( !access( "anfo.cfg", F_OK ) ) common_data.mi = parse_text_config( "anfo.cfg" ) ;
@@ -427,8 +426,11 @@ int main_( int argc, const char * argv[] )
 		else throw "no config file found" ;
 	}
 
-	if( common_data.mi.has_aligner() ) simple_adna::configure( common_data.mi.aligner() ) ;
+	if( common_data.mi.has_aligner() ) simple_adna::configure( common_data.mi.aligner(), log_params ? &cout : 0 ) ;
 	if( !common_data.mi.policy_size() ) throw "no policies---nothing to do." ;
+	if( !output_file ) throw "no output file" ;
+	if( nthreads < 0 ) throw "invalid thread number" ;
+
 
 	unsigned slicenum = 0, total_slices = 1 ;
 	if( const char* tid = getenv("SGE_TASK_ID") ) slicenum = atoi(tid) -1 ;

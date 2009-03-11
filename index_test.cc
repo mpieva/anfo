@@ -67,6 +67,7 @@ int do_aln( const CompactGenome& g, const QSequence& ps, const vector<Seed>& see
 int main_( int argc, const char * argv[] )
 {
 	config::Config mi = parse_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "anfo.cfg" : argv[1] ) ;
+	if( mi.has_aligner() ) simple_adna::configure( mi.aligner(), &cout ) ;
 
 	FixedIndex ix( argc < 3 ? "chr21_10" : argv[2], mi ) ;
 	CompactGenome g( ix.ci_.genome_name(), mi ) ;
@@ -91,14 +92,7 @@ int main_( int argc, const char * argv[] )
 		 << " larger ones, clumped into " << num_clumps << " clumps."
 		 << endl ;
 
-	if( mi.has_aligner() )
-	{
-		simple_adna::configure( mi.aligner() ) ;
-		return do_aln< simple_adna >( g, ps, seeds ) ;
-	}
-	else
-	{
-		return do_aln< flat_alignment >( g, ps, seeds ) ;
-	}
+	if( mi.has_aligner() ) return do_aln< simple_adna >( g, ps, seeds ) ;
+	else return do_aln< flat_alignment >( g, ps, seeds ) ;
 }
 
