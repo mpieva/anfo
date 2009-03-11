@@ -448,19 +448,6 @@ inline void greedy( simple_adna& s )
 			s.adv_qry() ;
 		}
 	}
-	if( !s.get_ref() ) {
-		// We hit a gap in the reference, whatever is left of the query
-		// must be penalized.  To do this, we virtually extend the
-		// reference with Ns and align to those.  This is a white lie in
-		// that it wil overestimate the real penalty, but that's okay,
-		// because such an alignment isn't all that interesting in
-		// reality anyway.
-		while( s.get_qry().ambicode )
-		{
-			s.penalty += s.subst_penalty() ;
-			s.adv_qry() ;
-		}
-	}
 }
 
 template< typename F > void forward( const simple_adna& s, F f )
@@ -486,7 +473,25 @@ template< typename F > void forward( const simple_adna& s, F f )
 	// the overhang_ext_penalty is applied whenever moving along the
 	// query while single stranded, even when a gap is open!  This gives
 	// correct scores for a geometric distribution of overhang lengths.
-	if( (s.state & simple_adna::mask_dir) == 0 && ( s.get_ref() == 0 || s.get_qry().ambicode == 0 ) )
+	if( !s.get_ref() && s.get_qry().ambicode )
+	{
+		// We hit a gap in the reference, whatever is left of the query
+		// must be penalized.  To do this, we virtually extend the
+		// reference with Ns and align to those.  This is a white lie
+		// in that it wil overestimate the real penalty, but that's
+		// okay, because such an alignment isn't all that interesting
+		// in reality anyway.  It woould feel more natural to do this
+		// in greedy(), but we do it here to leave sufficient traces
+		// for correct backtracing.
+		simple_adna s1 = s ;
+		while( s1.get_qry().ambicode )
+		{
+			s1.penalty += s1.subst_penalty() ;
+			s1.adv_qry() ;
+			f( s1 ) ;
+		}
+	}
+	else if( (s.state & simple_adna::mask_dir) == 0 && ( s.get_ref() == 0 || s.get_qry().ambicode == 0 ) )
 	{
 		// forward dir, hit gap --> start over in reverse dir
 		simple_adna s1 = s ;

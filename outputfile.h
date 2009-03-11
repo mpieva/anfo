@@ -72,7 +72,7 @@ class AnfoFile
 	output::Footer foot_ ;
 
     public: 
-	AnfoFile( const char *name, bool unlink_on_delete = false ) ;
+	AnfoFile( const std::string& name, bool unlink_on_delete = false ) ;
 	~AnfoFile() ;
 
 	output::Header read_header() ;

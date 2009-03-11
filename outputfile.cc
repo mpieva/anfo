@@ -8,8 +8,8 @@ using namespace google::protobuf::io ;
 using namespace output ;
 using namespace std ;
 
-AnfoFile::AnfoFile( const char *name, bool unlink_on_delete ) 
-	: name_( name ), fd_( throw_errno_if_minus1( open( name, O_RDONLY ), "opening ", name ) )
+AnfoFile::AnfoFile( const std::string& name, bool unlink_on_delete ) 
+	: name_( name ), fd_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
         , iis_( fd_ ), legacy_(false), error_(false), unlink_on_delete_(unlink_on_delete)
 {
 	std::string tag ;

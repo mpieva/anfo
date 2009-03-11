@@ -53,10 +53,30 @@ void sort_arr() {
     sort( arr.begin(), arr.end(), by_genome_coordinate() ) ;
 }
 
+int mktempfile( std::string &name )
+{
+	const char *suffix = "/anfo_sort_XXXXXX" ;
+	const char *base = getenv("ANFO_TEMP") ;
+	if( !base ) base = getenv("TMPDIR") ;
+	if( !base ) base = getenv("TEMP") ;
+	if( !base ) base = getenv("TMP") ;
+	if( !base ) base = "." ;
+
+	char *n1 = (char*)alloca( strlen(base) + strlen(suffix) + 1 ) ;
+	char *n2 = n1 ;
+	while( *base ) *n2++ = *base++ ;
+	while( *suffix ) *n2++ = *suffix ;
+	*n2 = 0 ;
+
+    int fd = throw_errno_if_minus1( mkstemp( n1 ), "making temp file" ) ;
+	name = n1 ;
+	return fd ;
+}
+
 void dump_arr() {
     sort_arr() ;
-    char name[] = "anfo_sort_XXXXXX" ;
-    int fd = throw_errno_if_minus1( mkstemp( name ), "making temp file" ) ;
+	std::string name ;
+    int fd = mktempfile( name ) ;
     FileOutputStream fos( fd ) ;
     CodedOutputStream cos( &fos ) ;
     hdr.set_is_sorted_by_coordinate( true ) ;
@@ -142,8 +162,8 @@ void merge_all( int fd, bool with_arr )
 }
 
 void flush_queue() {
-    char name[] = "anfo_sort_XXXXXX" ;
-    int fd = throw_errno_if_minus1( mkstemp( name ), "making temp file" ) ;
+	std::string name ;
+    int fd = mktempfile( name ) ;
     FileOutputStream fos( fd ) ;
     CodedOutputStream cos( &fos ) ;
     hdr.set_is_sorted_by_coordinate( true ) ;
