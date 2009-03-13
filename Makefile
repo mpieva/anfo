@@ -8,7 +8,7 @@ CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
 # CXXFLAGS += -ggdb 
 CXXFLAGS += -O3
 
-PROGS := fa2dna dnaindex file-info anfo-type anfo-standalone anfo-combine anfo-sort
+PROGS := fa2dna dnaindex file-info anfo-type anfo-standalone anfo-combine anfo-sort anfo2sam
 TARGETS := $(PROGS) index_test 
 
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
@@ -24,6 +24,7 @@ install: $(PROGS)
 	install -s -m 755 $(PROGS) $(prefix)
 
 fa2dna.o: config.pb.h
+anfo2sam.o: output.pb.h
 dnaindex.cc: config.pb.h
 index_test.o: config.pb.h
 file-info.o: config.pb.h output.pb.h
