@@ -6,6 +6,7 @@
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <fstream>
+#include <memory>
 
 //! \defgroup outputfile Convenience functions to handle output file
 //! The output file is a series of protocol buffer messages.  This makes
@@ -60,24 +61,39 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 
 //! @}
 
+//! \brief presents ANFO files as series of messages
 class AnfoFile
 {
-    private:
-	std::string name_ ;
-	int fd_ ;
-	google::protobuf::io::FileInputStream iis_ ;
-	bool legacy_ ;
-	bool error_ ;
-	bool unlink_on_delete_ ;
-	output::Footer foot_ ;
+	private:
+		std::string name_ ;
+		int fd_ ;
+		google::protobuf::io::FileInputStream iis_ ;
+		std::auto_ptr<google::protobuf::io::ZeroCopyInputStream> zis_ ;
+		bool legacy_ ;
+		bool error_ ;
+		bool unlink_on_delete_ ;
+		output::Footer foot_ ;
 
-    public: 
-	AnfoFile( const std::string& name, bool unlink_on_delete = false ) ;
-	~AnfoFile() ;
+	public: 
+		AnfoFile( const std::string& name, bool unlink_on_delete = false ) ;
+		~AnfoFile() ;
 
-	output::Header read_header() ;
-	output::Result read_result() ;
-	output::Footer read_footer() { if( error_ ) foot_.set_exit_code( 1 | foot_.exit_code() ) ; return foot_ ; }
+		//! \brief reads the header messages
+		//! This must be called first after constructing the object
+		output::Header read_header() ;
+
+		//! \brief reads a result message
+		//! This should be called repeatedly after having read the
+		//! header.  If no more messages follow, an empty Result is
+		//! returned.  Valid Results from ANFO files will always have a
+		//! seq_id.
+		output::Result read_result() ;
+
+		//! \brief reads the footer message
+		//! This can only be called after all Result messages have been
+		//! consumed.  If an error occured during parsing, the exit_code
+		//! inside the footer message will have its 1 bit set.
+		output::Footer read_footer() { if( error_ ) foot_.set_exit_code( 1 | foot_.exit_code() ) ; return foot_ ; }
 } ;
 
 

@@ -51,15 +51,25 @@ message Footer {
 //   outside sex chromosomes
 
 message Hit {
-    // description of the hit: genome, sequence, start point, length
-    // (negative length counts on the RC'd strand)
+	// name of the genome
     required string genome = 1 ;
+
+	// name of the subject sequence (== chromosome or similar)
     required string sequence = 2 ;
+
+	// position where the first nucleotide aligns 
+	// this is the start position of the alignment if on the forward
+	// strand, the end position if on the reverse strand
     required uint32 start_pos = 3 ;
+
+	// length of alignment on reference sequence, negative if on the
+	// reverse strand
     required sint32 aln_length = 4 ;
 
-    // Score and E-value (because it's customary to have one)
+    // Score (this is actually a penalty)
     required sint32 score = 5 ;
+
+	// E-value (because it's customary to have one)
     optional float evalue = 6 ;
 
     // alignment as (binary equivalent of) a CIGAR line

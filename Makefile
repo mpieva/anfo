@@ -5,8 +5,8 @@ PROTOC ?= protoc
 LDLIBS += -lprotobuf -lpopt -lJudy -lpthread -lz -lm
 # LDFLAGS += -p
 CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
-# CXXFLAGS += -ggdb 
-CXXFLAGS += -O3
+CXXFLAGS += -ggdb 
+# CXXFLAGS += -O3
 
 PROGS := fa2dna dnaindex file-info anfo-type anfo-standalone anfo-combine anfo-sort anfo2sam
 TARGETS := $(PROGS) index_test 

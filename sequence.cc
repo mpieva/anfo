@@ -7,13 +7,6 @@ using namespace std ;
 
 namespace {
 
-inline bool seq_continues( std::istream& s )
-{ return s && s.peek() != '@' && s.peek() != '>'
-	       && s.peek() != '+' && s.peek() != '*' ; }
-
-inline bool descr_follows( std::istream& s )
-{ return s && s.peek() == ';' ; }
-
 //! \brief test whether a line contains ASCII Q-scores
 //! \internal
 //! This is a small DFA that test whether a line contains only small
@@ -41,6 +34,49 @@ inline int sol_to_phred( int sol ) { return sol + (int)( 0.5 + 10 * log( 1.0 + p
 
 int bits_in[] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 } ;
 
+class Reader {
+	private: 
+		const char *buf_ ;
+		int len_ ;
+		google::protobuf::io::ZeroCopyInputStream *zis_ ;
+	public:
+		Reader( google::protobuf::io::ZeroCopyInputStream *zis ) : zis_(zis) {
+			const void *p ;
+			if( zis_->Next( &p, &len_ ) ) buf_ = (char*)p ;
+			else buf_ = 0 ;
+		}
+		~Reader() { if( len_ && buf_ ) zis_->BackUp( len_ ) ; }
+
+		operator const void* () const { return buf_ ; }
+		char peek() const { return buf_ ? *buf_ : 0 ; }
+		char get() { 
+			const void *p ;
+			if( !buf_ ) return 0 ;
+			for(;;) {
+				if( len_-- ) return *buf_++ ;
+				if( !zis_->Next( &p, &len_ ) ) break ; 
+				buf_ = (char*)p ;
+			} 
+			buf_ = 0 ;
+			return 0 ;
+		}
+} ;
+
+inline void getword( Reader& r, std::string& s )
+{
+	s.clear() ;
+	while( r && !isspace( r.peek() ) ) s.push_back( r.get() ) ;
+}
+inline void getline( Reader& r, std::string& s )
+{
+	s.clear() ;
+	while( r && r.peek() != '\n' ) s.push_back( r.get() ) ;
+	if( r ) r.get() ;
+}
+inline void skipline( Reader& r) { while( r && r.get() != '\n' ) ; }
+
+inline bool seq_continues( const Reader &s ) { return s && s.peek() != '@' && s.peek() != '>' && s.peek() != '+' && s.peek() != '*' ; }
+inline bool descr_follows( const Reader &s ) { return s && s.peek() == ';' ; } 
 }
 
 QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
@@ -65,19 +101,20 @@ QSequence::QSequence( const char* p, int q_score )
 	seq_.push_back( Base() ) ;
 }
 					
-istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
+bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores )
 {
+	Reader s( zis ) ;
 	bool got_seq = false, got_qual = false, got_quals = false ;
 
 	qs.seq_.clear() ;
 	qs.seq_.push_back( QSequence::Base() ) ;
 	// skip junk before sequence header
-	while( seq_continues(s) ) s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
+	while( seq_continues(s) ) skipline(s) ;
 
 	// header follows, don't care for the delimiter, read name and
 	// description
 	s.get() ;
-	s >> qs.name_ ;
+	getword( s, qs.name_ ) ;
 	getline( s, qs.description_ ) ;
 
 	// If at this point we have a valid stream, we definitely have a
@@ -118,7 +155,7 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 	{
 		// skip delimiter, name, and description no additional
 		// description lines can follow, since ';' is a valid Q-score
-		s.ignore( std::numeric_limits<int>::max(), '\n' ) ;
+		skipline(s) ;
 
 		// Q-scores must follow unless the sequence was empty or the stream ends
 		if( s && qs.length() )
@@ -214,9 +251,8 @@ istream& read_fastq( istream& s, QSequence& qs, bool solexa_scores )
 	qs.validity_ = got_quals ? got_seq ? QSequence::bases_with_qualities : QSequence::qualities_only
 		                     : got_qual ? QSequence::bases_with_quality : QSequence::bases_only ;
 	// We did get a sequence, no matter the stream state now, so no
-	// failure.  If we reached EOF, the flags must remain.
-	s.clear( s.rdstate() & ~istream::failbit ) ;
-	return s ;
+	// failure.
+	return true ;
 }
 
 #if BUILD_TEST_HARNESS

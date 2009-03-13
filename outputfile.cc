@@ -1,4 +1,5 @@
 #include "outputfile.h"
+#include "compress_stream.h"
 #include "util.h"
 
 #include <iostream>
@@ -10,10 +11,11 @@ using namespace std ;
 
 AnfoFile::AnfoFile( const std::string& name, bool unlink_on_delete ) 
 	: name_( name ), fd_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
-        , iis_( fd_ ), legacy_(false), error_(false), unlink_on_delete_(unlink_on_delete)
+        , iis_( fd_ ), zis_( decompress( &iis_ ) ), legacy_(false), error_(false), unlink_on_delete_(unlink_on_delete)
 {
 	std::string tag ;
-	CodedInputStream cis( &iis_ ) ;
+	CodedInputStream cis( zis_.get() ) ;
+
 	if( !cis.ReadString( &tag, 4 ) || tag != "ANFO" ) {
 		clog << "\033[K" << name_ << ": not an ANFO file" << endl ;
 		error_ = true ;
@@ -31,7 +33,7 @@ Header AnfoFile::read_header()
 {
 	uint32_t tag ;
 	Header hdr ;
-	CodedInputStream cis( &iis_ ) ;
+	CodedInputStream cis( zis_.get() ) ;
 	if( cis.ReadVarint32( &tag ) )
 	{
 		if( tag != 10 )
@@ -57,7 +59,7 @@ Header AnfoFile::read_header()
 Result AnfoFile::read_result()
 {
 	uint32_t tag = 0 ;
-	CodedInputStream cis( &iis_ ) ;
+	CodedInputStream cis( zis_.get() ) ;
 	if( !error_ ) {
 		if( cis.ExpectAtEnd() ) {
 			clog << "\033[K" << name_ << ": end of stream" << endl ;

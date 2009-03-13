@@ -84,7 +84,7 @@ int protoHit_2_bam_Hit(output::Result &result){
 /*ISIZE*/   std::cout << "0" << "\t";
 
 /*SEQ*/     std::cout << result.sequence() << "\t";
-            for (int i = 0; i < result.quality().size(); i++)
+            for (size_t i = 0; i < result.quality().size(); i++)
 /*QUAL*/        std::cout << char((uint8_t)result.quality()[i] + 33);
 
 /*[TAGS]*/

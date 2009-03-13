@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+#include <google/protobuf/io/zero_copy_stream.h>
+
 //! \brief Test macro whether this is a "small" system
 //!
 //! A system is considered "small" for our purposes, if long has no more
@@ -260,6 +262,7 @@ inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
 	return s ;
 }
 
+
 //! \brief sequence with quality scores
 //! We store four qualities for the four possible bases.  If the
 //! sequence was read from a 4Q file, that's okay.  If it came from
@@ -378,7 +381,7 @@ class QSequence
 		// uint8_t qual( size_t ix ) const { return seq_[1+ix] >> 8 ; }
 		// void qual( size_t ix, uint8_t q ) { seq_[1+ix] = seq_[1+ix] & 0xff | (uint16_t)q << 8 ; }
 
-		friend std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores ) ;
+		friend bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores ) ;
 } ;
 
 //! \brief reads a sequence from a FASTA, FASTQ or 4Q file
@@ -400,14 +403,14 @@ class QSequence
 //!	      may cause loss of precision.  Maybe unaltered Q scores should
 //!	      be stored, too.
 //!
-//! \param s stream to read from
+//! \param zis stream to read from
 //! \param qs sequence-with-quality to read into
 //! \param solexa_scores 
 //!     If set, quality scores are converted from Solexa to Phred
 //!     conventions and the origin for raw scores is 64.  Else the
 //!     origin for raw scores is 33 and no conversion is done.
 //! \return the stream \c s
-std::istream& read_fastq( std::istream& s, QSequence& qs, bool solexa_scores = false ) ;
+bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores = false ) ;
 
 #endif
 

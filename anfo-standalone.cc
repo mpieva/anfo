@@ -1,4 +1,5 @@
 #include "align.h"
+#include "compress_stream.h"
 #include "conffile.h"
 #include "index.h"
 #include "outputfile.h"
@@ -25,6 +26,7 @@
 #include <fnmatch.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 //! \brief Configures type of alignment to be done.
 //! This is a hack and only intended as a stopgap.
@@ -33,6 +35,7 @@ typedef simple_adna alignment_type ;
 
 using namespace config ;
 using namespace std ;
+using namespace google::protobuf::io ;
 
 volatile int exit_with = 0 ;
 extern "C" void sig_handler( int sig ) { exit_with = sig + 128 ; }
@@ -367,7 +370,7 @@ void expand_placeholcer( string &s, int x )
 //! For every alignment, just check if it fits anywhere, then store it
 //! appropriately.  Expand the two we were interested in.
 //!
-//! \todo Actually implement this in its full generality...
+//! \todo Actually implement search for multiple alignments in its full generality...
 
 int main_( int argc, const char * argv[] )
 {
@@ -385,13 +388,13 @@ int main_( int argc, const char * argv[] )
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
-		{ "dump-params",  0 , POPT_ARG_NONE,   &log_params,  opt_none,    "Print out alignment paramters", 0 },
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
-		{ "solexa-quals",'s', POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
-		{ "sge-task-last", 0, POPT_ARG_INT,    &stride,      opt_none,    "Override SGE_TASK_LAST env var", "N" },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
+		{ "dump-params",  0 , POPT_ARG_NONE,   &log_params,  opt_none,    "Print out alignment paramters", 0 },
+		{ "solexa-quals", 0 , POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
+		{ "sge-task-last",0 , POPT_ARG_INT,    &stride,      opt_none,    "Override SGE_TASK_LAST env var", "N" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -527,24 +530,21 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		// ifstream input_file_stream ;
-		igzstream input_file_stream ;
-		istream *inp = &cin ;
-		if( !files.front().empty() && files.front() != "-" )
-		{
-			input_file_stream.open( files.front().c_str() ) ;
-			inp = &input_file_stream ;
-		}
+		int inp_fd = files.front().empty() || files.front() == "-" ? 0 :
+			throw_errno_if_minus1( open( files.front().c_str(), O_RDONLY ),
+					"opening ", files.front().c_str() ) ;
+
+		FileInputStream raw_inp( inp_fd ) ;
+		std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
 
 		for(;; ++total_count )
 		{
 			std::auto_ptr<QSequence> ps( new QSequence ) ;
-			if( exit_with || !read_fastq( *inp, *ps, solexa_quals ) ) break ;
+			if( exit_with || !read_fastq( inp.get(), *ps, solexa_quals ) ) break ;
 			
 			stringstream progress ;
 			progress << ps->get_name() << " (#" << total_count ;
-			if( total_size != -1 )
-				progress << ", " << (total_done + input_file_stream.tellg()) * 100 / total_size << '%' ;
+			if( total_size != -1 ) progress << ", " << (total_done + raw_inp.ByteCount()) * 100 / total_size << '%' ;
 			progress << ')' ;
 
 			clog << '\r' << progress.str() << "\33[K" << flush ;
@@ -562,7 +562,8 @@ int main_( int argc, const char * argv[] )
 				}
 			}
 		}
-		if( total_size != -1 ) total_done += input_file_stream.tellg() ;
+		if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
+		if( inp_fd ) close( inp_fd ) ;
 	}
 	if( nthreads )
 	{
@@ -572,7 +573,7 @@ int main_( int argc, const char * argv[] )
 			for( int i = 0 ; i != nxthreads ; ++i )
 				pthread_join( indexer_thread[i], 0 ) ;
 
-		// done with indexes... wait for the workers
+		// done with indexes... wait for the worker(s)
 		common_data.intermed_queue.enqueue( 0 ) ;
 		for( int i = 0 ; i != nthreads ; ++i )
 			pthread_join( worker_thread[i], 0 ) ;
