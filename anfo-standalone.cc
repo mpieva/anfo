@@ -11,7 +11,7 @@
 #include <google/protobuf/text_format.h>
 
 #include <popt.h>
-#include <gzstream.h>
+#include "gzstream.h"
 
 #include <algorithm>
 #include <cstring>
