@@ -105,6 +105,7 @@ int main_( int argc, const char * argv[] ){
     }
 
     AnfoFile f_anfo(argv[1]);
+    f_anfo.read_header();
     output::Result res = f_anfo.read_result();
 
     int discarded = 0;
