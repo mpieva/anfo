@@ -2,7 +2,7 @@ svnversion := $(shell svnversion || basename $(PWD))
 version ?= $(svnversion)
 
 PROTOC ?= protoc
-LDLIBS += -lprotobuf -lpopt -lJudy -lpthread -lz -lm
+LDLIBS += -lprotobuf -lpopt -lJudy -lpthread -lz -lbz2 -lm
 # LDFLAGS += -p
 CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
 CXXFLAGS += -ggdb 
@@ -47,7 +47,7 @@ anfo-combine: output.pb.h
 	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
 
 %: %.o $(OBJECTS)
-	$(CXX) $(LDFLAGS) $(LDLIBS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS) 
  
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@
