@@ -2,11 +2,13 @@
 #define INCLUDED_UTIL_H
 
 #include <cerrno>
+#include <iosfwd>
 #include <string>
 
 #include <sys/mman.h>
 #include <unistd.h>
 
+struct Exception { virtual void print_to( std::ostream& ) const = 0 ; } ;
 
 template< typename T >
 T throw_errno_if_minus1( T x, const char* a, const char* b = 0 )

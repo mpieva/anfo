@@ -77,6 +77,7 @@ int protoHit_2_bam_Hit(output::Result &result){
 /*RNAME*/   std::cout << hit.sequence() << "\t";
 /*POS*/     std::cout << ( (hit.aln_length() >= 0)?hit.start_pos():(hit.start_pos() + hit.aln_length() + 1) ) << "\t";
 /*MAPQ*/    std::cout << "255" << "\t"; // TODO: calculate from e-value?
+                                        // Nope!  calculate from diff_to_next
 /*CIGAR*/   std::cout << decode_binCigar(hit.cigar()) << "\t";
           // We don't have paired end reads
 /*MRNM*/    std::cout << "*" << "\t";

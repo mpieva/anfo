@@ -12,7 +12,6 @@
 #include <google/protobuf/text_format.h>
 
 #include <popt.h>
-#include "gzstream.h"
 
 #include <algorithm>
 #include <cstring>
@@ -381,9 +380,10 @@ int main_( int argc, const char * argv[] )
 	const char* output_file = 0 ; 
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
-	int solexa_quals = 0 ;
+	int solexa_scale = 0 ;
 	int stride = 1 ;
 	int log_params = 0 ;
+	int fastq_origin = 33 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
@@ -393,7 +393,8 @@ int main_( int argc, const char * argv[] )
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
 		{ "dump-params",  0 , POPT_ARG_NONE,   &log_params,  opt_none,    "Print out alignment paramters", 0 },
-		{ "solexa-quals", 0 , POPT_ARG_NONE,   &solexa_quals,opt_none,    "Quality scores are in solexa format", 0 },
+		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
+		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		{ "sge-task-last",0 , POPT_ARG_INT,    &stride,      opt_none,    "Override SGE_TASK_LAST env var", "N" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
@@ -485,13 +486,18 @@ int main_( int argc, const char * argv[] )
 	std::string output_file_ = output_file ;
 	output_file_ += ".#new#" ;
 
-	ofstream output_file_stream ;
-	ostream& output_stream = strcmp( output_file, "-" ) ?
-		(output_file_stream.open( output_file_.c_str() ), output_file_stream) : cout ;
+	// ofstream output_file_stream ;
+	// ostream& output_stream = strcmp( output_file, "-" ) ?
+		// (output_file_stream.open( output_file_.c_str() ), output_file_stream) : cout ;
+	google::protobuf::io::FileOutputStream fos( strcmp( output_file, "-" ) ?
+			throw_errno_if_minus1( open( output_file_.c_str(), O_WRONLY | O_CREAT, 0666 ),
+				                   "opening", output_file_.c_str() ) : 1 ) ;
+	if( strcmp( output_file, "-" ) ) fos.SetCloseOnDelete( true ) ;
+	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
 
 	output::Header ohdr ;
-	google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
-	google::protobuf::io::CodedOutputStream cos( &oos ) ;
+	// google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
+	google::protobuf::io::CodedOutputStream cos( zos.get() ) ;
 	cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = common_data.mi ;
 	ohdr.set_version( VERSION ) ;
@@ -540,7 +546,7 @@ int main_( int argc, const char * argv[] )
 		for(;; ++total_count )
 		{
 			std::auto_ptr<QSequence> ps( new QSequence ) ;
-			if( exit_with || !read_fastq( inp.get(), *ps, solexa_quals ) ) break ;
+			if( exit_with || !read_fastq( inp.get(), *ps, solexa_scale, fastq_origin ) ) break ;
 			
 			stringstream progress ;
 			progress << ps->get_name() << " (#" << total_count ;

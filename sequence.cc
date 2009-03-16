@@ -101,7 +101,7 @@ QSequence::QSequence( const char* p, int q_score )
 	seq_.push_back( Base() ) ;
 }
 					
-bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores )
+bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores, char origin )
 {
 	Reader s( zis ) ;
 	bool got_seq = false, got_qual = false, got_quals = false ;
@@ -196,7 +196,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 						if( q != 13 ) // skip CRs
 						{
 							qs.seq_[ix+1] = QSequence::Base(
-									qs.seq_[ix+1].ambicode, solexa_scores ? sol_to_phred(q-64) : q-33 ) ; 
+									qs.seq_[ix+1].ambicode, solexa_scores ? sol_to_phred( q-origin ) : q-origin ) ; 
 							++ix ;
 						}
 					}
@@ -229,8 +229,8 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 				{
 					got_quals = true ;
 					if( pos[tag] == qs.seq_.size()-1 ) qs.seq_.push_back( QSequence::Base() ) ;
-					qs.seq_[pos[tag]].qualities[tag] = phred_to_err_prob( q-33 ) ;
-					qs.seq_[pos[tag]].qscores[tag] = q-33 ;
+					qs.seq_[pos[tag]].qualities[tag] = phred_to_err_prob( q-origin ) ;
+					qs.seq_[pos[tag]].qscores[tag] = q-origin ;
 				}
 			}
 		}

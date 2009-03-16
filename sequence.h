@@ -372,16 +372,7 @@ class QSequence
 		reference operator [] ( size_t ix ) { return seq_[1+ix] ; }
 		const_reference operator [] ( size_t ix ) const { return seq_[1+ix] ; }
 
-		// Ambicode operator [] ( size_t ix ) const { return seq_[1+ix]->ambicode ; }
-
-		//! \todo How do you calculate the quality value of an ambiguity
-		//! code given the qualities of the individual bases?  Just
-		//! adding them doesn't seem right somehow.
-		
-		// uint8_t qual( size_t ix ) const { return seq_[1+ix] >> 8 ; }
-		// void qual( size_t ix, uint8_t q ) { seq_[1+ix] = seq_[1+ix] & 0xff | (uint16_t)q << 8 ; }
-
-		friend bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores ) ;
+		friend bool read_fastq( google::protobuf::io::ZeroCopyInputStream*, QSequence&, bool, char ) ;
 } ;
 
 //! \brief reads a sequence from a FASTA, FASTQ or 4Q file
@@ -407,10 +398,18 @@ class QSequence
 //! \param qs sequence-with-quality to read into
 //! \param solexa_scores 
 //!     If set, quality scores are converted from Solexa to Phred
-//!     conventions and the origin for raw scores is 64.  Else the
-//!     origin for raw scores is 33 and no conversion is done.
-//! \return the stream \c s
-bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores = false ) ;
+//!     conventions.
+//! \param origin
+//!     The origin is subtracted from raw scores in ASCII files.  It is
+//!     33 for original FASTQ files, but 64 for files with Illumina
+//!     brain damage, in which case it may or may not have to be
+//!     combined with setting solexa_scores.
+//! \return true iff a sequence could be read
+bool read_fastq(
+		google::protobuf::io::ZeroCopyInputStream *zis,
+		QSequence& qs,
+		bool solexa_scores = false,
+		char origin = 33 ) ;
 
 #endif
 

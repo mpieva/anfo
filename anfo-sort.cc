@@ -1,3 +1,4 @@
+#include "compress_stream.h"
 #include "outputfile.h"
 #include "util.h"
 
@@ -77,21 +78,24 @@ void dump_arr() {
     sort_arr() ;
 	std::string name ;
     int fd = mktempfile( name ) ;
-    FileOutputStream fos( fd ) ;
-    CodedOutputStream cos( &fos ) ;
-    hdr.set_is_sorted_by_coordinate( true ) ;
-    cos.WriteRaw( "ANFO", 4 ) ;
-    write_delimited_message( cos, 1, hdr ) ;
-    clog << "writing temp file" << endl ;
-    for( deque< const Result* >::iterator i = arr.begin(), j = arr.end() ; i!=j ; ++i )
-    {
-	write_delimited_message( cos, 2, **i ) ;
-	delete *i ;
-    }
-    arr.clear() ;
-    total_arr_size = 0 ;
-    write_delimited_message( cos, 3, ftr ) ;
-    close( fd ) ;
+	{
+		FileOutputStream fos( fd ) ;
+		fos.SetCloseOnDelete( true ) ;
+		std::auto_ptr< ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
+		CodedOutputStream cos( zos.get() ) ;
+		hdr.set_is_sorted_by_coordinate( true ) ;
+		cos.WriteRaw( "ANFO", 4 ) ;
+		write_delimited_message( cos, 1, hdr ) ;
+		clog << "writing temp file" << endl ;
+		for( deque< const Result* >::iterator i = arr.begin(), j = arr.end() ; i!=j ; ++i )
+		{
+			write_delimited_message( cos, 2, **i ) ;
+			delete *i ;
+		}
+		arr.clear() ;
+		total_arr_size = 0 ;
+		write_delimited_message( cos, 3, ftr ) ;
+	}
     que.push_back( new AnfoFile( name, true ) ) ;
     que.back()->read_header() ;
 }
@@ -101,64 +105,68 @@ void merge_footer( AnfoFile* f )
     ftr.set_exit_code( ftr.exit_code() | f->read_footer().exit_code() ) ;
 }
 
-void merge_all( int fd, bool with_arr ) 
+void merge_all( int fd, bool final ) 
 {
-    FileOutputStream fos( fd ) ;
-    CodedOutputStream cos( &fos ) ;
-    cos.WriteRaw( "ANFO", 4 ) ;
-    write_delimited_message( cos, 1 , hdr ) ;
+	FileOutputStream fos( fd ) ;
+	std::auto_ptr< ZeroCopyOutputStream > zos(
+			final ? compress_small( &fos ) : compress_fast( &fos ) ) ;
+	CodedOutputStream cos( zos.get() ) ;
+	cos.WriteRaw( "ANFO", 4 ) ;
+	write_delimited_message( cos, 1 , hdr ) ;
 
-    deque< Result > rs ;
-    for( size_t i = 0 ; i != que.size() ; ++i )
-    {
-	Result r = que[i]->read_result() ;
-	if( r.has_seqid() ) rs.push_back( r ) ;
-	else {
-	    merge_footer( que[i] ) ;
-	    delete que[i] ;
-	    que.erase( que.begin()+i ) ;
-	}
-    }
-
-    while( rs.size() ) 
-    {
-	int m = 0 ;
-	Result rm = rs[0] ;
-	for( size_t i = 1 ; i != rs.size() ; ++i ) 
+	deque< Result > rs ;
+	for( size_t i = 0 ; i != que.size() ; ++i )
 	{
-	    if( by_genome_coordinate()( &rs[i], &rm ) ) {
-		m = i ;
-		rm = rs[i] ;
-	    }
-	}
-	if( with_arr && !arr.empty() && by_genome_coordinate()( arr[0], &rm ) ) {
-	    m = -1 ;
-	    rm = *arr[0] ;
+		Result r = que[i]->read_result() ;
+		if( r.has_seqid() ) rs.push_back( r ) ;
+		else
+		{
+			merge_footer( que[i] ) ;
+			delete que[i] ;
+			que.erase( que.begin()+i ) ;
+		}
 	}
 
-	write_delimited_message( cos, 2, rm ) ;
-	if( m == -1 ) {
-	    delete arr.front() ;
-	    arr.pop_front() ;
-	} else {
-	    rs[m] = que[m]->read_result() ;
-	    if( !rs[m].has_seqid() ) {
-		merge_footer( que[m] ) ;
-		delete que[m] ;
-		que.erase( que.begin() + m ) ;
-		rs.erase( rs.begin() + m ) ;
-	    }
-	}
-    }
+	while( rs.size() ) 
+	{
+		int m = 0 ;
+		Result rm = rs[0] ;
+		for( size_t i = 1 ; i != rs.size() ; ++i ) 
+		{
+			if( by_genome_coordinate()( &rs[i], &rm ) )
+			{
+				m = i ;
+				rm = rs[i] ;
+			}
+		}
+		if( final && !arr.empty() && by_genome_coordinate()( arr[0], &rm ) ) {
+			m = -1 ;
+			rm = *arr[0] ;
+		}
 
-    for( deque< const Result* >::iterator i = arr.begin(), j = arr.end() ; i!=j ; ++i )
-    {
-	write_delimited_message( cos, 2, **i ) ;
-	delete *i ;
-    }
-    arr.clear() ;
-    total_arr_size = 0 ;
-    write_delimited_message( cos, 3, ftr ) ;
+		write_delimited_message( cos, 2, rm ) ;
+		if( m == -1 ) {
+			delete arr.front() ;
+			arr.pop_front() ;
+		} else {
+			rs[m] = que[m]->read_result() ;
+			if( !rs[m].has_seqid() ) {
+				merge_footer( que[m] ) ;
+				delete que[m] ;
+				que.erase( que.begin() + m ) ;
+				rs.erase( rs.begin() + m ) ;
+			}
+		}
+	}
+
+	for( deque< const Result* >::iterator i = arr.begin(), j = arr.end() ; i!=j ; ++i )
+	{
+		write_delimited_message( cos, 2, **i ) ;
+		delete *i ;
+	}
+	arr.clear() ;
+	total_arr_size = 0 ;
+	write_delimited_message( cos, 3, ftr ) ;
 }
 
 void flush_queue() {
