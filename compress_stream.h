@@ -1,22 +1,14 @@
 #ifndef INCLUDED_COMPRESS_STREAM_H
 #define INCLUDED_COMPRESS_STREAM_H
 
+#include "config.h"
 #include "util.h"
 
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <memory>
 #include <ostream>
 
-#include <zlib.h>
-#include <bzlib.h>
-
 #include <iostream>
-
-struct BzipError : public Exception {
-	int e_ ;
-	BzipError( int e ) : e_(e) { print_to( std::cerr ) ; }
-	void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
-} ;
 
 //! \brief decompression filter that doesn't actually decompress
 //! A placeholder for cases where a filter is needed that does nothing.
@@ -49,6 +41,9 @@ class IdOutputStream : public google::protobuf::io::ZeroCopyOutputStream
 		void BackUp( int count ) { is_->BackUp( count ) ; }
 		int64_t ByteCount() const { return is_->ByteCount() ; }
 } ;
+
+#if HAVE_LIBZ
+#include <zlib.h>
 
 //! \brief decompression filter that uses the zlib
 class InflateStream : public google::protobuf::io::ZeroCopyInputStream
@@ -138,6 +133,86 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 		virtual int64_t ByteCount() const { return total_ ; } 
 } ;
 
+class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
+{
+	private:
+		google::protobuf::io::ZeroCopyOutputStream *os_ ;
+
+		z_stream zs_ ;
+		Bytef ibuf_[15500] ;
+		int64_t total_ ;
+
+		bool next( void **data, int *size )
+		{
+			// anything in input buffer?  deflate more
+			while( zs_.avail_in )
+			{
+				// output buffer full?  try and flush it
+				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) )
+					return false ;
+
+				// deflate some; after that we either have room for input or
+				// need to flush more output (or we have an error)
+				int r = deflate( &zs_, Z_NO_FLUSH ) ;
+				if( r != Z_OK ) throw zs_.msg ;
+			}
+
+			zs_.next_in = ibuf_ ;
+			zs_.avail_in = sizeof( ibuf_ ) ;
+
+			*data = (void*)ibuf_ ;
+			*size = zs_.avail_in ;
+			total_ += zs_.avail_in ;
+			return true ;
+		}
+
+		void back_up( int count ) { zs_.avail_in -= count ; }
+
+	public:
+		DeflateStream( google::protobuf::io::ZeroCopyOutputStream *os, int level = Z_DEFAULT_COMPRESSION )
+			: os_(os), total_(0) 
+		{
+			zs_.zalloc = 0 ;
+			zs_.zfree = 0 ;
+			zs_.opaque = 0 ;
+			if( deflateInit2( &zs_, level, Z_DEFLATED, 15+16, 8, Z_DEFAULT_STRATEGY ) != Z_OK ) throw zs_.msg ;
+
+			zs_.next_in = 0 ;
+			zs_.avail_in = 0 ;
+			zs_.avail_out = 0 ;
+		}
+
+		virtual ~DeflateStream()
+		{
+			// compress whatever is left in buffer or internal state
+			for(;;)
+			{
+				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) ) break ;
+				int r = deflate( &zs_, Z_FINISH ) ;
+				if( r == Z_STREAM_END ) break ;
+				else if( r != Z_OK ) throw zs_.msg ;
+			} 
+			// give back leftover output buffer, free resources
+			if( zs_.avail_out ) os_->BackUp( zs_.avail_out ) ;
+			deflateEnd( &zs_ ) ;
+		}
+
+		virtual bool Next( void **data, int *size ) { return next( data, size ) ; }
+		virtual void BackUp( int count ) { back_up( count ) ; }
+		virtual int64_t ByteCount() const { return total_ ; }
+} ;
+
+#endif
+
+struct BzipError : public Exception {
+	int e_ ;
+	BzipError( int e ) : e_(e) { print_to( std::cerr ) ; }
+	void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
+} ;
+
+#if HAVE_LIBBZ2
+#include <bzlib.h>
+
 //! \brief decompression filter that uses the libbz2
 class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 {
@@ -222,82 +297,6 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 		virtual int64_t ByteCount() const { return (int64_t)zs_.total_out_hi32 << 32 | zs_.total_out_lo32 ; }
 } ;
 
-inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::io::ZeroCopyInputStream *s )
-{
-	try { return new BunzipStream( s ) ; } catch( ... ) {}
-	try { return new InflateStream( s ) ; } catch( ... ) {}
-	return new IdInputStream( s ) ;
-}
-
-class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
-{
-	private:
-		google::protobuf::io::ZeroCopyOutputStream *os_ ;
-
-		z_stream zs_ ;
-		Bytef ibuf_[15500] ;
-		int64_t total_ ;
-
-		bool next( void **data, int *size )
-		{
-			// anything in input buffer?  deflate more
-			while( zs_.avail_in )
-			{
-				// output buffer full?  try and flush it
-				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) )
-					return false ;
-
-				// deflate some; after that we either have room for input or
-				// need to flush more output (or we have an error)
-				int r = deflate( &zs_, Z_NO_FLUSH ) ;
-				if( r != Z_OK ) throw zs_.msg ;
-			}
-
-			zs_.next_in = ibuf_ ;
-			zs_.avail_in = sizeof( ibuf_ ) ;
-
-			*data = (void*)ibuf_ ;
-			*size = zs_.avail_in ;
-			total_ += zs_.avail_in ;
-			return true ;
-		}
-
-		void back_up( int count ) { zs_.avail_in -= count ; }
-
-	public:
-		DeflateStream( google::protobuf::io::ZeroCopyOutputStream *os, int level = Z_DEFAULT_COMPRESSION )
-			: os_(os), total_(0) 
-		{
-			zs_.zalloc = 0 ;
-			zs_.zfree = 0 ;
-			zs_.opaque = 0 ;
-			if( deflateInit2( &zs_, level, Z_DEFLATED, 15+16, 8, Z_DEFAULT_STRATEGY ) != Z_OK ) throw zs_.msg ;
-
-			zs_.next_in = 0 ;
-			zs_.avail_in = 0 ;
-			zs_.avail_out = 0 ;
-		}
-
-		virtual ~DeflateStream()
-		{
-			// compress whatever is left in buffer or internal state
-			for(;;)
-			{
-				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) ) break ;
-				int r = deflate( &zs_, Z_FINISH ) ;
-				if( r == Z_STREAM_END ) break ;
-				else if( r != Z_OK ) throw zs_.msg ;
-			} 
-			// give back leftover output buffer, free resources
-			if( zs_.avail_out ) os_->BackUp( zs_.avail_out ) ;
-			deflateEnd( &zs_ ) ;
-		}
-
-		virtual bool Next( void **data, int *size ) { return next( data, size ) ; }
-		virtual void BackUp( int count ) { back_up( count ) ; }
-		virtual int64_t ByteCount() const { return total_ ; }
-} ;
-
 class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 {
 	private:
@@ -368,16 +367,35 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 		virtual int64_t ByteCount() const { return ((int64_t)zs_.total_in_hi32 << 32) | zs_.total_in_lo32 ; }
 } ;
 
+#endif
+
+inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::io::ZeroCopyInputStream *s )
+{
+#if HAVE_LIBBZ2
+	try { return new BunzipStream( s ) ; } catch( ... ) {}
+#endif
+#if HAVE_LIBZ
+	try { return new InflateStream( s ) ; } catch( ... ) {}
+#endif
+	return new IdInputStream( s ) ;
+}
+
 inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::protobuf::io::ZeroCopyOutputStream *s )
 {
+#if HAVE_LIBBZ2
 	try { return new BzipStream( s ) ; } catch( ... ) {}
+#endif
+#if HAVE_LIBZ
 	try { return new DeflateStream( s, Z_BEST_COMPRESSION ) ; } catch( ... ) {}
+#endif
 	return new IdOutputStream( s ) ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_fast( google::protobuf::io::ZeroCopyOutputStream *s )
 {
+#if HAVE_LIBZ
 	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) {}
+#endif
 	return new IdOutputStream( s ) ;
 }
 

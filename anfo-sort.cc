@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include "compress_stream.h"
 #include "outputfile.h"
 #include "util.h"
@@ -11,7 +13,13 @@
 #include <deque>
 #include <iostream>
 
-#include <unistd.h>
+#if HAVE_UNISTD_H
+#  include <unistd.h>
+#endif
+
+#if HAVE_ALLOCA_H
+#  include <alloca.h>
+#endif
 
 using namespace google::protobuf::io ;
 using namespace std ;

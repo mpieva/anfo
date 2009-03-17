@@ -37,6 +37,7 @@
  * probably impractical anyway.)  
  */
 
+#include "config.h"
 #include "index.h"
 #include "util.h"
 #include "config.pb.h"
@@ -212,7 +213,7 @@ int main_( int argc, const char * argv[] )
 			break ;
 
 		case opt_version:
-			std::cout << poptGetInvocationName(pc) << ", revision " << VERSION << std::endl ;
+			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 
 		default:

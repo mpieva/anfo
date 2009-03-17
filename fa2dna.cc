@@ -36,6 +36,7 @@
  *       data base.
  */
 
+#include "config.h"
 #include "conffile.h"
 #include "config.pb.h"
 #include "index.h"
@@ -327,7 +328,7 @@ int main_( int argc, const char * argv[] )
 	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
 	{
 		case opt_version:
-			std::cout << poptGetInvocationName(pc) << ", revision " << VERSION << std::endl ;
+			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 
 		default:

@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include "align.h"
 #include "compress_stream.h"
 #include "conffile.h"
@@ -37,7 +39,7 @@ using namespace std ;
 using namespace google::protobuf::io ;
 
 volatile int exit_with = 0 ;
-extern "C" void sig_handler( int sig ) { exit_with = sig + 128 ; }
+extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
 //! \page anfo_executable Standalone ANFO executable
 //! This is work in progress; it may morph into an ANFO executable to be
@@ -411,7 +413,7 @@ int main_( int argc, const char * argv[] )
 			break ;
 
 		case opt_version:
-			std::cout << poptGetInvocationName(pc) << ", revision " << VERSION << std::endl ;
+			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 
 		default:
@@ -500,7 +502,7 @@ int main_( int argc, const char * argv[] )
 	google::protobuf::io::CodedOutputStream cos( zos.get() ) ;
 	cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = common_data.mi ;
-	ohdr.set_version( VERSION ) ;
+	ohdr.set_version( PACKAGE_VERSION ) ;
 	if( stride > 1 ) 
 	{
 		ohdr.set_sge_slicing_stride( stride ) ;

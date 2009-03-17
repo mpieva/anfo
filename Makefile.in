@@ -1,12 +1,24 @@
-svnversion := $(shell svnversion || basename $(PWD))
-version ?= $(svnversion)
+PACKAGE_TARNAME ?= @PACKAGE_TARNAME@
+prefix ?= @prefix@
+exec_prefix ?= @exec_prefix@
+datadir ?= @datadir@
+datarootdir ?= @datarootdir@
+docdir ?= @docdir@
 
-PROTOC ?= protoc
-LDLIBS += -lprotobuf -lpopt -lJudy -lpthread -lz -lbz2 -lm
-# LDFLAGS += -p
-CXXFLAGS += -Wall -MMD -DVERSION='"$(version)"'
-CXXFLAGS += -ggdb 
-# CXXFLAGS += -O3
+CXX ?= @CXX@
+CPP ?= @CPP@
+PROTOC ?= @PROTOC@
+INSTALL ?= @INSTALL@
+INSTALL_PROGRAM ?= @INSTALL_PROGRAM@
+INSTALL_SCRIPT ?= @INSTALL_SCRIPT@
+INSTALL_DATA ?= @INSTALL_DATA@
+
+LDLIBS ?= @LIBS@
+LDFLAGS ?= @LDFLAGS@
+CXXFLAGS ?= @CXXFLAGS@ -MMD
+DEFS ?= @DEFS@
+
+# CXXFLAGS += -ggdb 
 
 PROGS := fa2dna dnaindex file-info anfo-type anfo-standalone anfo-combine anfo-sort anfo2sam
 TARGETS := $(PROGS) index_test 
@@ -17,11 +29,15 @@ DATABASES := ../data/chr21.dna ../data/chr21_10.idx
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o gzstream.o outputfile.o
+OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o outputfile.o
 
-install: $(PROGS)
-	[ -d $(prefix) ] || install -d -m 755 $(prefix)
-	install -s -m 755 $(PROGS) $(prefix)
+install: $(PROGS) doc
+	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
+	$(INSTALL_PROGRAM) $(PROGS) @bindir@
+	test -d @docdir@ || $(INSTALL) -d -m 755 @docdir
+	$(INSTALL_DATA) README @docdir@
+	test -d @htmldir@/html || $(INSTALL) -d -m 755 @htmldir@/html
+	$(INSTALL_DATA) doc/html/* @htmldir@/html
 
 fa2dna.o: config.pb.h
 anfo2sam.o: output.pb.h
@@ -47,10 +63,10 @@ anfo-combine: output.pb.h
 	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
 
 %: %.o $(OBJECTS)
-	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS) 
+	$(CXX) $(DEFS) $(LDFLAGS) $^ -o $@ $(LDLIBS) 
  
 %.o: %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(DEFS) $(CXXFLAGS) -c $< -o $@
 
 %.pb.cc %.pb.h: %.proto
 	$(PROTOC) --cpp_out=$(*D) $<
