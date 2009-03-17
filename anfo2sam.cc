@@ -27,32 +27,15 @@
 #define BAM_FDUP        1024   // read is duplicate
 
 
-const char * decode_binCigar(std::string cigar){
-    std::string s;
-    char * tmp = (char*)calloc(3, sizeof(char));
+std::ostream& decode_binCigar(std::ostream& s, const std::string &cigar) {
 	for( size_t i = 0 ; i != cigar.size() ; ++i )
 	{
-		if( (uint8_t)cigar[i] == 0 )
-                    continue;
-		else if( (uint8_t)cigar[i] < 128 ){
-                    sprintf(tmp, "%d", ((uint8_t)cigar[i]));
-                    s.append(tmp);
-                    s.push_back('M');
-                }
-
-		else if( (uint8_t)cigar[i] < 192 ) {
-                    sprintf(tmp, "%d", ((uint8_t)cigar[i]) - 128);
-                    s.append(tmp);
-                    s.push_back('I');
-                }
-                else{
-                    sprintf(tmp, "%d", ((uint8_t)cigar[i]) - 192);
-                    s.append(tmp);
-                    s.push_back('D');
-                }
+		if( (uint8_t)cigar[i] == 0 ) continue;
+		else if( (uint8_t)cigar[i] < 128 ) s << (unsigned)cigar[i]       << 'M' ;
+		else if( (uint8_t)cigar[i] < 192 ) s << (unsigned)cigar[i] - 128 << 'I' ;
+		else                               s << (unsigned)cigar[i] - 192 << 'D' ;
 	}
-    free(tmp);
-    return s.c_str();
+    return s ;
 }
 
 int protoHit_2_bam_Hit(output::Result &result){
@@ -78,7 +61,7 @@ int protoHit_2_bam_Hit(output::Result &result){
 /*POS*/     std::cout << ( (hit.aln_length() >= 0)?hit.start_pos():(hit.start_pos() + hit.aln_length() + 1) ) << "\t";
 /*MAPQ*/    std::cout << "255" << "\t"; // TODO: calculate from e-value?
                                         // Nope!  calculate from diff_to_next
-/*CIGAR*/   std::cout << decode_binCigar(hit.cigar()) << "\t";
+/*CIGAR*/   decode_binCigar(std::cout, hit.cigar()) << "\t";
           // We don't have paired end reads
 /*MRNM*/    std::cout << "*" << "\t";
 /*MPOS*/    std::cout << "0" << "\t";
