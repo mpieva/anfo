@@ -10,6 +10,14 @@
 #include <zlib.h>
 #include <bzlib.h>
 
+#include <iostream>
+
+struct BzipError : public Exception {
+	int e_ ;
+	BzipError( int e ) : e_(e) { print_to( std::cerr ) ; }
+	void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
+} ;
+
 //! \brief decompression filter that doesn't actually decompress
 //! A placeholder for cases where a filter is needed that does nothing.
 //! Forwards all calls to another stream
@@ -133,13 +141,6 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 //! \brief decompression filter that uses the libbz2
 class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 {
-	public:
-		struct BzipError : public Exception {
-			int e_ ;
-			BzipError( int e ) : e_(e) {}
-			virtual void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
-		} ;
-
 	private:
 		google::protobuf::io::ZeroCopyInputStream *is_ ;
 
@@ -165,7 +166,7 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 				// when are we finished?  when we get BZ_STREAM_END, but
 				// we may still have a block to hand out
 				if( r == BZ_STREAM_END ) break ;
-				else if( r != BZ_OK ) throw BzipError( r ) ;
+				else if( r < BZ_OK ) throw BzipError( r ) ;
 			}
 
 			*data = (const void*)next_undelivered_ ;
@@ -203,7 +204,7 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 				zs_.bzfree = 0 ;
 				zs_.opaque = 0 ;
 				int r = BZ2_bzDecompressInit( &zs_, 0, 0 ) ;
-				if( r != BZ_OK ) throw BzipError( r ) ;
+				if( r < BZ_OK ) throw BzipError( r ) ;
 
 				zs_.next_in = (char*)p ;
 				zs_.avail_in = l ;
@@ -297,9 +298,79 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 		virtual int64_t ByteCount() const { return total_ ; }
 } ;
 
+class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
+{
+	private:
+		google::protobuf::io::ZeroCopyOutputStream *os_ ;
+
+		bz_stream zs_ ;
+		char ibuf_[15500] ;
+		// int64_t total_ ;
+
+		bool next( void **data, int *size )
+		{
+			// anything in input buffer?  deflate more
+			while( zs_.avail_in )
+			{
+				// output buffer full?  try and flush it
+				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) )
+					return false ;
+
+				// deflate some; after that we either have room for input or
+				// need to flush more output (or we have an error)
+				int r = BZ2_bzCompress( &zs_, BZ_RUN ) ;
+				if( r < BZ_OK ) throw BzipError( r ) ;
+			}
+
+			zs_.next_in = ibuf_ ;
+			zs_.avail_in = sizeof( ibuf_ ) ;
+
+			*data = (void*)ibuf_ ;
+			*size = zs_.avail_in ;
+			// total_ += zs_.avail_in ;
+			return true ;
+		}
+
+		void back_up( int count ) { zs_.avail_in -= count ; }
+
+	public:
+		BzipStream( google::protobuf::io::ZeroCopyOutputStream *os )
+			: os_(os) //, total_(0) 
+		{
+			zs_.bzalloc = 0 ;
+			zs_.bzfree = 0 ;
+			zs_.opaque = 0 ;
+			int r = BZ2_bzCompressInit( &zs_, 9, 0, 0 ) ;
+			if( r < BZ_OK ) throw BzipError( r ) ;
+
+			zs_.next_in = 0 ;
+			zs_.avail_in = 0 ;
+			zs_.avail_out = 0 ;
+		}
+
+		virtual ~BzipStream()
+		{
+			// compress whatever is left in buffer or internal state
+			for(;;)
+			{
+				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) ) break ;
+				int r = BZ2_bzCompress( &zs_, BZ_FINISH ) ;
+				if( r == BZ_STREAM_END ) break ;
+				else if( r < BZ_OK ) throw BzipError( r ) ;
+			} 
+			// give back leftover output buffer, free resources
+			if( zs_.avail_out ) os_->BackUp( zs_.avail_out ) ;
+			BZ2_bzCompressEnd( &zs_ ) ;
+		}
+
+		virtual bool Next( void **data, int *size ) { return next( data, size ) ; }
+		virtual void BackUp( int count ) { back_up( count ) ; }
+		virtual int64_t ByteCount() const { return ((int64_t)zs_.total_in_hi32 << 32) | zs_.total_in_lo32 ; }
+} ;
+
 inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::protobuf::io::ZeroCopyOutputStream *s )
 {
-	// try { return new BzipStream( s ) ; } catch( ... ) {}
+	try { return new BzipStream( s ) ; } catch( ... ) {}
 	try { return new DeflateStream( s, Z_BEST_COMPRESSION ) ; } catch( ... ) {}
 	return new IdOutputStream( s ) ;
 }
