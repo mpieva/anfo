@@ -495,7 +495,7 @@ int main_( int argc, const char * argv[] )
 			throw_errno_if_minus1( open( output_file_.c_str(), O_WRONLY | O_CREAT, 0666 ),
 				                   "opening", output_file_.c_str() ) : 1 ) ;
 	if( strcmp( output_file, "-" ) ) fos.SetCloseOnDelete( true ) ;
-	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_small( &fos ) ) ;
+	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
 
 	output::Header ohdr ;
 	// google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
