@@ -284,14 +284,14 @@ struct flat_alignment : public gen_alignment<flat_alignment> {
 } ;
 
 //! \brief checks whether an alignment is finished
-//! The typical alignment is finished iff either sequence hit a gap
-//! while doing the second half of an alignment.
+//! The typical alignment is finished iff  the query sequence hit a gap ! while
+//doing the second half of an alignment.
 //! \param s alignment state
 //! \return true iff the alignment is finished
 template< typename A > bool finished( const gen_alignment<A>& s )
 {
 	return (s.state & gen_alignment<A>::mask_dir) &&
-		( s.get_ref() == 0 || s.get_qry().ambicode == 0 ) ;
+		s.get_qry().ambicode == 0 ;
 }
 
 //! \brief greedily extends an alignment.

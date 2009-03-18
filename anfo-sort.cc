@@ -74,9 +74,8 @@ int mktempfile( std::string &name )
 	char *n1 = (char*)alloca( strlen(base) + strlen(suffix) + 1 ) ;
 	char *n2 = n1 ;
 	while( *base ) *n2++ = *base++ ;
-	while( *suffix ) *n2++ = *suffix ;
+	while( *suffix ) *n2++ = *suffix++ ;
 	*n2 = 0 ;
-
     int fd = throw_errno_if_minus1( mkstemp( n1 ), "making temp file" ) ;
 	name = n1 ;
 	return fd ;
@@ -103,9 +102,9 @@ void dump_arr() {
 		arr.clear() ;
 		total_arr_size = 0 ;
 		write_delimited_message( cos, 3, ftr ) ;
+		que.push_back( new AnfoFile( name, true ) ) ;
+		que.back()->read_header() ;
 	}
-    que.push_back( new AnfoFile( name, true ) ) ;
-    que.back()->read_header() ;
 }
 
 void merge_footer( AnfoFile* f ) 
@@ -117,7 +116,7 @@ void merge_all( int fd, bool final )
 {
 	FileOutputStream fos( fd ) ;
 	std::auto_ptr< ZeroCopyOutputStream > zos(
-			final ? compress_small( &fos ) : compress_fast( &fos ) ) ;
+                    final ? compress_small( &fos ) : compress_fast( &fos ) ) ;
 	CodedOutputStream cos( zos.get() ) ;
 	cos.WriteRaw( "ANFO", 4 ) ;
 	write_delimited_message( cos, 1 , hdr ) ;
@@ -181,14 +180,15 @@ void flush_queue() {
 	std::string name ;
     int fd = mktempfile( name ) ;
     FileOutputStream fos( fd ) ;
-    CodedOutputStream cos( &fos ) ;
+	fos.SetCloseOnDelete( true ) ;
+	std::auto_ptr< ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
+    CodedOutputStream cos( zos.get() ) ;
     hdr.set_is_sorted_by_coordinate( true ) ;
     cos.WriteRaw( "ANFO", 4 ) ;
     write_delimited_message( cos, 1, hdr ) ;
     clog << "merging to temp file" << endl ;
     merge_all( fd, false ) ;
     write_delimited_message( cos, 3, ftr ) ;
-    close( fd ) ;
     que.push_back( new AnfoFile( name, true ) ) ;
     que.back()->read_header() ;
 }
