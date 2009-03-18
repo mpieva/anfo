@@ -48,43 +48,65 @@ void print_str( const std::string& s )
 void add_alignment( std::string::const_iterator qry, output::Hit &h, const config::Config &conf, Genomes &genomes )
 {
 	CompactGenome &g = genomes[ h.genome() ] ;
-	if( !g.get_base() ) CompactGenome( h.genome(), conf, MADV_RANDOM ).swap( g ) ;
-
-	std::string &r = *h.mutable_ref(), &q = *h.mutable_qry(), &c = *h.mutable_con() ;
-	r.clear() ; q.clear() ; c.clear() ;
-	DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ; 
-	if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
-
-	for( size_t i = 0 ; i != h.cigar().size() ; ++i )
+	if( !g.get_base() ) 
 	{
-		if( (uint8_t)h.cigar()[i] == 0 ) {
-			r.push_back('~') ;
-			q.push_back('~') ;
-			c.push_back('~') ;
-		}
-		else if( (uint8_t)h.cigar()[i] < 128 ) for( size_t j = 0 ; j != (uint8_t)h.cigar()[i] ; ++j ) {
-			r.push_back( from_ambicode( *ref ) ) ;
-			q.push_back( *qry ) ;
-			c.push_back( from_ambicode( *ref ) == *qry ? '*' : ' ' ) ;
-			++ref; ++qry ;
-		}
-		else if( (uint8_t)h.cigar()[i] < 192 ) for( size_t j = 128 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
-			r.push_back( '-' ) ;
-			q.push_back( *qry ) ;
-			c.push_back( ' ' ) ;
-		}
-		else for( size_t j = 192 ; j != (uint8_t)h.cigar()[i] ; ++j, ++ref ) {
-			r.push_back( from_ambicode( *ref ) ) ;
-			q.push_back( '-' ) ;
-			c.push_back( ' ' ) ;
+		try { CompactGenome( h.genome(), conf, MADV_RANDOM ).swap( g ) ; }
+		catch(...) { /* too bad, we'll make do without a genome */ }
+	}
+
+	if( g.get_base() ) 
+	{
+		std::string &r = *h.mutable_ref(), &q = *h.mutable_qry(), &c = *h.mutable_con() ;
+		r.clear() ; q.clear() ; c.clear() ;
+		DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ; 
+		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
+
+		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
+		{
+			if( (uint8_t)h.cigar()[i] == 0 ) {
+				r.push_back('~') ;
+				q.push_back('~') ;
+				c.push_back('~') ;
+			}
+			else if( (uint8_t)h.cigar()[i] < 128 ) for( size_t j = 0 ; j != (uint8_t)h.cigar()[i] ; ++j ) {
+				r.push_back( from_ambicode( *ref ) ) ;
+				q.push_back( *qry ) ;
+				c.push_back( from_ambicode( *ref ) == *qry ? '*' : ' ' ) ;
+				++ref; ++qry ;
+			}
+			else if( (uint8_t)h.cigar()[i] < 192 ) for( size_t j = 128 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
+				r.push_back( '-' ) ;
+				q.push_back( *qry ) ;
+				c.push_back( ' ' ) ;
+			}
+			else for( size_t j = 192 ; j != (uint8_t)h.cigar()[i] ; ++j, ++ref ) {
+				r.push_back( from_ambicode( *ref ) ) ;
+				q.push_back( '-' ) ;
+				c.push_back( ' ' ) ;
+			}
 		}
 	}
-	// r.push_back('\n') ;
-	// q.push_back('\n') ;
-	// c += "\n\n\n" ;
-	// print_str( r ) ;
-	// print_str( q ) ;
-	// print_str( c ) ;
+	else
+	{
+		std::string &q = *h.mutable_qry() ;
+		q.clear() ;
+
+		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
+		{
+			if( (uint8_t)h.cigar()[i] == 0 ) {
+				q.push_back('~') ;
+			}
+			else if( (uint8_t)h.cigar()[i] < 128 ) for( size_t j = 0 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
+				q.push_back( *qry ) ;
+			}
+			else if( (uint8_t)h.cigar()[i] < 192 ) for( size_t j = 128 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
+				q.push_back( *qry ) ;
+			}
+			else for( size_t j = 192 ; j != (uint8_t)h.cigar()[i] ; ++j ) {
+				q.push_back( '-' ) ;
+			}
+		}
+	}
 }
 
 int main_( int argc, const char** argv )
