@@ -5,6 +5,7 @@
  * Created on March 13, 2009, 1:58 PM
  */
 
+#include <cmath>
 #include <stdlib.h>
 #include "output.pb.h"
 #include <iostream>
@@ -38,6 +39,15 @@ std::ostream& decode_binCigar(std::ostream& s, const std::string &cigar) {
     return s ;
 }
 
+// About MAPQ: this is supposed to be the "quality of the mapping",
+// which we interpret as confidence in the aligned position.  We can
+// infer this from the score of the best and the second best alignment:
+// if the difference is D, then the best alignment is exp(D/10) times
+// more likely than the second best.  The SAM documentation hints that
+// this is exactly the quantity they want to encode in MAPQ, so all we
+// need to do is rescale it (from natural to decadic logarithm).  If
+// there is no second hit, we'll assume a "perfect" mapping by writing
+// out a 255.
 int protoHit_2_bam_Hit(output::Result &result){
 
     // I need exactly one hit   (!XOR)
@@ -47,20 +57,21 @@ int protoHit_2_bam_Hit(output::Result &result){
     if (!result.has_seqid())
         return (EXIT_FAILURE);
 
-    if (!result.has_quality())
-        return (EXIT_FAILURE);
-
     if (!result.has_sequence())
         return (EXIT_FAILURE);
 
+	// XXX 
+	// Either one of those two is fine, depending on what we actually
+	// want.  mixing them is probably wrong.  (But right now it's okay,
+	// since only best_to_genome will ever be present.)
     output::Hit hit = (result.has_best_hit())?result.best_hit():result.best_to_genome();
 
 /*QNAME*/   std::cout << result.seqid() << "\t";
 /*FLAG */   std::cout << ((hit.aln_length() < 0)?(BAM_FREVERSE):(0)) << "\t";  // TODO: calc flag
 /*RNAME*/   std::cout << hit.sequence() << "\t";
 /*POS*/     std::cout << ( (hit.aln_length() >= 0)?hit.start_pos():(hit.start_pos() + hit.aln_length() + 1) ) << "\t";
-/*MAPQ*/    std::cout << "255" << "\t"; // TODO: calculate from e-value?
-                                        // Nope!  calculate from diff_to_next
+/*MAPQ*/   	std::cout << ( result.has_diff_to_next() 
+					? (int)( 0.5 + result.diff_to_next() / std::log(10.0) ) : 255 ) << '\t' ;
 /*CIGAR*/   decode_binCigar(std::cout, hit.cigar()) << "\t";
           // We don't have paired end reads
 /*MRNM*/    std::cout << "*" << "\t";
@@ -68,8 +79,11 @@ int protoHit_2_bam_Hit(output::Result &result){
 /*ISIZE*/   std::cout << "0" << "\t";
 
 /*SEQ*/     std::cout << result.sequence() << "\t";
-            for (size_t i = 0; i < result.quality().size(); i++)
-/*QUAL*/        std::cout << char((uint8_t)result.quality()[i] + 33);
+/*QUAL*/    if( result.has_quality() )
+				for (size_t i = 0; i < result.quality().size(); i++)
+					std::cout << char((uint8_t)result.quality()[i] + 33);
+			else
+				std::cout << '*' ;
 
 /*[TAGS]*/
 
