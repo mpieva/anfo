@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(anfo, 0.7.x, udo_stenzel@eva.mpg.de)
+AC_INIT([anfo], esyscmd([svnversion -n]), [udo_stenzel@eva.mpg.de])
 AC_CONFIG_SRCDIR([util.cc])
 AC_CONFIG_HEADER([config.h])
 
@@ -10,15 +10,16 @@ AC_CONFIG_HEADER([config.h])
 AC_PROG_CXX
 AC_PROG_CC
 AC_PROG_INSTALL
-AC_ARG_VAR([PROTOC], [path to google protobuf compiler])
 AC_PATH_PROG([PROTOC], [protoc])
+AC_PATH_PROG([DOXYGEN], [doxygen])
+AC_SUBST(PROTOC)
+AC_SUBST(DOXYGEN)
 
 # Checks for libraries.
 AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
 AC_CHECK_LIB([m], [exp])
 AC_CHECK_LIB([popt], [poptGetContext])
-# FIXME: Replace `main' with a function in `-lprotobuf':
 AC_CHECK_LIB([protobuf], [main])
 AC_CHECK_LIB([pthread], [pthread_create])
 AC_CHECK_LIB([z], [deflate])

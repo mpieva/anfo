@@ -8,6 +8,7 @@ docdir ?= @docdir@
 CXX ?= @CXX@
 CPP ?= @CPP@
 PROTOC ?= @PROTOC@
+DOXYGEN ?= @DOXYGEN@
 INSTALL ?= @INSTALL@
 INSTALL_PROGRAM ?= @INSTALL_PROGRAM@
 INSTALL_SCRIPT ?= @INSTALL_SCRIPT@
@@ -31,13 +32,16 @@ dbs: $(DATABASES)
 
 OBJECTS := config.pb.o output.pb.o util.o index.o sequence.o align.o outputfile.o
 
-install: $(PROGS) doc
+install: $(PROGS) $(if $(DOXYGEN),install_doc)
 	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
 	$(INSTALL_PROGRAM) $(PROGS) @bindir@
-	test -d @docdir@ || $(INSTALL) -d -m 755 @docdir
+	test -d @docdir@ || $(INSTALL) -d -m 755 @docdir@
 	$(INSTALL_DATA) README @docdir@
+
+install_doc: doc/html/index.html
 	test -d @htmldir@/html || $(INSTALL) -d -m 755 @htmldir@/html
 	$(INSTALL_DATA) doc/html/* @htmldir@/html
+
 
 fa2dna.o: config.pb.h
 anfo2sam.o: output.pb.h
@@ -77,8 +81,8 @@ anfo-combine: output.pb.h
 .PHONY: clean all doc
 .SUFFIXES:
 
-doc:
-	doxygen
+doc/html/index.html: Doxyfile *.cc *.h
+	$(DOXYGEN)
 
 tags: *.cc *.h
 	-ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
