@@ -32,11 +32,25 @@ std::ostream& decode_binCigar(std::ostream& s, const std::string &cigar) {
 	for( size_t i = 0 ; i != cigar.size() ; ++i )
 	{
 		if( (uint8_t)cigar[i] == 0 ) continue;
-		else if( (uint8_t)cigar[i] < 128 ) s << (unsigned)cigar[i]       << 'M' ;
-		else if( (uint8_t)cigar[i] < 192 ) s << (unsigned)cigar[i] - 128 << 'I' ;
-		else                               s << (unsigned)cigar[i] - 192 << 'D' ;
+		else if( (uint8_t)cigar[i] < 128 ) s << (unsigned)(uint8_t)cigar[i]       << 'M' ;
+		else if( (uint8_t)cigar[i] < 192 ) s << (unsigned)(uint8_t)cigar[i] - 128 << 'I' ;
+		else                               s << (unsigned)(uint8_t)cigar[i] - 192 << 'D' ;
 	}
     return s ;
+}
+
+// About len: since we're doing semi-global alignments, it is actually
+// an error if the sequence length and the effective len from the cigar
+// do not match.  However, files with such errors exist, so we need to
+// filter out those faulty alignments.
+int len_from_bin_cigar( const std::string& cigar ) {
+	int l = 0 ;
+	for( size_t i = 0 ; i != cigar.size() ; ++i )
+	{
+		if( (uint8_t)cigar[i] < 128 ) l += (uint8_t)cigar[i] ;
+		else if( (uint8_t)cigar[i] < 192 ) l += (unsigned)(uint8_t)cigar[i] - 128 ;
+	}
+	return l ;
 }
 
 // About MAPQ: this is supposed to be the "quality of the mapping",
@@ -65,6 +79,9 @@ int protoHit_2_bam_Hit(output::Result &result){
 	// want.  mixing them is probably wrong.  (But right now it's okay,
 	// since only best_to_genome will ever be present.)
     output::Hit hit = (result.has_best_hit())?result.best_hit():result.best_to_genome();
+
+	if (len_from_bin_cigar(hit.cigar()) != result.sequence().length())
+		return (EXIT_FAILURE);
 
 /*QNAME*/   std::cout << result.seqid() << "\t";
 /*FLAG */   std::cout << ((hit.aln_length() < 0)?(BAM_FREVERSE):(0)) << "\t";  // TODO: calc flag
@@ -115,7 +132,7 @@ int main_( int argc, const char * argv[] ){
     }
 
     if (discarded)
-        std::cerr << discarded << " reads could not been converted!" << std::endl;
+        std::cerr << discarded << " reads could not be converted!" << std::endl;
 
     return (EXIT_SUCCESS);
 }
