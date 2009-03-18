@@ -16,13 +16,13 @@ AC_SUBST(PROTOC)
 AC_SUBST(DOXYGEN)
 
 # Checks for libraries.
-AC_CHECK_LIB([Judy], [Judy1Set])
-AC_CHECK_LIB([bz2], [BZ2_bzCompress])
 AC_CHECK_LIB([m], [exp])
+AC_CHECK_LIB([pthread], [pthread_create])
+AC_CHECK_LIB([Judy], [Judy1Set])
+AC_CHECK_LIB([z], [deflate])
+AC_CHECK_LIB([bz2], [BZ2_bzCompress])
 AC_CHECK_LIB([popt], [poptGetContext])
 AC_CHECK_LIB([protobuf], [main])
-AC_CHECK_LIB([pthread], [pthread_create])
-AC_CHECK_LIB([z], [deflate])
 
 # Checks for header files.
 AC_HEADER_STDC
