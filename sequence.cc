@@ -42,23 +42,25 @@ class Reader {
 	public:
 		Reader( google::protobuf::io::ZeroCopyInputStream *zis ) : zis_(zis) {
 			const void *p ;
-			if( zis_->Next( &p, &len_ ) ) buf_ = (char*)p ;
-			else buf_ = 0 ;
+			do {
+				buf_ = zis_->Next( &p, &len_ ) ? (char*)p : 0 ;
+			} while( buf_ && !len_ ) ;
 		}
 		~Reader() { if( len_ && buf_ ) zis_->BackUp( len_ ) ; }
 
 		operator const void* () const { return buf_ ; }
 		char peek() const { return buf_ ? *buf_ : 0 ; }
 		char get() { 
-			const void *p ;
 			if( !buf_ ) return 0 ;
-			for(;;) {
-				if( len_-- ) return *buf_++ ;
-				if( !zis_->Next( &p, &len_ ) ) break ; 
-				buf_ = (char*)p ;
-			} 
-			buf_ = 0 ;
-			return 0 ;
+
+			const void *p ;
+			char r = *buf_++ ;
+			--len_ ;
+
+			while( buf_ && !len_ ) {
+				buf_ = zis_->Next( &p, &len_ ) ? (char*)p : 0 ;
+			}
+			return r ;
 		}
 } ;
 

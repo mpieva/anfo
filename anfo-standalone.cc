@@ -52,7 +52,7 @@ extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
 //! multithreading as long as not the whole index is cached in memory.
 //! The exception is that some hostile environments (Sun Grid Engine)
 //! tend to frown upon multithreaded programs with nontrivial memory
-//! consumtion.  Therefore, the -p (--threads) option can request any
+//! consumption.  Therefore, the -p (--threads) option can request any
 //! number of worker threads, and you get two IO threads in addition.
 //! Setting -p 1 gives you one worker and two IOs, but as a special
 //! case, -p 0 turns off multithreading altogether.
@@ -61,10 +61,8 @@ extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
-//! \todo GZipped input is a bit awkward and gzipped output would be
-//!       beautiful, too.
 //! \todo Memory management and pointer/reference conventions are
-//! somewhat wonky in here.  Deserves a thourough audit.
+//!       somewhat wonky in here.  Deserves a thourough audit.
 
 Policy select_policy( const Config &c, const QSequence &ps )
 {
@@ -417,7 +415,7 @@ int main_( int argc, const char * argv[] )
 			return 0 ;
 
 		default:
-			std::cerr << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
+			std::clog << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 	}
@@ -488,9 +486,6 @@ int main_( int argc, const char * argv[] )
 	std::string output_file_ = output_file ;
 	output_file_ += ".#new#" ;
 
-	// ofstream output_file_stream ;
-	// ostream& output_stream = strcmp( output_file, "-" ) ?
-		// (output_file_stream.open( output_file_.c_str() ), output_file_stream) : cout ;
 	google::protobuf::io::FileOutputStream fos( strcmp( output_file, "-" ) ?
 			throw_errno_if_minus1( open( output_file_.c_str(), O_WRONLY | O_CREAT, 0666 ),
 				                   "opening", output_file_.c_str() ) : 1 ) ;
@@ -498,7 +493,6 @@ int main_( int argc, const char * argv[] )
 	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
 
 	output::Header ohdr ;
-	// google::protobuf::io::OstreamOutputStream oos( &output_stream ) ;
 	google::protobuf::io::CodedOutputStream cos( zos.get() ) ;
 	cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = common_data.mi ;
@@ -593,7 +587,7 @@ int main_( int argc, const char * argv[] )
 
 	clog << endl ;
 	output::Footer ofoot ;
-	if( exit_with ) ofoot.set_exit_code( exit_with ) ;
+	ofoot.set_exit_code( exit_with ) ;
 	write_delimited_message( cos, 3, ofoot ) ;
 
 	if( !exit_with && strcmp( output_file, "-" ) )

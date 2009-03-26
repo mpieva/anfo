@@ -1,5 +1,7 @@
 import "config.proto" ;
 
+option optimize_for = SPEED ;
+
 package output ;
 
 message Header {
@@ -35,7 +37,7 @@ message Header {
 }
 
 message Footer {
-	optional uint32 exit_code = 1 ;
+	required uint32 exit_code = 1 ;
 }
 
 // Result hits... all very ad-hoc and ugly.  We need:
@@ -141,8 +143,8 @@ message Result {
     optional string sequence = 2 ;
 
     // number of bases trimmed at 5' (at 3') end if trimming was done
-    optional int32 trim_left = 11 [ default = 0 ] ;
-    optional int32 trim_right = 12 [ default = 0 ] ;
+    optional uint32 trim_left = 11 [ default = 0 ] ;
+    optional uint32 trim_right = 12 [ default = 0 ] ;
 
     // Reason we arrived at this result
     optional Reason reason = 10 [ default = aligned ] ;
