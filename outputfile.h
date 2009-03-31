@@ -65,36 +65,44 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 class AnfoFile
 {
 	private:
-		std::string name_ ;
-		int fd_ ;
 		google::protobuf::io::FileInputStream iis_ ;
 		std::auto_ptr<google::protobuf::io::ZeroCopyInputStream> zis_ ;
-		bool legacy_ ;
 		bool error_ ;
-		bool unlink_on_delete_ ;
+		std::string name_ ;
 		output::Footer foot_ ;
 
+		void check_valid_file() ;
+
 	public: 
-		AnfoFile( const std::string& name, bool unlink_on_delete = false ) ;
-		~AnfoFile() ;
+		//! \brief opens the named file
+		AnfoFile( const std::string& name ) ;
+
+		//! \brief uses a given name and filedescriptor
+		//! No actual file is touched, the name for informational
+		//! purposes only.
+		AnfoFile( const std::string& name, int fd ) ;
 
 		//! \brief reads the header messages
-		//! This must be called first after constructing the object
+		//! This must be called first after constructing the object.  If
+		//! the first message is not a header, an error results.
 		output::Header read_header() ;
 
 		//! \brief reads a result message
 		//! This should be called repeatedly after having read the
 		//! header.  If no more messages follow, an empty Result is
-		//! returned.  Valid Results from ANFO files will always have a
-		//! seq_id.
+		//! returned (and the footer is stored).  Valid Results from
+		//! ANFO files will always have a seq_id.
 		output::Result read_result() ;
 
 		//! \brief reads the footer message
 		//! This can only be called after all Result messages have been
 		//! consumed.  If an error occured during parsing, the exit_code
-		//! inside the footer message will have its 1 bit set.
+		//! inside the footer message will have its LSB set.
 		output::Footer read_footer() { if( error_ ) foot_.set_exit_code( 1 | foot_.exit_code() ) ; return foot_ ; }
 } ;
 
+void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
+void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
+void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 
 #endif
