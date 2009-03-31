@@ -661,7 +661,7 @@ State find_cheapest(
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
 		++iter ;
-		if( /*report_success &*/ iter % 10000000 == 0 ) {
+		if( report_success && iter % 10000000 == 0 ) {
 			std::clog 
 				<< "\n\33[KAfter " << iter << " expansions, open list contains "
 				<< open_list.size() << " nodes, and " << deep_count( closed_list )

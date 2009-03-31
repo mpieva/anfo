@@ -53,6 +53,10 @@ int len_from_bin_cigar( const std::string& cigar ) {
 	return l ;
 }
 
+enum bad_stuff { goodness = 0, no_hit, multiple_hits, no_seqid, no_seq, bad_cigar, bad_stuff_max } ; 
+const char *descr[] = { 0, "had no hit", "had multiple hits", "missed the sequence id"
+	                  , "missed the sequence", "had a bad CIGAR" } ;
+
 // About MAPQ: this is supposed to be the "quality of the mapping",
 // which we interpret as confidence in the aligned position.  We can
 // infer this from the score of the best and the second best alignment:
@@ -62,17 +66,12 @@ int len_from_bin_cigar( const std::string& cigar ) {
 // need to do is rescale it (from natural to decadic logarithm).  If
 // there is no second hit, we'll assume a "perfect" mapping by writing
 // out a 255.
-int protoHit_2_bam_Hit(output::Result &result){
+bad_stuff protoHit_2_bam_Hit(output::Result &result){
 
-    // I need exactly one hit   (!XOR)
-    if (result.has_best_hit() == result.has_best_to_genome())
-        return (EXIT_FAILURE);
-
-    if (!result.has_seqid())
-        return (EXIT_FAILURE);
-
-    if (!result.has_sequence())
-        return (EXIT_FAILURE);
+    if (!result.has_best_hit() && !result.has_best_to_genome()) return no_hit ;
+    if (result.has_best_hit() && result.has_best_to_genome()) return multiple_hits ;
+    if (!result.has_seqid()) return no_seqid;
+    if (!result.has_sequence()) return no_seq;
 
 	// XXX 
 	// Either one of those two is fine, depending on what we actually
@@ -80,8 +79,7 @@ int protoHit_2_bam_Hit(output::Result &result){
 	// since only best_to_genome will ever be present.)
     output::Hit hit = (result.has_best_hit())?result.best_hit():result.best_to_genome();
 
-	if (len_from_bin_cigar(hit.cigar()) != result.sequence().length())
-		return (EXIT_FAILURE);
+	if (len_from_bin_cigar(hit.cigar()) != result.sequence().length()) return bad_cigar ;
 
 /*QNAME*/   std::cout << result.seqid() << "\t";
 /*FLAG */   std::cout << ((hit.aln_length() < 0)?(BAM_FREVERSE):(0)) << "\t";  // TODO: calc flag
@@ -105,7 +103,7 @@ int protoHit_2_bam_Hit(output::Result &result){
 /*[TAGS]*/
 
     std::cout << std::endl;
-    return (EXIT_SUCCESS);
+    return goodness ;
 }
 
 
@@ -123,16 +121,17 @@ int main_( int argc, const char * argv[] ){
     f_anfo.read_header();
     output::Result res = f_anfo.read_result();
 
-    int discarded = 0;
+    int discarded[bad_stuff_max] = {0};
     while (res.has_seqid()) {
-        if (protoHit_2_bam_Hit(res) != EXIT_SUCCESS)
-            discarded++;
+        if (bad_stuff r = protoHit_2_bam_Hit(res))
+            discarded[r]++;
 
         res = f_anfo.read_result();
     }
 
-    if (discarded)
-        std::cerr << discarded << " reads could not be converted!" << std::endl;
+	for( int b = 1 ; b != bad_stuff_max ; ++b )
+		if (discarded[b])
+			std::cerr << discarded[b] << " reads " << descr[b] << std::endl;
 
     return (EXIT_SUCCESS);
 }
