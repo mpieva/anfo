@@ -49,9 +49,16 @@ int do_aln( const CompactGenome& g, const QSequence& ps, const vector<Seed>& see
 	deque<alignment_type> ol ;
 	typename alignment_type::ClosedSet cl ;
 	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-	alignment_type best = find_cheapest( ol, cl, std::numeric_limits<uint32_t>::max(), true ) ;
 
-	cout << "Done near " << best.reference.abs() - g.get_base() << " costing " << best.penalty << ':' << endl ;
+	uint32_t n_open, n_closed, n_dup ;
+	alignment_type best = find_cheapest(
+			ol, cl, std::numeric_limits<uint32_t>::max(),
+			&n_open, &n_closed, &n_dup ) ;
+
+	cout << "Done near " << best.reference.abs() - g.get_base()
+		 << " costing " << best.penalty << "; open list contains "
+		 << n_open << " nodes, " << n_closed << " nodes are closed, "
+		 << n_dup << " of which are still tracked." << endl ;
 
 	deque< pair< alignment_type, const alignment_type* > > ol_ ;
 	reset( best ) ;

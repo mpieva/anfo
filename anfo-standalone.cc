@@ -221,9 +221,12 @@ int index_sequence( CommonData *cd, QSequence &ps, output::Result *r, std::deque
 
 void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result *r )
 {
-	uint32_t max_penalty = (uint32_t)( max_penalty_per_nuc * ps->length() ) ;
+	uint32_t o, c, t, max_penalty = (uint32_t)( max_penalty_per_nuc * ps->length() ) ;
 	alignment_type::ClosedSet cl ;
-	alignment_type best = find_cheapest( ol, cl, max_penalty ) ;
+	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &t ) ;
+	r->set_open_nodes_after_alignment( o ) ;
+	r->set_closed_nodes_after_alignment( c ) ;
+	r->set_tracked_closed_nodes_after_alignment( t ) ;
 	if( !best )
 	{
 		r->set_reason( output::bad_alignment ) ;

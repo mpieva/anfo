@@ -632,7 +632,9 @@ State find_cheapest(
 		std::deque< State > &open_list, 
 		typename State::ClosedSet &closed_list,
 		uint32_t max_penalty = std::numeric_limits<uint32_t>::max(),
-		bool report_success = false )
+		uint32_t *open_nodes_after_alignment = 0,
+		uint32_t *closed_nodes_after_alignment = 0,
+		uint32_t *tracked_closed_nodes_after_alignment = 0 )
 {
 	int iter = 0 ;
 	while( !open_list.empty() )
@@ -646,22 +648,19 @@ State find_cheapest(
 			set_bit( closed_list, s ) ;
 			if( finished( s ) )
 			{
-				int dups = 0 ;
-				for( size_t i = 0 ; i != open_list.size() ; ++i )
-					if( is_present( closed_list, open_list[i] ) ) ++dups ;
-
-				if( report_success ) std::clog
-						<< "Finished alignment, open list contains "
-						<< open_list.size() << " nodes, " << deep_count( closed_list )
-						<< " nodes are closed, " << dups << " of which are still tracked."
-						<< std::endl ;
-				
+				if( open_nodes_after_alignment ) *open_nodes_after_alignment = open_list.size() ;
+				if( closed_nodes_after_alignment ) * closed_nodes_after_alignment = deep_count( closed_list ) ;
+				if( tracked_closed_nodes_after_alignment ) {
+					int dups = 0 ;
+					for( size_t i = 0 ; i != open_list.size() ; ++i )
+						if( is_present( closed_list, open_list[i] ) ) ++dups ;
+					*tracked_closed_nodes_after_alignment = dups ;
+				}
 				return s ;
 			}
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
-		++iter ;
-		if( report_success && iter % 10000000 == 0 ) {
+		if( ++iter % 10000000 == 0 ) {
 			std::clog 
 				<< "\n\33[KAfter " << iter << " expansions, open list contains "
 				<< open_list.size() << " nodes, and " << deep_count( closed_list )
