@@ -95,6 +95,8 @@ class FileStream : public Stream
 		virtual output::Header read_header() { return file_.read_header() ; }
 		virtual output::Result read_result() { return file_.read_result() ; }
 		virtual output::Footer read_footer() { return file_.read_footer() ; }
+
+		static int num_open_files() { return num_files_ ; }
 } ;
 
 int FileStream::num_files_ = 0 ;
@@ -113,9 +115,9 @@ class MergeStream : public Stream
 		MergeStream() {}
 		virtual ~MergeStream() { std::for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
 
-		void add_stream( std::auto_ptr< Stream > s )
+		void add_stream( const Header& hdr, std::auto_ptr< Stream > s )
 		{
-			merge_sensibly( hdr_, s->read_header() ) ;
+			merge_sensibly( hdr_, hdr ) ;
 			rs_.push_back( s->read_result() ) ;
 			if( rs_.back().has_seqid() )
 			{
@@ -300,8 +302,9 @@ template< typename I > class StreamAdapter : public Stream
 
 // keep queues of streams ordered and separate, so we don't merge the
 // same stuff repeatedly
-typedef std::map< int, std::deque< Stream* > > MergeableQueue ;
-MergeableQueue mergeable_queue ;
+typedef std::deque< std::pair< Header, Stream* > > MergeableQueue ;
+typedef std::map< int, MergeableQueue > MergeableQueues ;
+MergeableQueues mergeable_queues ;
 
 typedef std::deque< Result* > ScratchSpace ;
 ScratchSpace scratch_space ;
@@ -311,7 +314,7 @@ int64_t total_scratch_size = 0 ;
 
 void sort_scratch() {
     if( scratch_space.size() > 1 )
-		clog << "sorting " << scratch_space.size() << " results in memory" << endl ;
+		clog << "Sorting " << scratch_space.size() << " results in memory" << endl ;
     sort( scratch_space.begin(), scratch_space.end(), by_genome_coordinate() ) ;
 }
 
@@ -334,7 +337,7 @@ int mktempfile( std::string &name )
 	return fd ;
 }
 
-void enqueue_stream( Stream* ) ;
+void enqueue_stream( auto_ptr<Stream>, int = 0 ) ;
 
 void flush_scratch() {
 	sort_scratch() ;
@@ -345,7 +348,8 @@ void flush_scratch() {
 		sa( scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ;
 	clog << "Writing to tempfile" << endl ;
 	write_stream_to_file( fd, sa ) ;
-	enqueue_stream( new FileStream( tempname.c_str() ) ) ;
+	auto_ptr<Stream> fs( new FileStream( tempname.c_str() ) ) ;
+	enqueue_stream( fs ) ;
 	unlink( tempname.c_str() ) ;
 
 	std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
@@ -353,54 +357,49 @@ void flush_scratch() {
 	total_scratch_size = 0 ;
 }
 
-
-//! \todo if too many files become opened, merge sensibly
-//! \todo only *sorted* streams must be enqueued, so whenever an
-//! *unsorted* stream is enqueued, we immediately read it into
-//! scratch_space, creating temporary files as necessary to keep memory
-//! usage down.
-void enqueue_stream( Stream* s ) 
+void enqueue_stream( std::auto_ptr<Stream> s, int level ) 
 {
-	/*
-	Header h = f->read_header() ;
-	hdr.MergeFrom( h ) ;
+	Header h = s->read_header() ;
 	if( h.is_sorted_by_coordinate() ) {
-	    que.push_back( f ) ;
-	    if( que.size() == max_que_size ) flush_queue() ;
-	} else {
-	    clog << "reading " << *arg << endl ;
-	    for(;;) {
-		Result r = f->read_result() ;
-		if( !r.has_seqid() ) break ;
-		arr.push_back( new Result( r ) ) ;
-		total_arr_size += r.SpaceUsed() ;
-		if( total_arr_size >= max_arr_size ) {
-		    dump_arr() ;
-		    if( que.size() == max_que_size ) flush_queue() ;
+		mergeable_queues[ level ].push_back( make_pair( h, s.release() ) ) ;
+
+		if( FileStream::num_open_files() > max_que_size ) {
+			// get the biggest bin, we'll merge everything below that
+			int max_bin = 0 ;
+			for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
+					i != mergeable_queues.end() ; ++i ) 
+				if( i->second.size() > max_bin )
+					max_bin = i->first ;
+
+			MergeStream ms ;
+			for( MergeableQueues::iterator i = mergeable_queues.begin() ; i->first <= max_bin ; ++i ) 
+			{
+				for( size_t j = 0 ; j != i->second.size() ; ++j )
+					ms.add_stream( i->second[j].first, auto_ptr<Stream>( i->second[j].second ) ) ;
+				i->second.clear() ;
+			}
+
+			std::string fname ;
+			int fd = mktempfile( fname ) ;
+			write_stream_to_file( fd, ms ) ;
+			auto_ptr<Stream> fs( new FileStream( fname.c_str() ) ) ;
+			enqueue_stream( fs, max_bin + 1 ) ;
+			unlink( fname.c_str() ) ;
 		}
-	    }
 	}
-	*/
+	else
+	{
+		scratch_header.MergeFrom( h ) ;
+		for(;;) {
+			Result r = s->read_result() ;
+			if( !r.has_seqid() ) break ;
 
-
-/*
-void flush_queue() {
-	std::string name ;
-    int fd = mktempfile( name ) ;
-    FileOutputStream fos( fd ) ;
-	fos.SetCloseOnDelete( true ) ;
-	std::auto_ptr< ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
-    CodedOutputStream cos( zos.get() ) ;
-    hdr.set_is_sorted_by_coordinate( true ) ;
-    cos.WriteRaw( "ANFO", 4 ) ;
-    write_delimited_message( cos, 1, hdr ) ;
-    clog << "merging to temp file" << endl ;
-    merge_all( fd, false ) ;
-    write_delimited_message( cos, 3, ftr ) ;
-    que.push_back( new AnfoFile( name, true ) ) ;
-    que.back()->read_header() ;
-}
-*/
+			scratch_space.push_back( new Result( r ) ) ;
+			total_scratch_size += r.SpaceUsed() ;
+			if( total_scratch_size >= max_arr_size ) flush_scratch() ;
+	    }
+		scratch_footer.MergeFrom( s->read_footer() ) ;
+	}
 }
 
 int main_( int argc, const char **argv )
@@ -411,7 +410,7 @@ int main_( int argc, const char **argv )
 	glob_t the_glob ;
 	glob( argv[1], GLOB_NOSORT, 0, &the_glob ) ;
     for( const char **arg = argv+2 ; arg != argv+argc ; ++arg )
-		glob( argv[1], GLOB_NOSORT | GLOB_APPEND, 0, &the_glob ) ;
+		glob( *arg, GLOB_NOSORT | GLOB_APPEND, 0, &the_glob ) ;
 
 	// iterate over glob results, collect into BestHitStreams
 	std::map< int, BestHitStream* > stream_per_slice ;
@@ -428,27 +427,31 @@ int main_( int argc, const char **argv )
 			// if a BestHitStream is ready, add it to the queue of
 			// mergeable streams
 			if( bhs->enough_inputs() ) {
-				enqueue_stream( bhs ) ;
+				enqueue_stream( auto_ptr<Stream>(bhs) ) ;
 				stream_per_slice.erase( h.sge_slicing_index(0) ) ;
 			}
 		}
 		// if no slicing was done, add to queue of mergeable streams
-		else enqueue_stream( s.release() ) ;
+		else enqueue_stream( s ) ;
 	}
 
 	// at the end, merge everything
-	flush_scratch() ;
 	MergeStream final_stream ;
-	for( MergeableQueue::const_iterator i = mergeable_queue.begin() ;
-			i != mergeable_queue.end() ; ++i )
+	auto_ptr<Stream> as( new StreamAdapter< std::deque< Result* >::const_iterator >(
+				scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
+	final_stream.add_stream( as->read_header(), as ) ;
+
+	for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
+			i != mergeable_queues.end() ; ++i )
 	{
-		for( std::deque< Stream* >::const_iterator j = i->second.begin() ;
+		for( MergeableQueue::const_iterator j = i->second.begin() ;
 				j != i->second.end() ; ++j )
 		{
-			final_stream.add_stream( auto_ptr<Stream>( *j ) ) ;
+			final_stream.add_stream( j->first, auto_ptr<Stream>( j->second ) ) ;
 		}
 	}
     clog << "Merging everything to output." << endl ;
 	return write_stream_to_file( 0, final_stream, true ) ;
 }
+
 
