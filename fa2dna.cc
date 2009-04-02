@@ -225,7 +225,7 @@ class FastaDecoder
 			}
 			else if( c == 'n' || c == 'N' ) {
 				if( num_n_ == max_n_ ) {
-					source_position_ += num_n_+1 ;
+					++source_position_ ;
 					num_n_ = 0 ;
 					state_ = &FastaDecoder::s_contig_gap ;
 				}
@@ -246,11 +246,13 @@ class FastaDecoder
 		void s_sequence( char c )
 		{
 			if( !c ) {
+				source_position_ -= num_n_ ;
 				finish_contig() ;
 				finish_sequence() ;
 				finish_genome() ;
 			}
 			else if( c == 'N' || c == 'n' && num_n_ == max_n_ ) {
+				source_position_ -= num_n_ ;
 				finish_contig() ;
 				source_position_ += num_n_+1 ;
 				num_n_ = 0 ;
@@ -261,6 +263,7 @@ class FastaDecoder
 				put_nt( c ) ;
 			}
 			else if( c == '>' ) {
+				source_position_ -= num_n_ ;
 				finish_contig() ;
 				finish_sequence() ;
 				begin_new_sequence() ;
