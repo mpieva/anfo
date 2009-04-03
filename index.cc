@@ -10,43 +10,22 @@
 using namespace config ;
 using namespace std ; 
 
-static inline int open_( std::string fp, const char* ext )
-{
-	int fd = open( fp.c_str(), O_RDONLY ) ;
-	if( fd == -1 && errno != ENOENT )
-		throw_errno_if_minus1( fd, "opening", fp.c_str() ) ;
-	if( fd != -1 ) return fd ;
-
-	fp.append( ext ) ;
-	fd = open( fp.c_str(), O_RDONLY ) ;
-	if( fd == -1 && errno != ENOENT )
-		throw_errno_if_minus1( fd, "opening", fp.c_str() ) ;
-	return fd ;
-}
-
 CompactGenome::CompactGenome( const std::string &name, const config::Config &c, int adv )
 	: base_(), file_size_(0), length_(0), fd_(-1), contig_map_(), g_()
 {
 	try
 	{
-		std::string fp = name ;
-		fd_ = open_( fp, ".dna" ) ;
-		for( int i = 0 ; fd_ == -1 && i != c.genome_path_size() ; ++i )
-		{
-			fp = c.genome_path(i) + '/' + name ;
-			fd_ = open_( fp, ".dna" ) ;
-		}
-		throw_errno_if_minus1( fd_, "opening", name.c_str() ) ;
+		fd_ = path_open( name, "dna", "ANFO_PATH", c.genome_path().begin(), c.genome_path().end() ) ;
 
 		struct stat the_stat ;
-		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp.c_str() ) ;
+		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		file_size_ = the_stat.st_size ;
 		void *p = mmap( 0, file_size_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
-		throw_errno_if_minus1( p, "mmapping", fp.c_str() ) ;
+		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		base_.assign( (uint8_t*)p ) ;
 
 		if( ((uint32_t const*)p)[0] != signature ) 
-			throw fp + string(" does not have 'DNA1' signature") ;
+			throw name + string(" does not have 'DNA1' signature") ;
 
 		uint32_t meta_off = ((uint32_t const*)p)[1] ;
 		uint32_t meta_len = ((uint32_t const*)p)[2] ;
@@ -96,26 +75,18 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 	void *p = 0 ;
 	try 
 	{
-		std::string fp = name ;
-		fd_ = open_( fp, ".idx" ) ;
-
-		for( int i = 0 ; fd_ == -1 && i != c.genome_path_size() ; ++i )
-		{
-			fp = c.genome_path(i) + '/' + name ;
-			fd_ = open_( fp, ".idx" ) ;
-		}
-		throw_errno_if_minus1( fd_, "opening", name.c_str() ) ;
+		fd_ = path_open( name, "idx", "ANFO_PATH", c.genome_path().begin(), c.genome_path().end() ) ;
 
 		struct stat the_stat ;
-		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", fp.c_str() ) ;
+		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		length = the_stat.st_size ;
 		p = mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
-		throw_errno_if_minus1( p, "mmapping", fp.c_str() ) ;
+		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 
 		if( adv ) madvise( p, length, adv ) ;
 
 		if( *(const uint32_t*)p != signature ) 
-			throw fp + string(" does not have 'IDX1' signature") ;
+			throw name + string(" does not have 'IDX1' signature") ;
 
 		uint32_t meta_len = ((const uint32_t*)p)[1] ;
 		if( !ci_.ParseFromArray( (const char*)p + 8, meta_len ) )
