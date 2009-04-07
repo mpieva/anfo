@@ -17,7 +17,7 @@ AnfoFile::AnfoFile( const std::string& name )
 	check_valid_file() ;
 }
 
-AnfoFile::AnfoFile( const std::string& name, int fd )
+AnfoFile::AnfoFile( int fd, const std::string& name = "<unknown>" )
 	: iis_( fd ), zis_( decompress( &iis_ ) ), error_( false ), name_( name )
 {
 	iis_.SetCloseOnDelete( true ) ;
@@ -67,7 +67,7 @@ Result AnfoFile::read_result()
 			clog << "\033[K" << name_ << ": end of stream" << endl ;
 			return Result() ;
 		}
-		if( tag = cis.ReadTag() ) {
+		if( (tag = cis.ReadTag()) ) {
 			uint32_t size ;
 			std::string buf ;
 			if( cis.ReadVarint32( &size ) && cis.ReadString( &buf, size ) ) {

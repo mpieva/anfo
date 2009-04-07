@@ -80,7 +80,7 @@ class AnfoFile
 		//! \brief uses a given name and filedescriptor
 		//! No actual file is touched, the name for informational
 		//! purposes only.
-		AnfoFile( const std::string& name, int fd ) ;
+		AnfoFile( int fd, const std::string& name ) ;
 
 		//! \brief reads the header messages
 		//! This must be called first after constructing the object.  If

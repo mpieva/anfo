@@ -85,8 +85,12 @@ class FileStream : public Stream
 		static int num_files_ ; // tracked to avoid bumping into the file descriptor limit
 
 	public:
-		FileStream( const std::string& name, bool unlink_on_delete = false )
-			: file_( name, unlink_on_delete )
+		FileStream( const std::string& name ) : file_( name )
+		{
+			clog << "Reading from " << name << endl ;
+			++num_files_ ;
+		}
+		FileStream( int fd, const std::string& name ) : file_( fd, name )
 		{
 			clog << "Reading from " << name << endl ;
 			++num_files_ ;
@@ -96,7 +100,7 @@ class FileStream : public Stream
 		virtual output::Result read_result() { return file_.read_result() ; }
 		virtual output::Footer read_footer() { return file_.read_footer() ; }
 
-		static int num_open_files() { return num_files_ ; }
+		static unsigned num_open_files() { return num_files_ ; }
 } ;
 
 int FileStream::num_files_ = 0 ;
@@ -212,14 +216,14 @@ class BestHitStream : public Stream
 		//! Checks if at least as many inputs are known as requested.
 		//! If that number isn't known, it assumed only one index was
 		//! used and takes the number of slices declared for it.  
-		bool enough_inputs( int n ) const { return streams_.size() >= n ; }
+		bool enough_inputs( size_t n ) const { return streams_.size() >= n ; }
 		bool enough_inputs() const
 		{
 			if( streams_.empty() ) return false ;
 			if(  hdr_.config().policy_size() == 0 ) return true ;
 			if(  hdr_.config().policy(0).use_compact_index_size() == 0 ) return true ;
-			if( !hdr_.config().policy(0).use_compact_index(1).has_number_of_slices() ) return true ;
-			return enough_inputs( hdr_.config().policy(0).use_compact_index(1).number_of_slices() ) ;
+			if( !hdr_.config().policy(0).use_compact_index(0).has_number_of_slices() ) return true ;
+			return enough_inputs( hdr_.config().policy(0).use_compact_index(0).number_of_slices() ) ;
 		}
 
 		//! \brief returns the merged headers
@@ -233,8 +237,7 @@ class BestHitStream : public Stream
 		//! if necessary.
 		virtual output::Result read_result()
 		{
-			bool cont = true ;
-			for(;;)
+			for( bool cont = true ; cur_input_ || cont ; )
 			{
 				if( !cur_input_ ) cont = false ;
 				Result r = streams_[cur_input_]->read_result() ;
@@ -256,14 +259,15 @@ class BestHitStream : public Stream
 
 						if( ((nread_ + nwritten_) & 0xFFFF) == 0 ) 
 							clog << "\033[KRead " << nread_ << ", wrote "
-								 << nwritten_ << ", buffering "
-								 << buffer_.size() << '\r' << flush ;
+								<< nwritten_ << ", buffering "
+								<< buffer_.size() << '\r' << flush ;
 
 						return q ;
 					}
 				}
-			} while( cur_input_ || cont ) ;
+			}
 
+			if( buffer_.empty() ) return Result() ;
 			Result q = buffer_.begin()->second.second ;
 			buffer_.erase( buffer_.begin()->first ) ;
 			return q ;
@@ -303,7 +307,7 @@ template< typename I > class StreamAdapter : public Stream
 // keep queues of streams ordered and separate, so we don't merge the
 // same stuff repeatedly
 typedef std::deque< std::pair< Header, Stream* > > MergeableQueue ;
-typedef std::map< int, MergeableQueue > MergeableQueues ;
+typedef std::map< unsigned, MergeableQueue > MergeableQueues ;
 MergeableQueues mergeable_queues ;
 
 typedef std::deque< Result* > ScratchSpace ;
@@ -343,14 +347,16 @@ void flush_scratch() {
 	sort_scratch() ;
 	std::string tempname ;
 	int fd = mktempfile( tempname ) ;
+	unlink( tempname.c_str() ) ;
+
 	scratch_header.set_is_sorted_by_coordinate( true ) ;
 	StreamAdapter< std::deque< Result* >::const_iterator >
 		sa( scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ;
 	clog << "Writing to tempfile" << endl ;
 	write_stream_to_file( fd, sa ) ;
-	auto_ptr<Stream> fs( new FileStream( tempname.c_str() ) ) ;
+	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
+	std::auto_ptr<Stream> fs( new FileStream( fd, tempname.c_str() ) ) ;
 	enqueue_stream( fs ) ;
-	unlink( tempname.c_str() ) ;
 
 	std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
 	scratch_space.clear() ;
@@ -365,7 +371,7 @@ void enqueue_stream( std::auto_ptr<Stream> s, int level )
 
 		if( FileStream::num_open_files() > max_que_size ) {
 			// get the biggest bin, we'll merge everything below that
-			int max_bin = 0 ;
+			unsigned max_bin = 0 ;
 			for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
 					i != mergeable_queues.end() ; ++i ) 
 				if( i->second.size() > max_bin )
@@ -381,6 +387,7 @@ void enqueue_stream( std::auto_ptr<Stream> s, int level )
 
 			std::string fname ;
 			int fd = mktempfile( fname ) ;
+	clog << "Merging to tempfile" << endl ;
 			write_stream_to_file( fd, ms ) ;
 			auto_ptr<Stream> fs( new FileStream( fname.c_str() ) ) ;
 			enqueue_stream( fs, max_bin + 1 ) ;
@@ -404,7 +411,7 @@ void enqueue_stream( std::auto_ptr<Stream> s, int level )
 
 int main_( int argc, const char **argv )
 {
-	if( argc == 1 ) return 0 ;
+	if( argc < 2 ) return 0 ;
 
 	// iterate over command line, glob everything
 	glob_t the_glob ;
@@ -418,6 +425,7 @@ int main_( int argc, const char **argv )
 			arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 	{
 		std::auto_ptr<Stream> s (new FileStream( *arg )) ;
+
 		Header h = s->read_header() ;
 		if( h.has_sge_slicing_stride() ) {
 			BestHitStream* &bhs = stream_per_slice[ h.sge_slicing_index(0) ] ;
@@ -427,13 +435,16 @@ int main_( int argc, const char **argv )
 			// if a BestHitStream is ready, add it to the queue of
 			// mergeable streams
 			if( bhs->enough_inputs() ) {
-				enqueue_stream( auto_ptr<Stream>(bhs) ) ;
+				clog << "Got everything for index " << h.sge_slicing_index(0) << endl ;
+				enqueue_stream( std::auto_ptr<Stream>( bhs ) ) ;
 				stream_per_slice.erase( h.sge_slicing_index(0) ) ;
 			}
 		}
 		// if no slicing was done, add to queue of mergeable streams
 		else enqueue_stream( s ) ;
 	}
+	if( !stream_per_slice.empty() ) 
+		cout << "WARNING: input appears to be incomplete" << endl ;
 
 	// at the end, merge everything
 	MergeStream final_stream ;

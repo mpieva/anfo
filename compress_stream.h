@@ -270,10 +270,11 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 
 			const void* p ; int l ;
 			if( !is_->Next( &p, &l ) ) throw "no data" ;
+
 			try {
 				const char* q = (const char*)p ;
 				if( l < 3 || q[0] != 'B' || q[1] != 'Z' || q[2] != 'h' )
-					throw "not a gzip file" ;
+					throw "not a bzip2 file" ;
 
 				zs_.bzalloc = 0 ;
 				zs_.bzfree = 0 ;

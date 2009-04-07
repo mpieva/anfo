@@ -18,7 +18,8 @@
 # include <fcntl.h>
 #endif
 
-struct Exception { virtual void print_to( std::ostream& ) const = 0 ; } ;
+struct Exception { virtual void print_to( std::ostream& ) const = 0 ;
+                   virtual ~Exception() {} } ;
 
 template< typename T >
 T throw_errno_if_minus1( T x, const char* a, const char* b = 0 )
@@ -98,7 +99,7 @@ template <typename Iter> int path_open(
 			if( fd == -1 && *p ) {
 				std::string path = p ;
 
-				int end, start = 0 ;
+				size_t end, start = 0 ;
 				for( ; fd == -1 && (end = path.find( ':', start )) != std::string::npos ; start = end+1 )
 					fd = open2( path.substr( start, end ) + "/" + name, ext ) ;
 				if( fd == -1 ) fd = open2( path.substr( start ) + "/" + name, ext ) ;

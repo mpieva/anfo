@@ -43,7 +43,7 @@ std::ostream& decode_binCigar(std::ostream& s, const std::string &cigar) {
 // an error if the sequence length and the effective len from the cigar
 // do not match.  However, files with such errors exist, so we need to
 // filter out those faulty alignments.
-int len_from_bin_cigar( const std::string& cigar ) {
+unsigned len_from_bin_cigar( const std::string& cigar ) {
 	int l = 0 ;
 	for( size_t i = 0 ; i != cigar.size() ; ++i )
 	{
