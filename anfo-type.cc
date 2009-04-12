@@ -118,16 +118,14 @@ int main_( int argc, const char** argv )
 	for( int argi = 1 ; argi != argc ; ++argi )
 	{
 		AnfoFile af( argv[argi] ) ;
-		output::Header hdr = af.read_header() ;
+		output::Header hdr = af.get_header() ;
 		print_msg( hdr ) ;
-		for(;;) {
-			Result r = af.read_result() ;
-			if( !r.has_seqid() ) break ;
+		for( Result r ; af.read_result( r ) ; ) {
 			if( r.has_best_to_genome() && r.best_to_genome().has_cigar() )
 				add_alignment( r.sequence().begin(), *r.mutable_best_to_genome(), hdr.config(), genomes ) ;
 			print_msg( r ) ;
 		}
-		print_msg( af.read_footer() ) ;
+		print_msg( af.get_footer() ) ;
 	}
 	return 0 ;
 }

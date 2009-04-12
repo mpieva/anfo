@@ -61,48 +61,90 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 
 //! @}
 
+//! \brief stream of result messages
+//! Each stream is a header, followed by many results, followed by a
+//! single footer.  The header will be cached internally, so it can be
+//! asked for repeatedly.  Results are forgotten once read, the footer
+//! is only available after all results have been read, and then it is
+//! stored and can be read repeatedly.  It is undefined behaviour to
+//! request the footer without first consuming all results.
+class Stream
+{
+	public:
+		virtual ~Stream() {}
+
+		//! \brief returns the header
+		//! The header can be requested repeatedly, once the stream was
+		//! correctly intialized.
+		virtual const output::Header& get_header() = 0 ;
+
+		//! \brief returns the next result
+		//! Every result can only be read once, internal iterator style.
+		//! \param r place to store the next result in
+		//! \return true iff another result was available
+		virtual bool read_result( output::Result& r ) = 0 ;
+
+		//! \brief returns the footer
+		//! Only after all results have been consumed is the footer
+		//! available.
+		virtual const output::Footer& get_footer() = 0 ;
+} ;
+
 //! \brief presents ANFO files as series of messages
-class AnfoFile
+//! This class will read a possibly compressed result stream and present
+//! it using an iteration interface.  Normally, gzip and bzip2
+//! decompression will transparently be done.
+class AnfoFile : public Stream
 {
 	private:
 		google::protobuf::io::FileInputStream iis_ ;
 		std::auto_ptr<google::protobuf::io::ZeroCopyInputStream> zis_ ;
-		bool error_ ;
 		std::string name_ ;
+
+		output::Header hdr_ ;
 		output::Footer foot_ ;
 
-		void check_valid_file() ;
+		void initialize() ;
+		static int num_files_ ; // tracked to avoid bumping into the file descriptor limit
 
 	public: 
 		//! \brief opens the named file
 		AnfoFile( const std::string& name ) ;
+		virtual ~AnfoFile() { --num_files_ ; }
 
 		//! \brief uses a given name and filedescriptor
-		//! No actual file is touched, the name for informational
+		//! No actual file is touched, the name is for informational
 		//! purposes only.
 		AnfoFile( int fd, const std::string& name ) ;
 
-		//! \brief reads the header messages
-		//! This must be called first after constructing the object.  If
-		//! the first message is not a header, an error results.
-		output::Header read_header() ;
-
-		//! \brief reads a result message
-		//! This should be called repeatedly after having read the
-		//! header.  If no more messages follow, an empty Result is
-		//! returned (and the footer is stored).  Valid Results from
-		//! ANFO files will always have a seq_id.
-		output::Result read_result() ;
+		virtual const output::Header& get_header() { return hdr_ ; }
+		virtual bool read_result( output::Result& ) ;
 
 		//! \brief reads the footer message
-		//! This can only be called after all Result messages have been
-		//! consumed.  If an error occured during parsing, the exit_code
+		//! If an error occured during earlier processing, the exit_code
 		//! inside the footer message will have its LSB set.
-		output::Footer read_footer() { if( error_ ) foot_.set_exit_code( 1 | foot_.exit_code() ) ; return foot_ ; }
+		virtual const output::Footer& get_footer() { return foot_ ; }
+
+		//! \internal
+		static unsigned num_open_files() { return num_files_ ; }
 } ;
 
 void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
+
+//! \brief writes a stream of results to a file
+//! The file will be in a format that can be read in by ::AnfoFile.
+//! \param fd file descriptor to write to
+//! \param s stream to copy to the file
+//! \param expensive if set, computationally expensive compression is
+//!                  used (normally meaning bzip2 instead of gzip)
+int write_stream_to_file( int fd, Stream &s, bool expensive = false ) ;
+
+//! \brief writes a stream of results to an output stream
+//! The byte stream will be in a format that can be read in by ::AnfoFile.
+//! \param zos Google-style output stream to write to
+//! \param s stream to copy to the file
+int write_stream_to_file( google::protobuf::io::ZeroCopyOutputStream *zos, Stream &s ) ;
 
 #endif

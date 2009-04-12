@@ -9,83 +9,63 @@ using namespace google::protobuf::io ;
 using namespace output ;
 using namespace std ;
 
+int AnfoFile::num_files_ = 0 ;
+
 AnfoFile::AnfoFile( const std::string& name )
 	: iis_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
-	, zis_( decompress( &iis_ ) ), error_( false ), name_( name )
+	, zis_( decompress( &iis_ ) ), name_( name )
 {
-	iis_.SetCloseOnDelete( true ) ;
-	check_valid_file() ;
+	initialize() ;
 }
 
 AnfoFile::AnfoFile( int fd, const std::string& name = "<unknown>" )
-	: iis_( fd ), zis_( decompress( &iis_ ) ), error_( false ), name_( name )
+	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( name )
+{
+	initialize() ;
+}
+
+void AnfoFile::initialize()
 {
 	iis_.SetCloseOnDelete( true ) ;
-	check_valid_file() ;
-}
-
-void AnfoFile::check_valid_file()
-{
-	std::string tag ;
+	std::string magic ;
 	CodedInputStream cis( zis_.get() ) ;
 
-	if( !cis.ReadString( &tag, 4 ) || tag != "ANFO" ) {
+	if( !cis.ReadString( &magic, 4 ) || magic != "ANFO" ) {
 		clog << "\033[K" << name_ << ": not an ANFO file" << endl ;
-		error_ = true ;
-	}
-	foot_.set_exit_code(0) ;
-}
-
-Header AnfoFile::read_header()
-{
-	uint32_t tag ;
-	Header hdr ;
-	CodedInputStream cis( zis_.get() ) ;
-	if( cis.ReadVarint32( &tag ) && tag == 10 )
-	{
-		if( cis.ReadVarint32( &tag ) )
-		{
+	} else {
+		uint32_t tag ;
+		if( cis.ReadVarint32( &tag ) && tag == 10 && cis.ReadVarint32( &tag ) ) {
 			int lim = cis.PushLimit( tag ) ;
-			if( hdr.ParseFromCodedStream( &cis ) ) {
+			if( hdr_.ParseFromCodedStream( &cis ) ) {
 				cis.PopLimit( lim ) ;
-				return hdr ;
+				++num_files_ ;
+				return ;
 			}
 		}
+		clog << "\033[K" << name_ << ": deserialization error in header" << endl ;
 	}
-
-	clog << "\033[K" << name_ << ": deserialization error" << endl ;
-	error_ = true ;
-	return hdr ;
+	foot_.set_exit_code(1) ;
 }
 
-Result AnfoFile::read_result()
+bool AnfoFile::read_result( Result& res )
 {
 	uint32_t tag = 0 ;
 	CodedInputStream cis( zis_.get() ) ;
-	if( !error_ ) {
-		if( cis.ExpectAtEnd() ) {
-			clog << "\033[K" << name_ << ": end of stream" << endl ;
-			return Result() ;
-		}
-		if( (tag = cis.ReadTag()) ) {
-			uint32_t size ;
-			std::string buf ;
-			if( cis.ReadVarint32( &size ) && cis.ReadString( &buf, size ) ) {
-				if( tag == 18 ) {
-					Result res ;
-					if( res.ParseFromString( buf ) && res.has_seqid() ) {
-						return res ;
-					}
-				}
-				if( tag == 26 ) {
-					if( foot_.ParseFromString( buf ) ) return Result() ;
-				}
-				clog << "\033[K" << name_ << ": deserialization error" << endl ;
-				error_ = true ;
-			}
+	if( cis.ExpectAtEnd() ) {
+		clog << "\033[K" << name_ << ": unexpected end of stream" << endl ;
+	}
+	else if( (tag = cis.ReadTag()) ) {
+		uint32_t size ;
+		std::string buf ;
+		if( cis.ReadVarint32( &size ) && cis.ReadString( &buf, size ) ) {
+			if( tag == 18 && res.ParseFromString( buf ) ) return true ;
+			if( tag == 26 && foot_.ParseFromString( buf ) ) return false ;
+
+			clog << "\033[K" << name_ << ": deserialization error" << endl ;
 		}
 	}
-	return Result() ;
+	foot_.set_exit_code( 1 | foot_.exit_code() ) ;
+	return false ;
 }
 
 
@@ -166,6 +146,29 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 	int exit_code = lhs.exit_code() | rhs.exit_code() ;
 	lhs.MergeFrom( rhs ) ;
 	lhs.set_exit_code( exit_code ) ;
+}
+
+int write_stream_to_file( int fd, Stream &s, bool expensive )
+{
+	FileOutputStream fos( fd ) ;
+	std::auto_ptr< ZeroCopyOutputStream > zos(
+			expensive ? compress_small( &fos ) : compress_fast( &fos ) ) ;
+	return write_stream_to_file( zos.get(), s ) ;
+}
+
+int write_stream_to_file( ZeroCopyOutputStream *zos, Stream &s ) 
+{
+	CodedOutputStream o( zos ) ;
+	
+	o.WriteRaw( "ANFO", 4 ) ;
+	write_delimited_message( o, 1, s.get_header() ) ;
+
+	for( Result r ; s.read_result( r ) ; ) 
+		write_delimited_message( o, 2, r ) ;
+	
+	Footer f = s.get_footer() ;
+	write_delimited_message( o, 3, f ) ;
+	return f.exit_code() ;
 }
 
 

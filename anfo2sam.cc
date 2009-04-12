@@ -117,17 +117,13 @@ int main_( int argc, const char * argv[] ){
        return (EXIT_FAILURE);
     }
 
-    AnfoFile f_anfo(argv[1]);
-    f_anfo.read_header();
-    output::Result res = f_anfo.read_result();
-
     int discarded[bad_stuff_max] = {0};
-    while (res.has_seqid()) {
+    AnfoFile f_anfo(argv[1]);
+    f_anfo.get_header();
+
+    for( output::Result res ; f_anfo.read_result( res ) ; ) 
         if (bad_stuff r = protoHit_2_bam_Hit(res))
             discarded[r]++;
-
-        res = f_anfo.read_result();
-    }
 
 	for( int b = 1 ; b != bad_stuff_max ; ++b )
 		if (discarded[b])

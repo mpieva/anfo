@@ -68,42 +68,6 @@ struct by_genome_coordinate {
 	}
 } ;
 
-//! \brief stream of result messages
-class Stream
-{
-	public:
-		virtual ~Stream() {}
-		virtual output::Header read_header() = 0 ;
-		virtual output::Result read_result() = 0 ;
-		virtual output::Footer read_footer() = 0 ;
-} ;
-
-class FileStream : public Stream
-{
-	private:
-		AnfoFile file_ ;
-		static int num_files_ ; // tracked to avoid bumping into the file descriptor limit
-
-	public:
-		FileStream( const std::string& name ) : file_( name )
-		{
-			clog << "Reading from " << name << endl ;
-			++num_files_ ;
-		}
-		FileStream( int fd, const std::string& name ) : file_( fd, name )
-		{
-			clog << "Reading from " << name << endl ;
-			++num_files_ ;
-		}
-		virtual ~FileStream() { --num_files_ ; }
-		virtual output::Header read_header() { return file_.read_header() ; }
-		virtual output::Result read_result() { return file_.read_result() ; }
-		virtual output::Footer read_footer() { return file_.read_footer() ; }
-
-		static unsigned num_open_files() { return num_files_ ; }
-} ;
-
-int FileStream::num_files_ = 0 ;
 
 template< typename T > struct delete_ptr { void operator()( T* p ) const { delete p ; } } ;
 
@@ -121,17 +85,22 @@ class MergeStream : public Stream
 
 		void add_stream( const Header& hdr, std::auto_ptr< Stream > s )
 		{
+			clog << __PRETTY_FUNCTION__ << endl ;
 			merge_sensibly( hdr_, hdr ) ;
-			rs_.push_back( s->read_result() ) ;
-			if( rs_.back().has_seqid() )
+			clog << "read result" << endl ;
+			Result r = s->read_result() ;
+			if( r.has_seqid() )
 			{
+				clog << "good one" << endl ;
+				rs_.push_back( r ) ;
 				streams_.push_back( s.release() ) ;
 			}
 			else
 			{
-				rs_.pop_back() ;
+				clog << "no good" << endl ;
 				merge_sensibly( foot_, s->read_footer() ) ;
 			}
+			clog << __PRETTY_FUNCTION__ << ": end" << endl ;
 		}
 
 		virtual output::Header read_header() { return hdr_ ; }
@@ -168,21 +137,6 @@ Result MergeStream::read_result()
 	return r ;
 }
 
-int write_stream_to_file( int fd, Stream &s, bool expensive = false )
-{
-	FileOutputStream fos( fd ) ;
-	std::auto_ptr< ZeroCopyOutputStream > zos(
-			expensive ? compress_fast( &fos ) : compress_small( &fos ) ) ;
-	CodedOutputStream o( zos.get() ) ;
-	
-	o.WriteRaw( "ANFO", 4 ) ;
-	write_delimited_message( o, 1, s.read_header() ) ;
-	for( Result r ; ( r = s.read_result() ).has_seqid() ; )
-		write_delimited_message( o, 2, r ) ;
-	Footer f = s.read_footer() ;
-	write_delimited_message( o, 3, f ) ;
-	return f.exit_code() ;
-}
 
 
 
@@ -258,7 +212,7 @@ class BestHitStream : public Stream
 						buffer_.erase( r.seqid() ) ;
 
 						if( ((nread_ + nwritten_) & 0xFFFF) == 0 ) 
-							clog << "\033[KRead " << nread_ << ", wrote "
+							clog << "\033[KRead " << nread_ << ", delivered "
 								<< nwritten_ << ", buffering "
 								<< buffer_.size() << '\r' << flush ;
 
@@ -298,8 +252,12 @@ template< typename I > class StreamAdapter : public Stream
 		virtual output::Header read_header() { return hdr_ ; }
 		virtual output::Footer read_footer() { return foot_ ; }
 		virtual output::Result read_result() {
+			clog << this << "  " << __PRETTY_FUNCTION__ << endl ;
 			if( cur_ == end_ ) return Result() ;
-			else return *(*cur_++) ;
+			else {
+				clog << this << "  " << __PRETTY_FUNCTION__ << endl ;
+				return *(*cur_++) ;
+			}
 		}
 } ;
 
@@ -318,7 +276,7 @@ int64_t total_scratch_size = 0 ;
 
 void sort_scratch() {
     if( scratch_space.size() > 1 )
-		clog << "Sorting " << scratch_space.size() << " results in memory" << endl ;
+		clog << "\033[KSorting " << scratch_space.size() << " results in memory" << endl ;
     sort( scratch_space.begin(), scratch_space.end(), by_genome_coordinate() ) ;
 }
 
@@ -355,7 +313,9 @@ void flush_scratch() {
 	clog << "Writing to tempfile" << endl ;
 	write_stream_to_file( fd, sa ) ;
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
-	std::auto_ptr<Stream> fs( new FileStream( fd, tempname.c_str() ) ) ;
+	
+	clog << "Reading back from " << tempname << endl ;
+	std::auto_ptr<Stream> fs( new AnfoFile( fd, tempname.c_str() ) ) ;
 	enqueue_stream( fs ) ;
 
 	std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
@@ -369,7 +329,7 @@ void enqueue_stream( std::auto_ptr<Stream> s, int level )
 	if( h.is_sorted_by_coordinate() ) {
 		mergeable_queues[ level ].push_back( make_pair( h, s.release() ) ) ;
 
-		if( FileStream::num_open_files() > max_que_size ) {
+		if( AnfoFile::num_open_files() > max_que_size ) {
 			// get the biggest bin, we'll merge everything below that
 			unsigned max_bin = 0 ;
 			for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
@@ -387,9 +347,11 @@ void enqueue_stream( std::auto_ptr<Stream> s, int level )
 
 			std::string fname ;
 			int fd = mktempfile( fname ) ;
-	clog << "Merging to tempfile" << endl ;
+			clog << "Merging to tempfile" << endl ;
 			write_stream_to_file( fd, ms ) ;
-			auto_ptr<Stream> fs( new FileStream( fname.c_str() ) ) ;
+			
+			clog << "Reading back from " << fname << endl ;
+			auto_ptr<Stream> fs( new AnfoFile( fd, fname.c_str() ) ) ;
 			enqueue_stream( fs, max_bin + 1 ) ;
 			unlink( fname.c_str() ) ;
 		}
@@ -424,7 +386,8 @@ int main_( int argc, const char **argv )
 	for( char **arg = the_glob.gl_pathv ; 
 			arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 	{
-		std::auto_ptr<Stream> s (new FileStream( *arg )) ;
+		clog << "Reading from " << name << endl ;
+		std::auto_ptr<Stream> s( new AnfoFile( *arg ) ) ;
 
 		Header h = s->read_header() ;
 		if( h.has_sge_slicing_stride() ) {
@@ -447,22 +410,37 @@ int main_( int argc, const char **argv )
 		cout << "WARNING: input appears to be incomplete" << endl ;
 
 	// at the end, merge everything
-	MergeStream final_stream ;
+	sort_scratch() ;
+	clog << "done dorting" << endl ;
 	auto_ptr<Stream> as( new StreamAdapter< std::deque< Result* >::const_iterator >(
 				scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
-	final_stream.add_stream( as->read_header(), as ) ;
+	Header hdr = as ->read_header() ;
 
+	MergeStream final_stream ;
+	final_stream.add_stream( hdr, as ) ;
+
+	/*
 	for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
 			i != mergeable_queues.end() ; ++i )
 	{
 		for( MergeableQueue::const_iterator j = i->second.begin() ;
 				j != i->second.end() ; ++j )
 		{
+			clog << "add stream" << endl ;
 			final_stream.add_stream( j->first, auto_ptr<Stream>( j->second ) ) ;
 		}
 	}
-    clog << "Merging everything to output." << endl ;
-	return write_stream_to_file( 0, final_stream, true ) ;
+	*/
+	if( hdr.IsInitialized() ) {
+		clog << "\033[KMerging everything to output." << endl ;
+		int r = write_stream_to_file( 0, final_stream, true ) ;
+		std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
+		clog << "Done" << endl ;
+		return r ;
+	} else {
+		clog << "Incomplete input, cannot write." << endl ;
+		return 1 ;
+	}
 }
 
 
