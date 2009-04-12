@@ -66,7 +66,12 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 				next_undelivered_ = obuf_ ;
 
 				// input buffer empty?  try and get more
-				if( !zs_.avail_in ) is_->Next( (const void**)&zs_.next_in, (int*)&zs_.avail_in ) ;
+				if( !zs_.avail_in ) {
+					const void *nin ; int avin ;
+					if( !is_->Next( &nin, &avin ) ) return false ;
+					zs_.next_in = (Bytef*)nin ; 
+					zs_.avail_in = avin ;
+				}
 
 				// inflate some; after that we either have output or
 				// need to get more input (or have an error)
@@ -148,8 +153,13 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 			while( zs_.avail_in )
 			{
 				// output buffer full?  try and flush it
-				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) )
-					return false ;
+				if( !zs_.avail_out ) {
+					void *nout ; int avout ;
+					if( !os_->Next( &nout, &avout ) ) return false ;
+
+					zs_.next_out = (Bytef*)nout ; 
+					zs_.avail_out = avout ;
+				}
 
 				// deflate some; after that we either have room for input or
 				// need to flush more output (or we have an error)
@@ -169,13 +179,14 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 		void back_up( int count ) { zs_.avail_in -= count ; }
 
 	public:
-		DeflateStream( google::protobuf::io::ZeroCopyOutputStream *os, int level = Z_DEFAULT_COMPRESSION )
+		DeflateStream( google::protobuf::io::ZeroCopyOutputStream *os, int lv=Z_DEFAULT_COMPRESSION )
 			: os_(os), total_(0) 
 		{
 			zs_.zalloc = 0 ;
 			zs_.zfree = 0 ;
 			zs_.opaque = 0 ;
-			if( deflateInit2( &zs_, level, Z_DEFLATED, 15+16, 8, Z_DEFAULT_STRATEGY ) != Z_OK ) throw zs_.msg ;
+			if( deflateInit2( &zs_, lv, Z_DEFLATED, 15+16, 8, Z_DEFAULT_STRATEGY ) != Z_OK )
+				throw zs_.msg ;
 
 			zs_.next_in = 0 ;
 			zs_.avail_in = 0 ;
@@ -187,7 +198,14 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 			// compress whatever is left in buffer or internal state
 			for(;;)
 			{
-				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) ) break ;
+				if( !zs_.avail_out ) {
+					void *nout ; int avout ;
+					if( !os_->Next( &nout, &avout ) ) break ;
+
+					zs_.next_out = (Bytef*)nout ;
+					zs_.avail_out = avout ;
+				}
+
 				int r = deflate( &zs_, Z_FINISH ) ;
 				if( r == Z_STREAM_END ) break ;
 				else if( r != Z_OK ) throw zs_.msg ;
@@ -233,7 +251,13 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 				next_undelivered_ = obuf_ ;
 
 				// input buffer empty?  try and get more
-				if( !zs_.avail_in ) is_->Next( (const void**)&zs_.next_in, (int*)&zs_.avail_in ) ;
+				if( !zs_.avail_in ) {
+					const void *nin ; int avin ;
+					if( !is_->Next( &nin, &avin ) ) return false ;
+
+					zs_.next_in = (char*)nin ;
+					zs_.avail_in = avin ;
+				}
 
 				// inflate some; after that we either have output or
 				// need to get more input (or have an error)
@@ -313,8 +337,13 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 			while( zs_.avail_in )
 			{
 				// output buffer full?  try and flush it
-				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) )
-					return false ;
+				if( !zs_.avail_out ) {
+					void *nout ; int avout ;
+					if( !os_->Next( &nout, &avout ) ) return false ;
+
+					zs_.next_out = (char*)nout ;
+					zs_.avail_out = avout ;
+				}
 
 				// deflate some; after that we either have room for input or
 				// need to flush more output (or we have an error)
@@ -353,7 +382,14 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 			// compress whatever is left in buffer or internal state
 			for(;;)
 			{
-				if( !zs_.avail_out && !os_->Next( (void**)&zs_.next_out, (int*)&zs_.avail_out ) ) break ;
+				if( !zs_.avail_out ) {
+					void *nout ; int avout ;
+					if( !os_->Next( &nout, &avout ) ) break ;
+
+					zs_.next_out = (char*)nout ;
+					zs_.avail_out = avout ;
+				}
+
 				int r = BZ2_bzCompress( &zs_, BZ_FINISH ) ;
 				if( r == BZ_STREAM_END ) break ;
 				else if( r < BZ_OK ) throw BzipError( r ) ;
