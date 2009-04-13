@@ -58,12 +58,12 @@ struct by_genome_coordinate {
 		if( a->has_best_to_genome() && !b->has_best_to_genome() ) return true ;
 		if( !a->has_best_to_genome() ) return false ;
 		const Hit& u = a->best_to_genome(), v = b->best_to_genome() ;
-		if( u.genome() < v.genome() ) return true ;
-		if( v.genome() < u.genome() ) return false ;
+		if( u.genome_name() < v.genome_name() ) return true ;
+		if( v.genome_name() < u.genome_name() ) return false ;
 		if( u.sequence() < v.sequence() ) return true ;
 		if( v.sequence() < u.sequence() ) return false ;
-		if( u.start_pos() + max(u.aln_length(),0) < v.start_pos() + max(v.aln_length(),0) ) return true ;
-		if( v.start_pos() + max(v.aln_length(),0) < u.start_pos() + max(u.aln_length(),0) ) return false ;
+		if( u.start_pos() < v.start_pos() ) return true ;
+		if( v.start_pos() < u.start_pos() ) return false ;
 		return u.aln_length() < v.aln_length() ;
 	}
 } ;
@@ -83,61 +83,45 @@ class MergeStream : public Stream
 		MergeStream() {}
 		virtual ~MergeStream() { std::for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
 
-		void add_stream( const Header& hdr, std::auto_ptr< Stream > s )
+		void add_stream( std::auto_ptr< Stream > s )
 		{
-			clog << __PRETTY_FUNCTION__ << endl ;
-			merge_sensibly( hdr_, hdr ) ;
-			clog << "read result" << endl ;
-			Result r = s->read_result() ;
-			if( r.has_seqid() )
+			merge_sensibly( hdr_, s->get_header() ) ;
+			Result r ;
+			if( s->read_result( r ) ) 
 			{
-				clog << "good one" << endl ;
 				rs_.push_back( r ) ;
 				streams_.push_back( s.release() ) ;
 			}
 			else
 			{
-				clog << "no good" << endl ;
-				merge_sensibly( foot_, s->read_footer() ) ;
+				merge_sensibly( foot_, s->get_footer() ) ;
 			}
-			clog << __PRETTY_FUNCTION__ << ": end" << endl ;
 		}
 
-		virtual output::Header read_header() { return hdr_ ; }
-		virtual output::Result read_result() ;
-		virtual output::Footer read_footer() { return foot_ ; }
+		virtual const output::Header& get_header() { return hdr_ ; }
+		virtual const output::Footer& get_footer() { return foot_ ; }
+		virtual bool read_result( output::Result& ) ;
 } ;
 
-Result MergeStream::read_result() 
+bool MergeStream::read_result( Result& res ) 
 {
-	for( size_t i = 0 ; i != streams_.size() ; ++i )
-	{
-		Result r = streams_[i]->read_result() ;
-		if( r.has_seqid() ) rs_.push_back( r ) ;
-	}
-
-	if( !rs_.size() ) return Result() ;
+	if( rs_.empty() ) return false ;
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
-		if( by_genome_coordinate()( &rs_[i], &rs_[ min_idx ] ) )
+		if( by_genome_coordinate()( &rs_[ i ], &rs_[ min_idx ] ) )
 			min_idx = i ;
 
-	Result &rm = rs_[ min_idx ] ;
+	res = rs_[ min_idx ] ;
 	Stream *sm = streams_[ min_idx ] ;
-
-	Result r = rm ;
-	rm = sm->read_result() ;
-	if( !rm.has_seqid() ) 
+	if( !sm->read_result( rs_[ min_idx ] ) ) 
 	{
-		merge_sensibly( foot_, sm->read_footer() ) ;
+		merge_sensibly( foot_, sm->get_footer() ) ;
 		delete sm ;
 		streams_.erase( streams_.begin() + min_idx ) ;
 		rs_.erase( rs_.begin() + min_idx ) ;
 	}
-	return r ;
+	return true ;
 }
-
-
 
 
 //! \brief merges multiple streams by taking the best hit
@@ -151,6 +135,7 @@ class BestHitStream : public Stream
 	private:
 		std::vector< Stream* > streams_ ;
 		output::Header hdr_ ;
+		output::Footer foot_ ;
 
 		typedef map< string, pair< size_t, output::Result > > Buffer ;
 		Buffer buffer_ ;
@@ -158,11 +143,11 @@ class BestHitStream : public Stream
 
 	public:
 		BestHitStream() : streams_(), cur_input_(0), nread_(0), nwritten_(0) {}
-		virtual ~BestHitStream() { std::for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
+		virtual ~BestHitStream() {std::for_each(streams_.begin(),streams_.end(),delete_ptr<Stream>());}
 
 		//! \brief reads a stream's header and adds the stream as input
-		void add_stream( Header hdr, std::auto_ptr< Stream > s ) {
-			merge_sensibly( hdr_, hdr ) ;
+		void add_stream( std::auto_ptr< Stream > s ) {
+			merge_sensibly( hdr_, s->get_header() ) ;
 			streams_.push_back( s.release() ) ;
 		}
 
@@ -183,20 +168,29 @@ class BestHitStream : public Stream
 		//! \brief returns the merged headers
 		//! Redundant information is removed from the headers (e.g.
 		//! repeated paths), the rest is merged as best as possible.
-		virtual output::Header read_header() { return hdr_ ; }
+		virtual const output::Header& get_header() { return hdr_ ; }
+		
+		//! \brief reads a footer
+		//! All footers are merged, the exit codes are logically OR'ed,
+		//! and the LSB is set if something wen't wrong internally.
+		virtual const output::Footer& get_footer() { return foot_ ; }
+
 
 		//! \brief reports on one sequence
 		//! Enough information is read until one sequence has been
 		//! described by each input stream.  Everything else is buffered
 		//! if necessary.
-		virtual output::Result read_result()
+		virtual bool read_result( output::Result& res )
 		{
 			for( bool cont = true ; cur_input_ || cont ; )
 			{
 				if( !cur_input_ ) cont = false ;
-				Result r = streams_[cur_input_]->read_result() ;
+				Result r ;
+				bool good = streams_[cur_input_]->read_result( r ) ;
+				if( !good ) merge_sensibly( foot_, streams_[cur_input_]->get_footer() ) ;
+
 				if( ++cur_input_ == streams_.size() ) cur_input_ = 0 ;
-				if( r.has_seqid() ) 
+				if( good )
 				{
 					cont = true ;
 					pair< size_t, Result > &p = buffer_[ r.seqid() ] ;
@@ -208,7 +202,7 @@ class BestHitStream : public Stream
 					if( p.first == streams_.size() ) 
 					{
 						++nwritten_ ;
-						Result q = p.second ;
+						res = p.second ;
 						buffer_.erase( r.seqid() ) ;
 
 						if( ((nread_ + nwritten_) & 0xFFFF) == 0 ) 
@@ -216,26 +210,15 @@ class BestHitStream : public Stream
 								<< nwritten_ << ", buffering "
 								<< buffer_.size() << '\r' << flush ;
 
-						return q ;
+						return true ;
 					}
 				}
 			}
 
-			if( buffer_.empty() ) return Result() ;
-			Result q = buffer_.begin()->second.second ;
+			if( buffer_.empty() ) return false ;
+			res = buffer_.begin()->second.second ;
 			buffer_.erase( buffer_.begin()->first ) ;
-			return q ;
-		}
-
-		//! \brief reads a footer
-		//! All footers are merged, the exit codes are logically OR'ed,
-		//! and the LSB is set if something wen't wrong internally.
-		virtual output::Footer read_footer()
-		{
-			output::Footer foot ;
-			for( size_t i = 0 ; i != streams_.size() ; ++i )
-				merge_sensibly( foot, streams_[i]->read_footer() ) ;
-			return foot ;
+			return true ;
 		}
 } ;
 
@@ -249,22 +232,19 @@ template< typename I > class StreamAdapter : public Stream
 		StreamAdapter( const Header &hdr, I begin, I end, const Footer &foot ) 
 			: hdr_( hdr ), cur_( begin ), end_( end ), foot_( foot ) {}
 
-		virtual output::Header read_header() { return hdr_ ; }
-		virtual output::Footer read_footer() { return foot_ ; }
-		virtual output::Result read_result() {
-			clog << this << "  " << __PRETTY_FUNCTION__ << endl ;
-			if( cur_ == end_ ) return Result() ;
-			else {
-				clog << this << "  " << __PRETTY_FUNCTION__ << endl ;
-				return *(*cur_++) ;
-			}
+		virtual const Header& get_header() { return hdr_ ; }
+		virtual const Footer& get_footer() { return foot_ ; }
+		virtual bool read_result( Result& r ) {
+			if( cur_ == end_ ) return false ;
+			r = *( *cur_++ ) ;
+			return true ;
 		}
 } ;
 
 
 // keep queues of streams ordered and separate, so we don't merge the
 // same stuff repeatedly
-typedef std::deque< std::pair< Header, Stream* > > MergeableQueue ;
+typedef std::deque< Stream* > MergeableQueue ;
 typedef std::map< unsigned, MergeableQueue > MergeableQueues ;
 MergeableQueues mergeable_queues ;
 
@@ -295,6 +275,7 @@ int mktempfile( std::string &name )
 	while( *suffix ) *n2++ = *suffix++ ;
 	*n2 = 0 ;
     int fd = throw_errno_if_minus1( mkstemp( n1 ), "making temp file" ) ;
+	throw_errno_if_minus1( unlink( n1 ), "unlinking temp name" ) ;
 	name = n1 ;
 	return fd ;
 }
@@ -305,16 +286,14 @@ void flush_scratch() {
 	sort_scratch() ;
 	std::string tempname ;
 	int fd = mktempfile( tempname ) ;
-	unlink( tempname.c_str() ) ;
 
 	scratch_header.set_is_sorted_by_coordinate( true ) ;
 	StreamAdapter< std::deque< Result* >::const_iterator >
 		sa( scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ;
-	clog << "Writing to tempfile" << endl ;
+	clog << "\033[KWriting to tempfile " << tempname << endl ;
 	write_stream_to_file( fd, sa ) ;
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
 	
-	clog << "Reading back from " << tempname << endl ;
 	std::auto_ptr<Stream> fs( new AnfoFile( fd, tempname.c_str() ) ) ;
 	enqueue_stream( fs ) ;
 
@@ -325,49 +304,55 @@ void flush_scratch() {
 
 void enqueue_stream( std::auto_ptr<Stream> s, int level ) 
 {
-	Header h = s->read_header() ;
+	Header h = s->get_header() ;
 	if( h.is_sorted_by_coordinate() ) {
-		mergeable_queues[ level ].push_back( make_pair( h, s.release() ) ) ;
+		mergeable_queues[ level ].push_back( s.release() ) ;
 
 		if( AnfoFile::num_open_files() > max_que_size ) {
 			// get the biggest bin, we'll merge everything below that
 			unsigned max_bin = 0 ;
 			for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
 					i != mergeable_queues.end() ; ++i ) 
-				if( i->second.size() > max_bin )
+				if( i->second.size() > mergeable_queues[max_bin].size() )
 					max_bin = i->first ;
 
-			MergeStream ms ;
+			unsigned total_inputs = 0 ;
 			for( MergeableQueues::iterator i = mergeable_queues.begin() ; i->first <= max_bin ; ++i ) 
-			{
-				for( size_t j = 0 ; j != i->second.size() ; ++j )
-					ms.add_stream( i->second[j].first, auto_ptr<Stream>( i->second[j].second ) ) ;
-				i->second.clear() ;
-			}
+				total_inputs += i->second.size() ;
 
-			std::string fname ;
-			int fd = mktempfile( fname ) ;
-			clog << "Merging to tempfile" << endl ;
-			write_stream_to_file( fd, ms ) ;
-			
-			clog << "Reading back from " << fname << endl ;
-			auto_ptr<Stream> fs( new AnfoFile( fd, fname.c_str() ) ) ;
-			enqueue_stream( fs, max_bin + 1 ) ;
-			unlink( fname.c_str() ) ;
+			// we must actully make progress, and it must be more than
+			// just a single stream to avoid quadratic behaviour (only
+			// important in a weird corner case)
+			if( total_inputs > 2 ) {
+				std::string fname ;
+				int fd = mktempfile( fname ) ;
+				clog << "\033[KMerging bins 0.." << max_bin << " to tempfile " << fname << endl ;
+				{
+					MergeStream ms ;
+					for( MergeableQueues::iterator i = mergeable_queues.begin() ; i->first <= max_bin ; ++i ) 
+					{
+						for( size_t j = 0 ; j != i->second.size() ; ++j )
+							ms.add_stream( auto_ptr<Stream>( i->second[j] ) ) ;
+						i->second.clear() ;
+					}
+					write_stream_to_file( fd, ms ) ;
+				}
+
+				throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
+				auto_ptr<Stream> fs( new AnfoFile( fd, fname.c_str() ) ) ;
+				enqueue_stream( fs, max_bin + 1 ) ;
+			}
 		}
 	}
 	else
 	{
 		scratch_header.MergeFrom( h ) ;
-		for(;;) {
-			Result r = s->read_result() ;
-			if( !r.has_seqid() ) break ;
-
+		for( Result r ; s->read_result( r ) ; ) {
 			scratch_space.push_back( new Result( r ) ) ;
 			total_scratch_size += r.SpaceUsed() ;
 			if( total_scratch_size >= max_arr_size ) flush_scratch() ;
 	    }
-		scratch_footer.MergeFrom( s->read_footer() ) ;
+		scratch_footer.MergeFrom( s->get_footer() ) ;
 	}
 }
 
@@ -386,19 +371,19 @@ int main_( int argc, const char **argv )
 	for( char **arg = the_glob.gl_pathv ; 
 			arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 	{
-		clog << "Reading from " << name << endl ;
+		clog << "\033[KReading from file " << *arg << endl ;
 		std::auto_ptr<Stream> s( new AnfoFile( *arg ) ) ;
 
-		Header h = s->read_header() ;
+		Header h = s->get_header() ;
 		if( h.has_sge_slicing_stride() ) {
 			BestHitStream* &bhs = stream_per_slice[ h.sge_slicing_index(0) ] ;
 			if( !bhs ) bhs = new BestHitStream ;
-			bhs->add_stream( h, s ) ;
+			bhs->add_stream( s ) ;
 
 			// if a BestHitStream is ready, add it to the queue of
 			// mergeable streams
 			if( bhs->enough_inputs() ) {
-				clog << "Got everything for index " << h.sge_slicing_index(0) << endl ;
+				clog << "\033[KGot everything for slice " << h.sge_slicing_index(0) << endl ;
 				enqueue_stream( std::auto_ptr<Stream>( bhs ) ) ;
 				stream_per_slice.erase( h.sge_slicing_index(0) ) ;
 			}
@@ -407,38 +392,29 @@ int main_( int argc, const char **argv )
 		else enqueue_stream( s ) ;
 	}
 	if( !stream_per_slice.empty() ) 
-		cout << "WARNING: input appears to be incomplete" << endl ;
+		cout << "\033[KWARNING: input appears to be incomplete" << endl ;
 
 	// at the end, merge everything
 	sort_scratch() ;
-	clog << "done dorting" << endl ;
+	clog << "\033[Kdone sorting" << endl ;
 	auto_ptr<Stream> as( new StreamAdapter< std::deque< Result* >::const_iterator >(
 				scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
-	Header hdr = as ->read_header() ;
 
 	MergeStream final_stream ;
-	final_stream.add_stream( hdr, as ) ;
+	final_stream.add_stream( as ) ;
 
-	/*
-	for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
-			i != mergeable_queues.end() ; ++i )
-	{
-		for( MergeableQueue::const_iterator j = i->second.begin() ;
-				j != i->second.end() ; ++j )
-		{
-			clog << "add stream" << endl ;
-			final_stream.add_stream( j->first, auto_ptr<Stream>( j->second ) ) ;
-		}
-	}
-	*/
-	if( hdr.IsInitialized() ) {
+	for( MergeableQueues::const_iterator i = mergeable_queues.begin() ; i != mergeable_queues.end() ; ++i )
+		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
+			final_stream.add_stream( auto_ptr<Stream>( *j ) ) ;
+	
+	if( final_stream.get_header().has_version() ) {
 		clog << "\033[KMerging everything to output." << endl ;
-		int r = write_stream_to_file( 0, final_stream, true ) ;
+		int r = write_stream_to_file( 1, final_stream, true ) ;
 		std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
-		clog << "Done" << endl ;
+		clog << "\033[KDone" << endl ;
 		return r ;
 	} else {
-		clog << "Incomplete input, cannot write." << endl ;
+		clog << "\033[KInsufficient input, cannot write." << endl ;
 		return 1 ;
 	}
 }

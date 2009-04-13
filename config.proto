@@ -27,9 +27,8 @@ message Sequence {
 }
 
 message Genome {
-    // internal handle for the genome (short name, only used to report
-    // matches)
-    required string name = 1 ;
+    // handle for the genome, only used to report matches
+    optional string name = 1 [default=""] ;
 
     // description of the genome (most likely from command line)
     optional string description = 3 ;

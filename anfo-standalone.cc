@@ -250,21 +250,16 @@ void process_sequence( CommonData *cd, QSequence *ps, double max_penalty_per_nuc
 			int32_t len = maxpos - minpos - 1 ;
 			if( const Sequence *sequ = g->second.translate_back( minpos+1, start_pos ) )
 			{
-				h->set_genome( g->first ) ;
+				h->set_genome_file( g->first ) ;
+				if( g->second.g_.has_name() ) 
+					h->set_genome_name( g->second.g_.name() ) ;
+
 				h->set_sequence( sequ->name() ) ;
 				if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
 				else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
 
-				if( minpos.is_reversed() )
-				{
-					h->set_start_pos( start_pos - len + 1 ) ;
-					h->set_aln_length( -len ) ;
-				}
-				else
-				{
-					h->set_start_pos( start_pos ) ;
-					h->set_aln_length( len ) ;
-				}
+				h->set_start_pos( start_pos ) ;
+				h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
 				break ;
 			}
 		}

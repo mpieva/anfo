@@ -47,10 +47,10 @@ void print_str( const std::string& s )
 
 void add_alignment( std::string::const_iterator qry, output::Hit &h, const config::Config &conf, Genomes &genomes )
 {
-	CompactGenome &g = genomes[ h.genome() ] ;
+	CompactGenome &g = genomes[ h.genome_file() ] ;
 	if( !g.get_base() ) 
 	{
-		try { CompactGenome( h.genome(), conf, MADV_RANDOM ).swap( g ) ; }
+		try { CompactGenome( h.genome_file(), conf, MADV_RANDOM ).swap( g ) ; }
 		catch(...) { /* too bad, we'll make do without a genome */ }
 	}
 

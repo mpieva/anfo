@@ -53,8 +53,14 @@ message Footer {
 //   outside sex chromosomes
 
 message Hit {
-	// name of the genome
-    required string genome = 1 ;
+	// file name of the genome (can be used to locate the reference
+    // sequence)
+    optional string genome_file = 1 ;
+
+    // globally unique name of the genome (used when sorting hits be
+    // coordinate, can be used to locate the reference sequence if
+    // present; if absent, the sequence name should be globally unique)
+    optional string genome_name = 8 ;
 
 	// name of the subject sequence (== chromosome or similar)
     required string sequence = 2 ;
