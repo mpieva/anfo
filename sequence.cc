@@ -30,7 +30,7 @@ inline bool all_ascii_qscores( const std::string& s )
 // inline double sol_to_err_prob( int sol ) { return 1.0 / ( 1.0 + std::pow( 10.0, sol / 10.0 ) ) ; }
 inline double phred_to_err_prob( int phred ) { return std::pow( 10.0, -phred / 10.0 ) ; }
 inline int err_prob_to_phred( double p ) { return (int)( -10.0 * std::log( p ) / std::log( 10.0 ) ) ; }
-inline int sol_to_phred( int sol ) { return sol + (int)( 0.5 + 10 * log( 1.0 + pow( 10.0, -sol / 10.0 ) ) / log( 10.0 ) ) ; }
+inline int sol_to_phred( int sol ) { return sol + (int)( 0.5 + 10 * log1p( pow( 10.0, -sol / 10.0 ) ) / log( 10.0 ) ) ; }
 
 int bits_in[] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 } ;
 

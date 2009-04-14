@@ -40,5 +40,17 @@ inline config::Config parse_text_config( const std::string& filename )
 	return c ;
 }
 
+inline config::Config get_default_config( const char* config_file = 0 ) 
+{
+	if( config_file ) return parse_text_config( config_file ) ;
+	else if( !access( "anfo.cfg", F_OK ) ) return parse_text_config( "anfo.cfg" ) ;
+	else if( !access( ".anfo.cfg", F_OK ) ) return parse_text_config( ".anfo.cfg" ) ;
+	else {
+		std::string f = getenv( "HOME" ) + std::string( ".anfo.cfg" ) ;
+		if( !access( f.c_str(), F_OK ) ) return parse_text_config( f.c_str() ) ;
+		else throw "no config file found" ;
+	}
+}
+
 #endif
 
