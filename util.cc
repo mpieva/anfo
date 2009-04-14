@@ -14,3 +14,26 @@ int main( int argc, const char * argv[] )
 	return 1 ;
 }
 
+void set_proc_title( const char *title ) 
+{
+	extern char* __progname_full ;
+	extern char* __progname ;
+	static char* pe = 0 ;
+	static char* pa = 0 ;
+
+	if( !pe ) {
+		char* p = __progname ;
+		pa = __progname_full ;
+		for( pe = pa ; pe[0] || pe[1] ; ++pe ) ;
+		while( *p && pa != pe ) *pa++ = *p++ ;
+		if( pa != pe ) *pa++ = ':' ;
+		if( pa != pe ) *pa++ = ' ' ;
+	}
+
+	char* pf = pa ;
+	if( pf != pe ) {
+		while( *title && pf != pe ) *pf++ = *title++ ;
+		while( pf != pe ) *pf++ = 0 ;
+	}
+}
+

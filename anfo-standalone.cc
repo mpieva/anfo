@@ -78,41 +78,6 @@ Policy select_policy( const Config &c, const QSequence &ps )
 	return p ;
 }
 
-/*! \brief tries to set proc title for ps
- *
- * This is borderline malpractice: since Linux is missing the
- * appropriate API, we directly overwrite argv[0].  This \e will trash
- * argv, so don't try to access that after setting a title, and this \e
- * may trash other things, should my assumption that argv is terminated
- * by "\0\0" turn out wrong.
- *
- * Ignoring the above, it is quite helpful, though...
- * \param title new program title to be displayed
- */
-
-void set_proc_title( const char *title ) 
-{
-	extern char* __progname_full ;
-	extern char* __progname ;
-	static char* pe = 0 ;
-	static char* pa = 0 ;
-
-	if( !pe ) {
-		char* p = __progname ;
-		pa = __progname_full ;
-		for( pe = pa ; pe[0] || pe[1] ; ++pe ) ;
-		while( *p && pa != pe ) *pa++ = *p++ ;
-		if( pa != pe ) *pa++ = ':' ;
-		if( pa != pe ) *pa++ = ' ' ;
-	}
-
-	char* pf = pa ;
-	if( pf != pe ) {
-		while( *title && pf != pe ) *pf++ = *title++ ;
-		while( pf != pe ) *pf++ = 0 ;
-	}
-}
-
 typedef map< string, CompactGenome > Genomes ; 
 typedef map< string, FixedIndex > Indices ;
 

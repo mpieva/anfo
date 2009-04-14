@@ -121,4 +121,17 @@ static const int MADV_WILLNEED = 0 ;
 
 int main( int argc, const char * argv[] ) ;
 
+/*! \brief tries to set proc title for ps
+ *
+ * This is borderline malpractice: since Linux is missing the
+ * appropriate API, we directly overwrite argv[0].  This \e will trash
+ * argv, so don't try to access that after setting a title, and this \e
+ * may trash other things, should my assumption that argv is terminated
+ * by "\0\0" turn out wrong.
+ *
+ * Ignoring the above, it is quite helpful, though...
+ * \param title new program title to be displayed
+ */
+void set_proc_title( const char *title ) ;
+
 #endif
