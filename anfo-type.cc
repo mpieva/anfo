@@ -59,7 +59,7 @@ void add_alignment( std::string::const_iterator qry, output::Hit &h, const confi
 		std::string &r = *h.mutable_ref(), &q = *h.mutable_qry(), &c = *h.mutable_con() ;
 		r.clear() ; q.clear() ; c.clear() ;
 		DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ; 
-		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
+		if( h.aln_length() < 0 ) ref = ref.reverse() ;
 
 		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
 		{

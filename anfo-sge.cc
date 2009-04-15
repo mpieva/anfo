@@ -40,7 +40,6 @@ using namespace config ;
 using namespace std ;
 using namespace google::protobuf::io ;
 
-volatile int exit_with = 0 ;
 extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
 void expand_placeholcer( string &s, int x )
@@ -100,8 +99,6 @@ int main_( int argc, const char * argv[] )
 	if( const char* tid = getenv("SGE_TASK_LAST") ) if( stride == 1 ) stride = atoi(tid) ;
 
 	Config conf = get_default_config( config_file ) ;
-	Mapper mapper( conf ) ;
-
 	for( int i = 0 ; i != conf.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != conf.policy(i).use_compact_index_size() ; ++j )
@@ -118,9 +115,10 @@ int main_( int argc, const char * argv[] )
 			}
 		}
 	}
-
 	slicenum /= total_slices ;
 	stride /= total_slices ;
+	Mapper mapper( conf ) ;
+
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;

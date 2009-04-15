@@ -134,4 +134,10 @@ int main( int argc, const char * argv[] ) ;
  */
 void set_proc_title( const char *title ) ;
 
+//! \brief global flag to signal shutdown
+//! Some long running algoritms will periodically check this variable
+//! and abort cleanly if it is not null.  Use this to cause an early
+//! shutdown, e.g. on reception of a signal.
+extern volatile int exit_with ;
+
 #endif

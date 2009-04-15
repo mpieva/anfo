@@ -622,10 +622,20 @@ template< typename State > struct enter_bt {
  *                  must have been called on each of its elements.
  * \param max_penalty Penalty at which alignments are no longer
  *                    interesting.
- * \param report_success if set, a statistic of the finished alignment
- *                       is sent to std::clog (only useful for
- *                       debugging)
- * \return First state to be detected as finished().
+ * \param open_nodes_after_alignment
+ *      if not 0, will contain the number of nodes left in the open list
+ *      after aligning (useful for debugging and tuning only)
+ * \param closed_nodes_after_alignment
+ *      if not 0, will contain the number of nodes in the closed list
+ *      aftert alignment (useful for debugging and tuning only)
+ * \param tracked_closed_nodes_after_alignment
+ *      if not 0, will contain the number of nodes in the open list that
+ *      are already closed (useful for debugging and tuning only)
+ * \param log 
+ *      if not 0, will periodically receive progress information during
+ *      very long alignments
+ * \return First state to be detected as finished() or an invalid state
+ *         if no good alignment could be found.
  */
 template< typename State >
 State find_cheapest( 
@@ -634,10 +644,11 @@ State find_cheapest(
 		uint32_t max_penalty = std::numeric_limits<uint32_t>::max(),
 		uint32_t *open_nodes_after_alignment = 0,
 		uint32_t *closed_nodes_after_alignment = 0,
-		uint32_t *tracked_closed_nodes_after_alignment = 0 )
+		uint32_t *tracked_closed_nodes_after_alignment = 0,
+        std::ostream *log = 0 )
 {
 	int iter = 0 ;
-	while( !open_list.empty() )
+	while( !open_list.empty() && !exit_with )
 	{
 		State s = open_list.front() ;
 		std::pop_heap( open_list.begin(), open_list.end() ) ;
@@ -649,7 +660,7 @@ State find_cheapest(
 			if( finished( s ) )
 			{
 				if( open_nodes_after_alignment ) *open_nodes_after_alignment = open_list.size() ;
-				if( closed_nodes_after_alignment ) * closed_nodes_after_alignment = deep_count( closed_list ) ;
+				if( closed_nodes_after_alignment ) *closed_nodes_after_alignment = deep_count( closed_list ) ;
 				if( tracked_closed_nodes_after_alignment ) {
 					int dups = 0 ;
 					for( size_t i = 0 ; i != open_list.size() ; ++i )
@@ -660,13 +671,15 @@ State find_cheapest(
 			}
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
-		if( ++iter % 10000000 == 0 ) {
-			std::clog 
-				<< "\n\33[KAfter " << iter << " expansions, open list contains "
+		if( ++iter % 10000000 == 0 && log ) (*log)
+				<< "After " << iter << " expansions, open list contains "
 				<< open_list.size() << " nodes, and " << deep_count( closed_list )
 				<< " nodes are closed." << std::endl ;
-		}
 	}
+
+    if( open_nodes_after_alignment ) *open_nodes_after_alignment = 0 ;
+    if( closed_nodes_after_alignment ) *closed_nodes_after_alignment = deep_count( closed_list ) ;
+    if( tracked_closed_nodes_after_alignment ) *tracked_closed_nodes_after_alignment = 0 ;
 	return State() ;
 }
 

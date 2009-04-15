@@ -1,6 +1,8 @@
 #include "util.h"
 #include <iostream>
 
+volatile int exit_with = 0 ;
+
 extern int main_( int argc, const char * argv[] ) ;
 int main( int argc, const char * argv[] )
 {

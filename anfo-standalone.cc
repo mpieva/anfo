@@ -38,7 +38,6 @@ using namespace config ;
 using namespace std ;
 using namespace google::protobuf::io ;
 
-volatile int exit_with = 0 ;
 extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
 //! \page anfo_executable Standalone ANFO executable

@@ -8,8 +8,6 @@
 #include <memory>
 #include <ostream>
 
-#include <iostream>
-
 //! \brief decompression filter that doesn't actually decompress
 //! A placeholder for cases where a filter is needed that does nothing.
 //! Forwards all calls to another stream
@@ -224,8 +222,8 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 
 struct BzipError : public Exception {
 	int e_ ;
-	BzipError( int e ) : e_(e) { print_to( std::cerr ) ; }
-	void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
+	BzipError( int e ) : e_(e) {}
+	virtual void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
 } ;
 
 #if HAVE_LIBBZ2
