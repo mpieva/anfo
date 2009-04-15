@@ -101,6 +101,7 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 				std::cout << '*' ;
 
 /*[TAGS]*/
+/*SCORE*/	std::cout << "\tAS:i:" << hit.score() ;
 
     std::cout << std::endl;
     return goodness ;
