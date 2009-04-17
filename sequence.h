@@ -372,7 +372,9 @@ class QSequence
 		reference operator [] ( size_t ix ) { return seq_[1+ix] ; }
 		const_reference operator [] ( size_t ix ) const { return seq_[1+ix] ; }
 
-		friend bool read_fastq( google::protobuf::io::ZeroCopyInputStream*, QSequence&, bool, char ) ;
+		friend bool read_fastq(
+				google::protobuf::io::ZeroCopyInputStream* zis,
+				QSequence& qs, bool solexa_scores, char origin ) ;
 } ;
 
 //! \brief reads a sequence from a FASTA, FASTQ or 4Q file

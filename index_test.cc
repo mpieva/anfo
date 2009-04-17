@@ -5,6 +5,8 @@
 //! will check whether a seed in the correct region is found at all.
 
 #include "align.h"
+#include "anfo_common.h"
+#include "compress_stream.h"
 #include "conffile.h"
 #include "index.h"
 #include "util.h"
@@ -62,21 +64,21 @@ int main_( int argc, const char * argv[] )
 		std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
 
 		QSequence ps ;
-		while( read_fastq( inp.get(), ps, solexa_scale, fastq_origin ) ) 
+		while( read_fastq( inp.get(), ps ) ) 
 		{
 			output::Result r ;
 			std::deque< alignment_type > ol ;
-			int pmax = mapper.index_sequence( ps, r, ol ) ;
+			mapper.index_sequence( ps, r, ol ) ;
 			// XXX
 
-			cout << ps.seqid() << ": " << r.num_raw_seeds() << " seeds, "
+			cout << ps.get_name() << ": " << r.num_raw_seeds() << " seeds, "
 				<< r.num_grown_seeds() << " superseeds, "
 				<< r.num_clumps() << " aggregates." << endl ;
 			if( outputlevel >= 1 )
 			{
 				for( size_t i = 0 ; i != ol.size() ; ++i )
 					std::cout << ol[i].reference << ", " ;
-				std::cout << std::endl ;
+				std::cout << std::dec << std::endl ;
 			}
 		}
 		if( inp_fd ) close( inp_fd ) ;

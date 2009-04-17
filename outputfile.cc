@@ -47,7 +47,7 @@ void AnfoFile::initialize()
 	foot_.set_exit_code(1) ;
 }
 
-bool AnfoFile::read_result( Result& res )
+bool AnfoFile::read_result( output::Result& res )
 {
 	uint32_t tag = 0 ;
 	CodedInputStream cis( zis_.get() ) ;

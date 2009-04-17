@@ -103,7 +103,7 @@ class MergeStream : public Stream
 		virtual bool read_result( output::Result& ) ;
 } ;
 
-bool MergeStream::read_result( Result& res ) 
+bool MergeStream::read_result( output::Result& res ) 
 {
 	if( rs_.empty() ) return false ;
 	int min_idx = 0 ;

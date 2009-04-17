@@ -159,7 +159,6 @@ int main_( int argc, const char * argv[] )
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_scale = 0 ;
-	int stride = 1 ;
 	int log_params = 0 ;
 	int fastq_origin = 33 ;
 

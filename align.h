@@ -444,6 +444,7 @@ inline void greedy( simple_adna& s )
 		while( s.get_qry().ambicode && s.get_ref() == s.get_qry().ambicode )
 		{
 			s.penalty += s.subst_penalty() ;
+			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::overhang_ext_penalty ;
 			s.adv_ref() ;
 			s.adv_qry() ;
 		}
@@ -620,6 +621,7 @@ template< typename State > struct enter_bt {
  *
  * \param open_list Queue of open states, must form a heap and \c greedy
  *                  must have been called on each of its elements.
+ * \param closed_list Set of closed nodes, initially empty.
  * \param max_penalty Penalty at which alignments are no longer
  *                    interesting.
  * \param open_nodes_after_alignment

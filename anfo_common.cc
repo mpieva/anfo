@@ -30,7 +30,7 @@ Policy select_policy( const Config &c, const QSequence &ps )
 	return p ;
 }
 
-Mapper::Mapper( const Config &config ) : mi(config)
+Mapper::Mapper( const config::Config &config ) : mi(config)
 {
 	if( mi.has_aligner() ) simple_adna::configure( mi.aligner(), 0 ) ;
 	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
