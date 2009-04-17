@@ -14,6 +14,55 @@
 #include <string>
 #include "util.h"
 
+// This is a VERY UGLY fix for a very ugly coordinate mishap.  Versions
+// 0.8.0 and before of ANFO miscalculated the position of some genomic
+// contigs.  We're trying to fix this here for hg18 by adding offsets to
+// the coordinates.  This is a band-aid, will probably not work reliably
+// and chr{8,17,X}_random remain FUBAR'ed anyway.  DO NOT USE this
+// version of anfo2sam unless you absolutely must.
+
+struct Fixup {
+	const char *sequence ;
+	uint32_t start_of_fix ;
+	int32_t offset ;
+} ;
+
+Fixup fixups[] = {
+	"chr3",			0,			-2,
+	"chr5",			0,			-2,
+	"chr6",			0,			-2,
+	"chr7",			0,			-2,
+	"chr10",		0,			-2,
+	"chr11",		0,			-2,
+	"chr12",		0,			-2,
+	"chr12",		122494037,	-4,
+	"chr13",		0,			-2,
+	"chr14",		0,			-2,
+	"chr15",		0,			-2,
+	"chr19",		0,			-2,
+	"chr20",		0,			-2,
+	"chr21",		0,			-2,
+	"chr21",		32078910,	-4,
+	"chr21",		32079256,	-6,
+	"chr21",		39207822,	-8,
+	"chr21",		42908973,	-10,
+	"chr22",		0,			-2,
+	"chr22",		17558165,	-4,
+	"chr1_random",	483265,		-2,
+	"chr7_random",	402174,		-2,
+	"chr9_random",	92729,		-2,
+	"chr9_random",	144828,		-4
+} ;
+
+uint32_t fix_position( const std::string& seq, uint32_t raw_pos )
+{
+	int32_t off = 0 ;
+	for( size_t i = 0 ; i != sizeof(fixups)/sizeof(fixups[0]) ; ++i )
+		if( seq == fixups[i].sequence && raw_pos >= fixups[i].start_of_fix )
+			off = fixups[i].offset ;
+	return raw_pos+off ;
+}
+
 // BAM FLAGS
 #define BAM_FPAIRED        1   // read is paired in sequencing
 #define BAM_FPROPER_PAIR   2   // read is mapped in proper pair
@@ -53,9 +102,45 @@ unsigned len_from_bin_cigar( const std::string& cigar ) {
 	return l ;
 }
 
-enum bad_stuff { goodness = 0, no_hit, multiple_hits, no_seqid, no_seq, bad_cigar, bad_stuff_max } ; 
+bool is_clean_dna( const std::string& s )
+{
+	for( size_t i = 0 ; i != s.size() ; ++i )
+	{
+		switch( s[i] & ~32 )
+		{
+			case 'A': case 'C': case 'G': case 'T': case 'U': case 'N': break ;
+			default: return false ;
+		}
+	}
+	return true ;
+}
+
+std::string revcompl( std::string s )
+{
+	for( size_t i=0, j=s.size()-1 ; i<j ; ++i, --j )
+	{
+		char c = s[i] ;
+		s[i] = s[j] ;
+		s[j] = c ;
+	}
+
+	for( size_t i=0 ; i != s.length() ; ++i )
+	{
+		switch( s[i] )
+		{
+			case 'A': s[i] = 'T' ; break ;
+			case 'C': s[i] = 'G' ; break ;
+			case 'G': s[i] = 'C' ; break ;
+			case 'U':
+			case 'T': s[i] = 'A' ; break ;
+		}
+	}
+	return s ;
+}
+
+enum bad_stuff { goodness = 0, no_hit, multiple_hits, no_seqid, no_seq, bad_cigar, parse_accident, bad_stuff_max } ; 
 const char *descr[] = { 0, "had no hit", "had multiple hits", "missed the sequence id"
-	                  , "missed the sequence", "had a bad CIGAR" } ;
+	                  , "missed the sequence", "had a bad CIGAR", "were improperly parsed" } ;
 
 // About MAPQ: this is supposed to be the "quality of the mapping",
 // which we interpret as confidence in the aligned position.  We can
@@ -72,6 +157,7 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
     if (result.has_best_hit() && result.has_best_to_genome()) return multiple_hits ;
     if (!result.has_seqid()) return no_seqid;
     if (!result.has_sequence()) return no_seq;
+	if (!is_clean_dna( result.sequence() )) return parse_accident ;
 
 	// XXX 
 	// Either one of those two is fine, depending on what we actually
@@ -84,7 +170,8 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 /*QNAME*/   std::cout << result.seqid() << "\t";
 /*FLAG */   std::cout << (hit.aln_length() < 0 ? BAM_FREVERSE : 0) << "\t";  // TODO: calc flag
 /*RNAME*/   std::cout << hit.sequence() << "\t";
-/*POS*/     std::cout << hit.start_pos() << "\t";
+	        uint32_t eff_start = fix_position( hit.sequence(), hit.old_start_pos() ) ;
+/*POS*/     std::cout << ( hit.aln_length() >= 0 ? eff_start : eff_start+hit.aln_length()+1 ) << "\t";
 /*MAPQ*/   	std::cout << ( result.has_diff_to_next() 
 					? (int)( 0.5 + result.diff_to_next() / std::log(10.0) ) : 255 ) << '\t' ;
 /*CIGAR*/   decode_binCigar(std::cout, hit.cigar()) << "\t";
@@ -93,10 +180,17 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 /*MPOS*/    std::cout << "0" << "\t";
 /*ISIZE*/   std::cout << "0" << "\t";
 
-/*SEQ*/     std::cout << result.sequence() << "\t";
+/*SEQ*/     if( hit.aln_length() >= 0 ) std::cout << result.sequence() << '\t' ;
+            else                        std::cout << revcompl( result.sequence() ) << "\t";
 /*QUAL*/    if( result.has_quality() )
-				for (size_t i = 0; i < result.quality().size(); i++)
-					std::cout << char((uint8_t)result.quality()[i] + 33);
+			{
+				if( hit.aln_length() >= 0 )
+					for (size_t i = 0; i != result.quality().size(); ++i)
+						std::cout << char((uint8_t)result.quality()[i] + 33);
+				else
+					for (size_t i = result.quality().size(); i != 0 ; --i)
+						std::cout << char((uint8_t)result.quality()[i-1] + 33);
+			}
 			else
 				std::cout << '*' ;
 
@@ -118,6 +212,8 @@ int main_( int argc, const char * argv[] ){
        return (EXIT_FAILURE);
     }
 
+	std::cerr << "WARNING: This program contains an ugly hack.\n"
+		         "DO NOT USE this unless you know what you're doing!" << std::endl ;
     int discarded[bad_stuff_max] = {0};
     AnfoFile f_anfo(argv[1]);
     f_anfo.get_header();
@@ -132,7 +228,4 @@ int main_( int argc, const char * argv[] ){
 
     return (EXIT_SUCCESS);
 }
-
-
-
 

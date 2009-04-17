@@ -67,8 +67,12 @@ message Hit {
 
 	// position where the first nucleotide aligns 
 	// this is the start position of the alignment if on the forward
-	// strand, the end position if on the reverse strand
-    required uint32 start_pos = 3 ;
+	// strand, the end position if on the reverse strand (in
+	// reality, this field is required...)
+    optional uint32 start_pos = 9 ;
+
+    // start pos. in old encoding (used in anfo2sam-fixup only)
+    optional uint32 old_start_pos = 3 ;
 
 	// length of alignment on reference sequence, negative if on the
 	// reverse strand

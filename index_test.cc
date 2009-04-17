@@ -1,105 +1,87 @@
+//! \page index_test Testing the indexing phase
+//! This binary just runs the indexer on whatever input it is given,
+//! printing the resulting seeds in various detail.  If the input looks
+//! as if it contains a coordinate (simulated data does), this program
+//! will check whether a seed in the correct region is found at all.
+
 #include "align.h"
 #include "conffile.h"
 #include "index.h"
 #include "util.h"
 
+#include <popt.h>
+
 #include <limits>
 #include <string>
 
-// typedef simple_adna alignment_type ;
-// typedef flat_alignment alignment_type ;
-
+using namespace config ;
 using namespace std ;
-
-//! \brief Rev-complements ASCII-encoded sequence.
-//! This shouldn't be needed, it's only here for debugging.
-//! \internal
-void revcom( string &s )
-{
-	for( size_t i=0, j=s.size()-1 ; i<j ; ++i, --j )
-	{
-		char c = s[i] ;
-		s[i] = s[j] ;
-		s[j] = c ;
-	}
-
-	for( size_t i=0 ; i != s.length() ; ++i )
-	{
-		switch( s[i] )
-		{
-			case 'A': s[i] = 'T' ; break ;
-			case 'C': s[i] = 'G' ; break ;
-			case 'G': s[i] = 'C' ; break ;
-			case 'T': s[i] = 'A' ; break ;
-			case 'M': s[i] = 'K' ; break ;
-			case 'K': s[i] = 'M' ; break ;
-			case 'Y': s[i] = 'R' ; break ;
-			case 'R': s[i] = 'Y' ; break ;
-			case 'B': s[i] = 'V' ; break ;
-			case 'H': s[i] = 'D' ; break ;
-			case 'D': s[i] = 'H' ; break ;
-			case 'V': s[i] = 'B' ; break ;
-		}
-	}
-}
-
-template< typename alignment_type >
-int do_aln( const CompactGenome& g, const QSequence& ps, const vector<Seed>& seeds )
-{
-	deque<alignment_type> ol ;
-	typename alignment_type::ClosedSet cl ;
-	setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
-
-	uint32_t n_open, n_closed, n_dup ;
-	alignment_type best = find_cheapest(
-			ol, cl, std::numeric_limits<uint32_t>::max(),
-			&n_open, &n_closed, &n_dup ) ;
-
-	cout << "Done near " << best.reference.abs() - g.get_base()
-		 << " costing " << best.penalty << "; open list contains "
-		 << n_open << " nodes, " << n_closed << " nodes are closed, "
-		 << n_dup << " of which are still tracked." << endl ;
-
-	deque< pair< alignment_type, const alignment_type* > > ol_ ;
-	reset( best ) ;
-	greedy( best ) ;
-	(enter_bt<alignment_type>( ol_ ))( best ) ;
-	DnaP minpos, maxpos ;
-	// XXX cout << find_cheapest( ol_, minpos, maxpos ) << endl ;
-
-	return 0 ;
-}
+using namespace google::protobuf::io ;
 
 
 int main_( int argc, const char * argv[] )
 {
-	config::Config mi = parse_text_config( argc < 2 || !strcmp( argv[1], "R" ) ? "anfo.cfg" : argv[1] ) ;
-	if( mi.has_aligner() ) simple_adna::configure( mi.aligner(), &cout ) ;
+	GOOGLE_PROTOBUF_VERIFY_VERSION ;
+	enum option_tags { opt_none, opt_version, opt_quiet } ;
 
-	FixedIndex ix( argc < 3 ? "chr21_10" : argv[2], mi ) ;
-	CompactGenome g( ix.ci_.genome_name(), mi ) ;
+	const char* config_file = 0 ;
+	int outputlevel = 0 ;
 
-	cout << "Found index for " << ix.ci_.genome_name() << " with wordsize " << ix.ci_.wordsize() << " and " ;
-	if( ix.ci_.has_cutoff() ) cout << "cutoff " << ix.ci_.cutoff() << '.' ;
-	                     else cout << "no cutoff." ;
-	cout << "\nFound genome " << g.describe() << " of length " << g.total_size() << endl ;
+	struct poptOption options[] = {
+		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
+		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
+		{ "debug",       'd', POPT_ARG_INT,    &outputlevel, opt_none,    "Set debug level to L", "L" },
+		POPT_AUTOHELP POPT_TABLEEND
+	} ;
 
+	poptContext pc = poptGetContext( "anfo", argc, argv, options, 0 ) ;
+	poptSetOtherOptionHelp( pc, "[OPTION...] [sequence-file...]" ) ;
+	poptReadDefaultConfig( pc, 0 ) ;
 
-	string sq = argc < 4 ? "AGVTMTTTTACCCAGGCCCAGTATCTGTGATTTGCTGTAGATAACGCTG" : argv[3] ;
-	if( argc >= 2 && strcmp( argv[1], "R" ) == 0 ) revcom(sq) ;
-	QSequence ps( sq.c_str() ) ;
+	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
+	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
+	{
+		case opt_version:
+			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
+			return 0 ;
 
-	vector<Seed> seeds ;
-	int num_raw = ix.lookup( ps, seeds ) ;
-	int num_comb = seeds.size() ;
-	select_seeds( seeds, /* ±d */ 2, /* ±o */ 16, /* m */ 12, g.get_contig_map() ) ;
-	int num_clumps = seeds.size() ;
+		default:
+			std::clog << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
+				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
+			return 1 ; 
+	}
 
-	cout << "got " << num_raw << " seeds, combined into " << num_comb
-		 << " larger ones, clumped into " << num_clumps << " clumps."
-		 << endl ;
+	Mapper mapper( get_default_config( config_file ) ) ;
 
-	if( mi.has_aligner() ) return do_aln< simple_adna >( g, ps, seeds ) ;
-	else return do_aln< flat_alignment >( g, ps, seeds ) ;
+	while( const char* arg = poptGetArg( pc ) ) 
+	{
+		int inp_fd = !strcmp( arg, "-" ) ? 0 :
+			throw_errno_if_minus1( open( arg, O_RDONLY ), "opening ", arg ) ;
+
+		FileInputStream raw_inp( inp_fd ) ;
+		std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
+
+		QSequence ps ;
+		while( read_fastq( inp.get(), ps, solexa_scale, fastq_origin ) ) 
+		{
+			output::Result r ;
+			std::deque< alignment_type > ol ;
+			int pmax = mapper.index_sequence( ps, r, ol ) ;
+			// XXX
+
+			cout << ps.seqid() << ": " << r.num_raw_seeds() << " seeds, "
+				<< r.num_grown_seeds() << " superseeds, "
+				<< r.num_clumps() << " aggregates." << endl ;
+			if( outputlevel >= 1 )
+			{
+				for( size_t i = 0 ; i != ol.size() ; ++i )
+					std::cout << ol[i].reference << ", " ;
+				std::cout << std::endl ;
+			}
+		}
+		if( inp_fd ) close( inp_fd ) ;
+	}
+
+	poptFreeContext( pc ) ;
+	return 0 ;
 }
-

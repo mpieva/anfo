@@ -32,9 +32,17 @@
 #include <sstream>
 #include <string>
 
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
+
+#if HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
+
+#if HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 
 using namespace config ;
 using namespace std ;

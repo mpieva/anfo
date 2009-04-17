@@ -20,8 +20,10 @@ CXXFLAGS ?= @CXXFLAGS@ -MMD
 DEFS ?= @DEFS@
 
 # CXXFLAGS += -ggdb 
+CXXFLAGS += -Wall -Werror
 
-PROGS := fa2dna dnaindex file-info anfo-type anfo-sort anfo2sam anfo-sge anfo-standalone
+PROGS := fa2dna dnaindex file-info anfo-type anfo-sort anfo2sam anfo-sge anfo-standalone \
+    	anfo2sam-fixup
 TARGETS := $(PROGS) 
 
 # DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
@@ -44,12 +46,13 @@ install_doc: doc/html/index.html
 
 
 fa2dna.o: config.pb.h
-anfo2sam.o: output.pb.h
+anfo2sam.o: output.pb.h config.pb.h
+anfo2sam-fixup.o: output.pb.h config.pb.h
 dnaindex.cc: config.pb.h
 file-info.o: config.pb.h output.pb.h
-anfo-type.o: output.pb.h
+anfo-type.o: output.pb.h config.pb.h
 anfo-standalone.o: config.pb.h output.pb.h
-anfo-combine: output.pb.h
+anfo-combine: output.pb.h config.pb.h
 
 ../data/hg18.dna: fa2dna
 	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -O ${@D} -v \
