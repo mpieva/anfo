@@ -82,7 +82,7 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 
 	Policy p = select_policy( mi, ps ) ;
 
-	int num_raw = 0, num_comb = 0, num_clumps = 0 ;
+	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
@@ -91,7 +91,10 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 		assert( ix ) ; assert( g.get_base() ) ;
 
 		vector<Seed> seeds ;
-		num_raw += ix.lookup( ps, seeds, cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
+		num_raw += ix.lookup( 
+				ps, seeds, 
+				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max(),
+				&num_useless ) ;
 		num_comb += seeds.size() ;
 		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
 		num_clumps += seeds.size() ;
@@ -99,6 +102,7 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 		setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
 	}
 	r.set_num_raw_seeds( num_raw ) ;
+	r.set_num_useless( num_useless ) ;
 	r.set_num_grown_seeds( num_comb ) ;
 	r.set_num_clumps( num_clumps ) ;
 
@@ -109,7 +113,7 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 	}
 	else if( ol.empty() ) 
 	{
-		r.set_reason( output::no_seeds ) ;
+		r.set_reason( num_useless ? output::repeats_only : output::no_seeds ) ;
 		return INT_MAX ;
 	}
 	else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )

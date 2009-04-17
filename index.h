@@ -141,9 +141,10 @@ class FixedIndex
 		FixedIndex( const std::string &name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~FixedIndex() ;
 
-		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0 ) const ;
+		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offset = 0, int *num_useless = 0 ) const ;
 		unsigned lookup( const QSequence& seq, std::vector<Seed>&,
-				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
+				uint32_t cutoff = std::numeric_limits<uint32_t>::max(),
+				int *num_useless = 0 ) const ;
 
 		operator const void * () const { return base ; }
 

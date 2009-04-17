@@ -72,6 +72,7 @@ int main_( int argc, const char * argv[] )
 			// XXX
 
 			cout << ps.get_name() << ": " << r.num_raw_seeds() << " seeds, "
+				<< r.num_useless() << " useless seeds, "
 				<< r.num_grown_seeds() << " superseeds, "
 				<< r.num_clumps() << " aggregates." << endl ;
 			if( outputlevel >= 1 )

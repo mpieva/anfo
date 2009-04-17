@@ -121,7 +121,7 @@ FixedIndex::~FixedIndex()
 //! \param cutoff discard oligos more frequent than this
 //! \param offs offset value to be placed in the seeds
 //! \return number of seeds found, including repetitive ones
-unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs ) const 
+unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs, int *num_useless ) const 
 {
 	assert( o < first_level_len ) ;
 
@@ -137,6 +137,7 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 			v.push_back( seed ) ;
 		}
 	}
+	else if( num_useless ) *num_useless += base[o+1] - base[o] ;
 	return base[o+1] - base[o] ;
 } 
 
@@ -154,7 +155,7 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 //!
 //! \todo move cutoff parameter somewhere else to improve modularity
 
-unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_t cutoff ) const
+unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_t cutoff, int *num_useless ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
 	Oligo mask = ~( ~0 << (ci_.wordsize() * 2) ) ;
@@ -179,8 +180,8 @@ unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_
 			default: filled = 0 ; break ;
 		}
 		if( filled >= ci_.wordsize() ) 
-			total += lookup1( o_f, v, cutoff,   offset - ci_.wordsize() + 1 ) 
-				   + lookup1( o_r, v, cutoff, - offset                      ) ;
+			total += lookup1( o_f, v, cutoff,   offset - ci_.wordsize() + 1, num_useless ) 
+				   + lookup1( o_r, v, cutoff, - offset                     , num_useless ) ;
 	}
 	combine_seeds( v ) ;
 	return total ;

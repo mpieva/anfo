@@ -25,8 +25,11 @@ CXXFLAGS += -Wall -Werror
 PROGS := fa2dna dnaindex anfo-type anfo-sort anfo2sam anfo-sge anfo-standalone
 TARGETS := $(PROGS) anfo2sam-fixup index_test file-info 
 
-# DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
+ifeq (@SIZEOF_INT_P@,4)
 DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
+else
+DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
+endif
 
 all: tags $(TARGETS)
 dbs: $(DATABASES)
@@ -81,6 +84,8 @@ anfo-combine: output.pb.h config.pb.h
 .PRECIOUS: %.o %.pb.cc %.pb.h
 .PHONY: clean all doc
 .SUFFIXES:
+
+doc: doc/html/index.html
 
 doc/html/index.html: Doxyfile *.cc *.h
 	$(DOXYGEN)

@@ -123,6 +123,9 @@ enum Reason {
 
     // no policy how to align, therefore no alignment
     no_policy = 4 ;
+
+	// only repetitive seeds
+	repeats_only = 5 ;
 }
 
 // Quality scores for each of the possible bases (raw, Phred scale)
@@ -163,6 +166,7 @@ message Result {
     optional uint32 num_raw_seeds = 16 ;
     optional uint32 num_grown_seeds = 17 ;
     optional uint32 num_clumps = 18 ;
+	optional uint32 num_useless = 22 ;
 
     // Some statistics about the alignment process
 	optional uint32 open_nodes_after_alignment = 19 ;
