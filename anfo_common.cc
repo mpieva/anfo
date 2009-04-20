@@ -163,7 +163,7 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 				if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
 				else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
 
-				h->set_start_pos( start_pos ) ;
+				h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
 				h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
 				break ;
 			}

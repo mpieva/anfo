@@ -84,7 +84,7 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 /*QNAME*/   std::cout << result.seqid() << "\t";
 /*FLAG */   std::cout << (hit.aln_length() < 0 ? BAM_FREVERSE : 0) << "\t";  // TODO: calc flag
 /*RNAME*/   std::cout << hit.sequence() << "\t";
-/*POS*/     std::cout << hit.start_pos() << "\t";
+/*POS*/     std::cout << 1+hit.start_pos() << "\t";
 /*MAPQ*/   	std::cout << ( result.has_diff_to_next() 
 					? (int)( 0.5 + result.diff_to_next() / std::log(10.0) ) : 255 ) << '\t' ;
 /*CIGAR*/   decode_binCigar(std::cout, hit.cigar()) << "\t";
