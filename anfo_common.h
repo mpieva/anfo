@@ -45,6 +45,7 @@ class Mapper
 
 		int index_sequence( const QSequence &ps, output::Result &r, std::deque< alignment_type >& ol ) ;
 		void process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r ) ;
+		bool translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out = 0, const config::Genome** g_out = 0, std::string* g_file = 0 ) ;
 } ;
 
 #endif

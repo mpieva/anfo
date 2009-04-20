@@ -9,8 +9,6 @@
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 //! \todo Test this: the canonical test case is homo sapiens, chr 21.
-//! \todo Memory management and pointer/reference conventions are
-//!       somewhat wonky in here.  Deserves a thourough audit.
 
 using namespace config ;
 using namespace output ;
@@ -124,6 +122,21 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 	else return p.max_penalty_per_nuc() ;
 }
 
+bool Mapper::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out, const config::Genome** g_out, std::string* g_file )
+{
+	for( Genomes::const_iterator g = genomes.begin(), ge = genomes.end() ; g != ge ; ++g )
+	{
+		if( const Sequence *sequ = g->second.translate_back( pos, xpos ) )
+		{
+			if( s_out ) *s_out = sequ ;
+			if( g_file ) *g_file = g->first ;
+			if( g_out) *g_out = &g->second.g_ ;
+			return true ;
+		}
+	}
+	return false ;
+}
+
 void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r )
 {
 	uint32_t o, c, t, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
@@ -146,29 +159,26 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 		(enter_bt<alignment_type>( ol_ ))( best ) ;
 		DnaP minpos, maxpos ;
 		std::vector<uint8_t> t = find_cheapest( ol_, minpos, maxpos ) ;
+		int32_t len = maxpos - minpos - 1 ;
 
 		output::Hit *h = r.mutable_best_to_genome() ;
 
-		for( Genomes::const_iterator g = genomes.begin(), ge = genomes.end() ; g != ge ; ++g )
+		uint32_t start_pos ;
+		std::string genome_file ;
+		const Sequence *sequ ;
+		const Genome *genome ;
+
+		if( translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome, &genome_file ) )
 		{
-			uint32_t start_pos ;
-			int32_t len = maxpos - minpos - 1 ;
-			if( const Sequence *sequ = g->second.translate_back( minpos+1, start_pos ) )
-			{
-				h->set_genome_file( g->first ) ;
-				if( g->second.g_.has_name() ) 
-					h->set_genome_name( g->second.g_.name() ) ;
-
-				h->set_sequence( sequ->name() ) ;
-				if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-				else if( g->second.g_.has_taxid() ) h->set_taxid( g->second.g_.taxid() ) ;
-
-				h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
-				h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-				break ;
-			}
+			h->set_genome_file( genome_file ) ;
+			if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
+			h->set_sequence( sequ->name() ) ;
+			if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+			else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
 		}
 
+		h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
+		h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
 		h->mutable_cigar()->assign( t.begin(), t.end() ) ;
 		h->set_score( penalty ) ;
 		// XXX: h->set_evalue
