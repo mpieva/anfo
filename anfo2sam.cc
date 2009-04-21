@@ -101,9 +101,8 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 				std::cout << '*' ;
 
 /*[TAGS]*/
-/*SCORE*/	std::cout << "\tAS:i:" << hit.score() ;
+/*SCORE*/	std::cout << "\tAS:i:" << hit.score() << '\n' ;
 
-    std::cout << std::endl;
     return goodness ;
 }
 
@@ -120,7 +119,11 @@ int main_( int argc, const char * argv[] ){
 
     int discarded[bad_stuff_max] = {0};
     AnfoFile f_anfo(argv[1]);
-    f_anfo.get_header();
+	output::Header hdr = f_anfo.get_header();
+	std::cout << "@HD\tVN:1.0" ;
+	if( hdr.is_sorted_by_coordinate() ) std::cout << "\tSO:coordinate" ;
+	else if( hdr.is_sorted_by_name() ) std::cout << "\tSO:queryname" ;
+	std::cout << "\n@PG\tID:ANFO\tVN:" << hdr.version() << '\n' ;
 
     for( output::Result res ; f_anfo.read_result( res ) ; ) 
         if (bad_stuff r = protoHit_2_bam_Hit(res))
