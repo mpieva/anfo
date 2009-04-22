@@ -141,6 +141,25 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 	return base[o+1] - base[o] ;
 } 
 
+//! \brief looks up an oligo with up to one mismatch
+//! The oligo itself will first be looked for, then all its
+//! one-substituion variants are generated (by successively xor'ing
+//! every position with 01, 10 and 11) and looked up, too.
+unsigned FixedIndex::lookup1m( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs, int *num_useless ) const 
+{
+	unsigned total = lookup1( o, v, cutoff, offs, num_useless ) ;
+	Oligo m1 = 1, m2 = 2, m3 = 3 ;
+	for( size_t i = 0 ; i != ci_.wordsize() ; ++i )
+	{
+		total += lookup1( o ^ m1, v, cutoff, offs, num_useless ) ;
+		total += lookup1( o ^ m2, v, cutoff, offs, num_useless ) ;
+		total += lookup1( o ^ m3, v, cutoff, offs, num_useless ) ;
+		m1 <<= 2 ;
+		m2 <<= 2 ;
+		m3 <<= 2 ;
+	}
+	return total ;
+} 
 
 //! \brief looks up a whole sequence
 //! The sequence is split into words as
@@ -155,7 +174,8 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 //!
 //! \todo move cutoff parameter somewhere else to improve modularity
 
-unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_t cutoff, int *num_useless ) const
+unsigned FixedIndex::lookupS( const QSequence& dna, std::vector<Seed>& v,
+		bool near_perfect, int *num_useless, uint32_t cutoff ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
 	Oligo mask = ~( ~0 << (ci_.wordsize() * 2) ) ;
@@ -180,8 +200,12 @@ unsigned FixedIndex::lookup( const QSequence& dna, std::vector<Seed>& v, uint32_
 			default: filled = 0 ; break ;
 		}
 		if( filled >= ci_.wordsize() ) 
-			total += lookup1( o_f, v, cutoff,   offset - ci_.wordsize() + 1, num_useless ) 
-				   + lookup1( o_r, v, cutoff, - offset                     , num_useless ) ;
+			if( near_perfect )
+				total += lookup1m( o_f, v, cutoff,   offset - ci_.wordsize() + 1, num_useless ) 
+					   + lookup1m( o_r, v, cutoff, - offset                     , num_useless ) ;
+			else
+				total += lookup1( o_f, v, cutoff,   offset - ci_.wordsize() + 1, num_useless ) 
+					   + lookup1( o_r, v, cutoff, - offset                     , num_useless ) ;
 	}
 	combine_seeds( v ) ;
 	return total ;

@@ -686,7 +686,7 @@ State find_cheapest(
 }
 
 
-inline void push_m( std::vector<uint8_t>& s, int m )
+inline void push_m( std::vector<uint8_t>& s, unsigned m )
 {
 	if( !s.empty() && ((s.back() & 0x80) == 0) && (s.back() & 0x7f) ) {
 		m += s.back() ;
@@ -695,7 +695,7 @@ inline void push_m( std::vector<uint8_t>& s, int m )
 	for( ; m > 0x7f ; m -= 0x7f ) s.push_back( 0x7f ) ;
 	if( m ) s.push_back( m ) ;
 }
-inline void push_i( std::vector<uint8_t>& s, int i )
+inline void push_i( std::vector<uint8_t>& s, unsigned i )
 {
 	if( !s.empty() && ((s.back() & 0xc0) == 0x80) && (s.back() & 0x3f) ) {
 		i += s.back() & 0x3f ;
@@ -704,7 +704,7 @@ inline void push_i( std::vector<uint8_t>& s, int i )
 	for( ; i > 0x3f ; i -= 0x3f ) s.push_back( 0x3f+0x80 ) ;
 	if( i ) s.push_back( i+0x80 ) ;
 }
-inline void push_d( std::vector<uint8_t>& s, int d )
+inline void push_d( std::vector<uint8_t>& s, unsigned d )
 {
 	if( !s.empty() && ((s.back() & 0xc0) == 0xc0) && (s.back() & 0x3f) ) {
 		d += s.back() & 0x3f ;

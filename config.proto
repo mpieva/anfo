@@ -65,6 +65,7 @@ message CompactIndex {
 message CompactIndexSpec {
     required string name = 2 ;
     optional uint32 cutoff = 4 ;
+	optional bool allow_near_perfect = 5 [ default = false ] ;
 
     // If the index has slices, declare them here.  The value of
     // SGE_TASK_ID % number_of_slices is the slice to use.  We start

@@ -89,10 +89,9 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 		assert( ix ) ; assert( g.get_base() ) ;
 
 		vector<Seed> seeds ;
-		num_raw += ix.lookup( 
-				ps, seeds, 
-				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max(),
-				&num_useless ) ;
+		num_raw += ix.lookupS( 
+				ps, seeds, cis.allow_near_perfect(), &num_useless,
+				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
 		num_comb += seeds.size() ;
 		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
 		num_clumps += seeds.size() ;

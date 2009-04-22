@@ -20,6 +20,7 @@ CXXFLAGS ?= @CXXFLAGS@ -MMD
 DEFS ?= @DEFS@
 
 # CXXFLAGS += -ggdb 
+CXXFLAGS += -O3 -DNDEBUG -Wunsafe-loop-optimizations
 CXXFLAGS += -Wall -Werror
 
 PROGS := fa2dna dnaindex anfo-type anfo-sort anfo2sam anfo-sge anfo-standalone
