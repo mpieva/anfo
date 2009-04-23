@@ -74,16 +74,16 @@ template< typename T > struct delete_ptr { void operator()( T* p ) const { delet
 class MergeStream : public Stream
 {
 	private:
-		std::vector< Stream* > streams_ ;
+		vector< Stream* > streams_ ;
 		deque< Result > rs_ ;
 		output::Header hdr_ ;
 		output::Footer foot_ ;
 
 	public:
 		MergeStream() {}
-		virtual ~MergeStream() { std::for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
+		virtual ~MergeStream() { for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
 
-		void add_stream( std::auto_ptr< Stream > s )
+		void add_stream( auto_ptr< Stream > s )
 		{
 			merge_sensibly( hdr_, s->get_header() ) ;
 			Result r ;
@@ -133,7 +133,7 @@ bool MergeStream::read_result( output::Result& res )
 class BestHitStream : public Stream
 {
 	private:
-		std::vector< Stream* > streams_ ;
+		vector< Stream* > streams_ ;
 		output::Header hdr_ ;
 		output::Footer foot_ ;
 
@@ -143,10 +143,10 @@ class BestHitStream : public Stream
 
 	public:
 		BestHitStream() : streams_(), cur_input_(0), nread_(0), nwritten_(0) {}
-		virtual ~BestHitStream() {std::for_each(streams_.begin(),streams_.end(),delete_ptr<Stream>());}
+		virtual ~BestHitStream() {for_each(streams_.begin(),streams_.end(),delete_ptr<Stream>());}
 
 		//! \brief reads a stream's header and adds the stream as input
-		void add_stream( std::auto_ptr< Stream > s ) {
+		void add_stream( auto_ptr< Stream > s ) {
 			merge_sensibly( hdr_, s->get_header() ) ;
 			streams_.push_back( s.release() ) ;
 		}
@@ -244,11 +244,11 @@ template< typename I > class StreamAdapter : public Stream
 
 // keep queues of streams ordered and separate, so we don't merge the
 // same stuff repeatedly
-typedef std::deque< Stream* > MergeableQueue ;
-typedef std::map< unsigned, MergeableQueue > MergeableQueues ;
+typedef deque< Stream* > MergeableQueue ;
+typedef map< unsigned, MergeableQueue > MergeableQueues ;
 MergeableQueues mergeable_queues ;
 
-typedef std::deque< Result* > ScratchSpace ;
+typedef deque< Result* > ScratchSpace ;
 ScratchSpace scratch_space ;
 Header scratch_header ;
 Footer scratch_footer ;
@@ -260,7 +260,7 @@ void sort_scratch() {
     sort( scratch_space.begin(), scratch_space.end(), by_genome_coordinate() ) ;
 }
 
-int mktempfile( std::string &name )
+int mktempfile( string &name )
 {
 	const char *suffix = "/anfo_sort_XXXXXX" ;
 	const char *base = getenv("ANFO_TEMP") ;
@@ -284,25 +284,25 @@ void enqueue_stream( auto_ptr<Stream>, int = 0 ) ;
 
 void flush_scratch() {
 	sort_scratch() ;
-	std::string tempname ;
+	string tempname ;
 	int fd = mktempfile( tempname ) ;
 
 	scratch_header.set_is_sorted_by_coordinate( true ) ;
-	StreamAdapter< std::deque< Result* >::const_iterator >
+	StreamAdapter< deque< Result* >::const_iterator >
 		sa( scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ;
 	clog << "\033[KWriting to tempfile " << tempname << endl ;
 	write_stream_to_file( fd, sa ) ;
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
 	
-	std::auto_ptr<Stream> fs( new AnfoFile( fd, tempname.c_str() ) ) ;
+	auto_ptr<Stream> fs( new AnfoFile( fd, tempname.c_str() ) ) ;
 	enqueue_stream( fs ) ;
 
-	std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
+	for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
 	scratch_space.clear() ;
 	total_scratch_size = 0 ;
 }
 
-void enqueue_stream( std::auto_ptr<Stream> s, int level ) 
+void enqueue_stream( auto_ptr<Stream> s, int level ) 
 {
 	Header h = s->get_header() ;
 	if( h.is_sorted_by_coordinate() ) {
@@ -324,7 +324,7 @@ void enqueue_stream( std::auto_ptr<Stream> s, int level )
 			// just a single stream to avoid quadratic behaviour (only
 			// important in a weird corner case)
 			if( total_inputs > 2 ) {
-				std::string fname ;
+				string fname ;
 				int fd = mktempfile( fname ) ;
 				clog << "\033[KMerging bins 0.." << max_bin << " to tempfile " << fname << endl ;
 				{
@@ -360,6 +360,12 @@ int main_( int argc, const char **argv )
 {
 	if( argc < 2 ) return 0 ;
 
+    if( !strcmp( argv[1], "-q" ) ) {
+        clog.rdbuf(0) ;
+        ++argv ;
+        --argc ;
+    }
+
 	// iterate over command line, glob everything
 	glob_t the_glob ;
 	glob( argv[1], GLOB_NOSORT, 0, &the_glob ) ;
@@ -367,12 +373,12 @@ int main_( int argc, const char **argv )
 		glob( *arg, GLOB_NOSORT | GLOB_APPEND, 0, &the_glob ) ;
 
 	// iterate over glob results, collect into BestHitStreams
-	std::map< int, BestHitStream* > stream_per_slice ;
+	map< int, BestHitStream* > stream_per_slice ;
 	for( char **arg = the_glob.gl_pathv ; 
 			arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 	{
 		clog << "\033[KReading from file " << *arg << endl ;
-		std::auto_ptr<Stream> s( new AnfoFile( *arg ) ) ;
+		auto_ptr<Stream> s( new AnfoFile( *arg ) ) ;
 
 		Header h = s->get_header() ;
 		if( h.has_sge_slicing_stride() ) {
@@ -384,7 +390,7 @@ int main_( int argc, const char **argv )
 			// mergeable streams
 			if( bhs->enough_inputs() ) {
 				clog << "\033[KGot everything for slice " << h.sge_slicing_index(0) << endl ;
-				enqueue_stream( std::auto_ptr<Stream>( bhs ) ) ;
+				enqueue_stream( auto_ptr<Stream>( bhs ) ) ;
 				stream_per_slice.erase( h.sge_slicing_index(0) ) ;
 			}
 		}
@@ -397,7 +403,7 @@ int main_( int argc, const char **argv )
 	// at the end, merge everything
 	sort_scratch() ;
 	clog << "\033[Kdone sorting" << endl ;
-	auto_ptr<Stream> as( new StreamAdapter< std::deque< Result* >::const_iterator >(
+	auto_ptr<Stream> as( new StreamAdapter< deque< Result* >::const_iterator >(
 				scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
 
 	MergeStream final_stream ;
@@ -410,7 +416,7 @@ int main_( int argc, const char **argv )
 	if( final_stream.get_header().has_version() ) {
 		clog << "\033[KMerging everything to output." << endl ;
 		int r = write_stream_to_file( 1, final_stream, true ) ;
-		std::for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
+		for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
 		clog << "\033[KDone" << endl ;
 		return r ;
 	} else {
