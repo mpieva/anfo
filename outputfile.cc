@@ -2,8 +2,14 @@
 #include "compress_stream.h"
 #include "util.h"
 
+#include <google/protobuf/repeated_field.h>
+
 #include <iostream>
+#include <set>
+
+#if HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 
 using namespace google::protobuf::io ;
 using namespace output ;
@@ -68,11 +74,54 @@ bool AnfoFile::read_result( output::Result& res )
 	return false ;
 }
 
+namespace std {
+bool operator < ( const config::Policy& p, const config::Policy& q ) {
+	return p.SerializeAsString() < q.SerializeAsString() ; }}
+
+template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
+{
+	std::set<E> s ;
+	size_t b = 0, e = r.size(), o = 0 ;
+	for( ; b != e ; ++b ) 
+	{
+		if( s.find( r.Get(b) ) == s.end() )
+		{
+			s.insert( r.Get(b) ) ;
+			if( b != 0 ) swap( *r.Mutable(o), *r.Mutable(b) ) ;
+			++o ;
+		}
+	}
+	for( ; o != b ; ++o ) r.RemoveLast() ;
+}
+template <typename E> void nub( google::protobuf::RepeatedField<E>& r )
+{
+	std::set<E> s ;
+	size_t b = 0, e = r.size(), o = 0 ;
+	for( ; b != e ; ++b ) 
+	{
+		if( s.find( r.Get(b) ) == s.end() )
+		{
+			s.insert( r.Get(b) ) ;
+			if( b != 0 ) swap( *r.Mutable(o), *r.Mutable(b) ) ;
+			++o ;
+		}
+	}
+	for( ; o != b ; ++o ) r.RemoveLast() ;
+}
 
 void merge_sensibly( Header& lhs, const Header& rhs )
 {
-	//! \todo need to reduce junk headers
+	bool no_task_id = !lhs.has_sge_task_id() || (rhs.has_sge_task_id() && lhs.sge_task_id() != rhs.sge_task_id()) ;
+	bool no_job_id = !lhs.has_sge_job_id() || (rhs.has_sge_job_id() && lhs.sge_job_id() != rhs.sge_job_id()) ;
+
 	lhs.MergeFrom( rhs ) ;
+	nub( *lhs.mutable_sge_slicing_index() ) ;
+	nub( *lhs.mutable_command_line() ) ;
+	nub( *lhs.mutable_config()->mutable_genome_path() ) ;
+	nub( *lhs.mutable_config()->mutable_policy() ) ;
+
+	if( no_task_id ) lhs.clear_sge_task_id() ;
+	if( no_job_id ) lhs.clear_sge_job_id() ;
 }
 
 //! \brief merges two results, keeping the best hit
