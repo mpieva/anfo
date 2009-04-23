@@ -28,13 +28,14 @@
 #define BAM_FDUP        1024   // read is duplicate
 
 
-std::ostream& decode_binCigar(std::ostream& s, const std::string &cigar) {
-	for( size_t i = 0 ; i != cigar.size() ; ++i )
+template <typename Iter> 
+std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end ) {
+	for( ; begin != end ; ++begin )
 	{
-		if( (uint8_t)cigar[i] == 0 ) continue;
-		else if( (uint8_t)cigar[i] < 128 ) s << (unsigned)(uint8_t)cigar[i]       << 'M' ;
-		else if( (uint8_t)cigar[i] < 192 ) s << (unsigned)(uint8_t)cigar[i] - 128 << 'I' ;
-		else                               s << (unsigned)(uint8_t)cigar[i] - 192 << 'D' ;
+		if( (uint8_t)(*begin) == 0 ) continue;
+		else if( (uint8_t)(*begin) < 128 ) s << (unsigned)(uint8_t)(*begin)       << 'M' ;
+		else if( (uint8_t)(*begin) < 192 ) s << (unsigned)(uint8_t)(*begin) - 128 << 'I' ;
+		else                               s << (unsigned)(uint8_t)(*begin) - 192 << 'D' ;
 	}
     return s ;
 }
@@ -87,7 +88,8 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 /*POS*/     std::cout << 1+hit.start_pos() << "\t";
 /*MAPQ*/   	std::cout << ( result.has_diff_to_next() 
 					? (int)( 0.5 + result.diff_to_next() / std::log(10.0) ) : 255 ) << '\t' ;
-/*CIGAR*/   decode_binCigar(std::cout, hit.cigar()) << "\t";
+/*CIGAR*/   ( hit.aln_length() >= 0 ? decode_binCigar(std::cout, hit.cigar().begin(), hit.cigar().end() )
+			                        : decode_binCigar(std::cout, hit.cigar().rbegin(), hit.cigar().rend() ) ) << "\t";
           // We don't have paired end reads
 /*MRNM*/    std::cout << "*" << "\t";
 /*MPOS*/    std::cout << "0" << "\t";
