@@ -43,20 +43,29 @@ namespace {
 //! For ambiguity codes, we sum over all the possible codes, divide by
 //! the number of possibilities, and later (when aligning) go to the log
 //! domain.  Note that matches end up costing nothing (almost nothing,
-//! but accuracy isn't good enough to pick that up), matching to an N
-//! *does* cost something, and matching a T to a C might be dirt cheap.
+//! but accuracy isn't good enough to pick up on that), matching to an N
+//! *does* cost something, and matching a T to a C is dirt cheap while
+//! we believe we are in single stranded DNA.
 //!
 //! For gaps, we already have probabilities.  Taking the log is all it
 //! takes to make scores from that.
 //!
-//! For the overhang, we want something that's easy to parameterize.  We
-//! assume a geometric distribution of overhang length with parameter p,
-//! but half the overhangs end up pointing in the wrong direction, which
-//! maps them to zero length.  The mean overhang length ends up being
-//! (1-p)/(2p), and we take that as parameter.  Entering an overhang
-//! involves a penalty (since the probability is less than one), but so
-//! does not entering it.  We simply take the difference of the two,
-//! leaving the penalty for a perfect alignment at zero.
+//! For the overhang, we want something that's easy to parameterize, and
+//! the single parameter will be the average overhang length.  We assume
+//! there's an even chance that we have a 5' overhang (as opposed to a
+//! 3' overhang), and if we have a 5' overhang, it's length follows a
+//! geometric distribution with parameter p.
+//! 
+//! The mean overhang length ends up being (1-p)/(2p), which is just
+//! half the mean of the geometric distribution.  Solving for p derives
+//! the parameter from the configuration, but the code operates on \c
+//! p_comp, which is just 1-p.  Entering an overhang involves a penalty
+//! (since the probability is only one half), but not entering it
+//! involves the same penalty.  The difference in penalties is zero,
+//! which also means a perfect alignment stays at a zero score.
+//!
+//! The penalty for extending an overhang by one nucleotide is just the
+//! probability of it being longer.
 //!
 //! \param conf set of configuration parameters
 //! \param out if not NULL, receives a protocol of the calculated
@@ -69,7 +78,7 @@ void simple_adna::configure( const config::Aligner& conf, std::ostream *out )
 	if( conf.has_mean_overhang_length() )
 	{
 		double p_comp = 1 - 1 / (2*conf.mean_overhang_length() + 1) ;
-		overhang_enter_penalty = to_log_dom( p_comp / 2 ) - to_log_dom( 1 - p_comp / 2 ) ;
+		overhang_enter_penalty = 0 ;
 		overhang_ext_penalty = to_log_dom( p_comp ) ;
 	}
 	else

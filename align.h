@@ -488,11 +488,12 @@ template< typename F > void forward( const simple_adna& s, F f )
 		while( s1.get_qry().ambicode )
 		{
 			s1.penalty += s1.subst_penalty() ;
+			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::overhang_ext_penalty ;
 			s1.adv_qry() ;
 			f( s1 ) ;
 		}
 	}
-	else if( (s.state & simple_adna::mask_dir) == 0 && ( s.get_ref() == 0 || s.get_qry().ambicode == 0 ) )
+	else if( (s.state & simple_adna::mask_dir) == 0 && !s.get_ref() )
 	{
 		// forward dir, hit gap --> start over in reverse dir
 		simple_adna s1 = s ;
@@ -533,7 +534,8 @@ template< typename F > void forward( const simple_adna& s, F f )
 			// rates in aDNA.
 			simple_adna s4 = s ;
 			s4.state |= simple_adna::mask_ss ;
-			uint32_t p4 = s4.subst_penalty() + simple_adna::overhang_enter_penalty ;
+			uint32_t p4 = s4.subst_penalty() + simple_adna::overhang_enter_penalty 
+			                                 + simple_adna::overhang_ext_penalty ;
 			uint32_t p0 = s.subst_penalty() ;
 			if( p4 < p0 ) {
 				s4.penalty += p4 ;
