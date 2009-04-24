@@ -488,7 +488,7 @@ template< typename F > void forward( const simple_adna& s, F f )
 		while( s1.get_qry().ambicode )
 		{
 			s1.penalty += s1.subst_penalty() ;
-			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::overhang_ext_penalty ;
+			if( s1.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty ;
 			s1.adv_qry() ;
 			f( s1 ) ;
 		}
