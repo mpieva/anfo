@@ -169,10 +169,12 @@ unsigned FixedIndex::lookup1m( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_
 //!
 //! \param dna sequence to search
 //! \param v receiver for resulting seeds
+//! \param near_perfect if set, one mismatch in a sed is allowed
+//! \param num_useless
+//!     if not null, points to an integer that we be increased by the
+//!     number of useless (i.e. repetitive) seeds
 //! \param cutoff disregard oligos more frequent than this
 //! \return number of seeds found
-//!
-//! \todo move cutoff parameter somewhere else to improve modularity
 
 unsigned FixedIndex::lookupS( const QSequence& dna, std::vector<Seed>& v,
 		bool near_perfect, int *num_useless, uint32_t cutoff ) const
