@@ -493,9 +493,9 @@ template< typename F > void forward( const simple_adna& s, F f )
 			f( s1 ) ;
 		}
 	}
-	else if( (s.state & simple_adna::mask_dir) == 0 && !s.get_ref() )
+	else if( (s.state & simple_adna::mask_dir) == 0 && !s.get_qry().ambicode )
 	{
-		// forward dir, hit gap --> start over in reverse dir
+		// forward dir, hit gap in query --> start over in reverse dir
 		simple_adna s1 = s ;
 		s1.state = 1 ;
 		s1.ref_offs = -1 ;

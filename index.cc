@@ -82,6 +82,7 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 		length = the_stat.st_size ;
 		p = mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
+		p_ = p ;
 
 		if( adv ) madvise( p, length, adv ) ;
 
@@ -95,11 +96,10 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 		first_level_len = 1 << (2 * ci_.wordsize()) + 1 ;
 		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
-		p_ = p ;
 	}
 	catch(...)
 	{
-		if( p ) munmap( p, length ) ;
+		if( p_ ) munmap( (void*)p_, length ) ;
 		if( fd_ != -1 ) close( fd_ ) ;
 		throw ;
 	}
