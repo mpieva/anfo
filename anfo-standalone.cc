@@ -25,9 +25,18 @@
 #include <string>
 
 #include <fnmatch.h>
+
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
+
+#if HAVE_SYS_STAT_H
 #include <sys/stat.h>
+#endif
+
+#if HAVE_FCNTL_H
 #include <fcntl.h>
+#endif
 
 using namespace config ;
 using namespace std ;
@@ -159,7 +168,6 @@ int main_( int argc, const char * argv[] )
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_scale = 0 ;
-	int log_params = 0 ;
 	int fastq_origin = 33 ;
 
 	struct poptOption options[] = {
@@ -169,7 +177,6 @@ int main_( int argc, const char * argv[] )
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
-		{ "dump-params",  0 , POPT_ARG_NONE,   &log_params,  opt_none,    "Print out alignment paramters", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
 		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND

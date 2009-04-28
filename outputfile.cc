@@ -17,27 +17,27 @@ using namespace std ;
 
 int AnfoFile::num_files_ = 0 ;
 
-AnfoFile::AnfoFile( const std::string& name )
+AnfoFile::AnfoFile( const std::string& name, bool quiet )
 	: iis_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
 	, zis_( decompress( &iis_ ) ), name_( name )
 {
-	initialize() ;
+	initialize( quiet ) ;
 }
 
-AnfoFile::AnfoFile( int fd, const std::string& name = "<unknown>" )
+AnfoFile::AnfoFile( int fd, const std::string& name, bool quiet )
 	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( name )
 {
-	initialize() ;
+	initialize( quiet ) ;
 }
 
-void AnfoFile::initialize()
+void AnfoFile::initialize( bool quiet )
 {
 	iis_.SetCloseOnDelete( true ) ;
 	std::string magic ;
 	CodedInputStream cis( zis_.get() ) ;
 
 	if( !cis.ReadString( &magic, 4 ) || magic != "ANFO" ) {
-		clog << "\033[K" << name_ << ": not an ANFO file" << endl ;
+		if( !quiet ) clog << "\033[K" << name_ << ": not an ANFO file" << endl ;
 	} else {
 		uint32_t tag ;
 		if( cis.ReadVarint32( &tag ) && tag == 10 && cis.ReadVarint32( &tag ) ) {
@@ -48,7 +48,7 @@ void AnfoFile::initialize()
 				return ;
 			}
 		}
-		clog << "\033[K" << name_ << ": deserialization error in header" << endl ;
+		if( !quiet ) clog << "\033[K" << name_ << ": deserialization error in header" << endl ;
 	}
 	foot_.set_exit_code(1) ;
 }

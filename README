@@ -30,8 +30,8 @@ Genomes and indices are littered everywhere (e.g. /ltmp/anfo at
 Garching, /var/tmp/udo on bionc02), but here's how to do it yourself:
 
  - Locate a genome in FASTA format (or any other format that has a converter;
-   2bit is fine, my own .dna isn't (yet)).  Run fa2dna on it (--help tells you
-   how); you can pipe the input if you want.
+   .2bit is fine, my own .dna isn't (yet)).  Run fa2dna on it (--help
+   tells you how); you can pipe the input if you want.
 
  - On your new .dna file, run file-info.  It should spit out the meta data for
    that genome.  If not, you're hosed...
@@ -42,15 +42,18 @@ Garching, /var/tmp/udo on bionc02), but here's how to do it yourself:
  - You can run file-info on that, too.  It will tell you the word size
    you just set.  If not, you're hosed again...
 
- - Write a sensible anfo.cfg using the example and config.proto as
-   guideline.
+ - Write a sensible anfo.cfg using the examples in conf/ and
+   config.proto as guideline.
 
- - You could run index-test now.  It maps a single sequence that has a
-   reasonable hit to human chromosome 21.  If it produces a segfault or
+ - You can run index-test, anfo-standalone or anfo-sge now.  Index-test
+   just does lookups in the index, and optionally (on simulated data)
+   checks if a seed in the correct region was found.  
    nonsense, something is fucked up.
 
- - anfo-standalone can be run on any FASTA/FASTQ/FOURQ file now.  No
-   offically blessed, "correct" sets of output exist, yet.
+ - anfo-standalone/anfo-sge can be run on any FASTA/FASTQ/FOURQ file
+   now.  No offically blessed, "correct" sets of output exist, yet.
+   Anfo-standalone can run multi-threaded, anfo-sge will not, but
+   contains numerous workarounds for the hostile SGE environment.
 
 
 What's stable and what isn't?
@@ -59,49 +62,50 @@ Pretty much stabilized are...
 
  - Genome handling and creation (files sequence.h, sequence.cc, index.h, index.cc, fa2dna.cc)
 
-   I store genomes with four bits per nucleotide, which sounded like a fucking
-   brilliant idea, since it's only half as wasteful as the text form and still
-   allows ambiguity code.  The headaches came with the implementation of the
-   auxilliary DnaP class...  Anyway, the nucleotides A,C,T,G map to bits
-   0,1,2,3.  That order (you did notice T coming before G, didn't you?) also
-   sounded like a fucking brilliant idea, but in realilty it doesn't matter and
-   I keep mixing it up.  Chromosomes are split at long stretches of Ns into
-   contigs, contigs are separated by single gaps and the first and last
-   ones terminate in a gap at either side.  This means you can start
-   anywhere and safely run forward or backward until you hit a gap.
+   I store genomes with four bits per nucleotide, which sounded like a
+   fucking brilliant idea, since it's only half as wasteful as the text
+   form and still allows ambiguity code.  The headaches came with the
+   implementation of the auxilliary DnaP class...  Anyway, the
+   nucleotides A,C,T,G map to bits 0,1,2,3.  That order (you did notice
+   T coming before G, didn't you?) also sounded like a fucking brilliant
+   idea, but in realilty it doesn't matter and I keep mixing it up.
+   Chromosomes are split into contigs at long stretches of Ns, contigs
+   are separated by single gaps and the first and last ones terminate in
+   a gap at either side.  This means you can start anywhere and safely
+   run forward or backward until you hit a gap.
 
  - Index handling and creation (files index.h, index.cc, dnaindex.cc)
 
-   The index is quite simple: oligos are mapped to integers, a first array
-   contains a pointer to a second array for each of the possible oligos, and
-   the second array contains one long list of positions where these oligos were
-   found.  Only the forward strand is indexed, but lookup is of course done for
-   both strands.  (This primitive thing seems such a waste when the much better
+   The index is quite simple: oligos are mapped to integer offsets, a
+   first level array contains a pointer to a second array for each of
+   the possible oligos, and the second level array contains one long
+   list of positions where these oligos were found.  Only the forward
+   strand is indexed, but lookup is of course done for both strands.
+   (This primitive thing seems such a waste when the much better
    FM-index family is just out of reach... to bad, for now.)
 
  - Handling of reads (files sequence.h and sequence.cc)
 
    Just a simple structure for sequences with quality scores and a
    FASTA/FASTQ/FOURQ reader.  There's no support for unmerged mate
-   pairs, I haven't evan decided what to do with them.
+   pairs, I haven't evan decided what to do about them.
 
  - File formats (genome, index, config file, output)
 
-   Genome and index files are documented somewhere in the code.  Metadata,
-   config, complex output, etc. is encapsulated in protobuf messages.  That way
-   I don't need to mess with parsers and pretty printers and the messages are
-   extensible.  The two .proto files are more or less finalized, but it's easy
-   to change them without breaking stuff.
-
-
-Somewhat less stable:
+   Genome and index files are documented somewhere in the code.
+   Metadata, config, complex output, etc. is encapsulated in protobuf
+   messages.  That way I don't need to mess with parsers and pretty
+   printers and the messages are extensible.  The two .proto files are
+   more or less finalized, but it's easy to change them without breaking
+   stuff, which also means you should think before changing them.
 
  - The aligner (align.h, align.cc)
 
    In principle, this code is in it's final form, it is supposed to do what was
    planned, and it works reasonably well.  The general structure and the
-   specific alignment mechanisms could be separated from each other
-   (making extensions like a special 454 aligner possible).
+   specific alignment mechanisms are somewhat separated from each other,
+   making extensions like a special 454 aligner possible at least in
+   principle.
 
 
 Royal mess:

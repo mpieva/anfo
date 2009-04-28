@@ -104,18 +104,18 @@ class AnfoFile : public Stream
 		output::Header hdr_ ;
 		output::Footer foot_ ;
 
-		void initialize() ;
+		void initialize( bool quiet ) ;
 		static int num_files_ ; // tracked to avoid bumping into the file descriptor limit
 
 	public: 
 		//! \brief opens the named file
-		AnfoFile( const std::string& name ) ;
+		AnfoFile( const std::string& name, bool quiet = false ) ;
 		virtual ~AnfoFile() { --num_files_ ; }
 
 		//! \brief uses a given name and filedescriptor
 		//! No actual file is touched, the name is for informational
 		//! purposes only.
-		AnfoFile( int fd, const std::string& name ) ;
+		AnfoFile( int fd, const std::string& name = "<unknown>", bool quiet = false ) ;
 
 		virtual const output::Header& get_header() { return hdr_ ; }
 		virtual bool read_result( output::Result& ) ;
