@@ -150,6 +150,14 @@ message Config {
     // There can be only one kind of aligner in a run, if none is configured,
     // you get the trivial ("flat") alignment.
     optional Aligner aligner = 4 ;
+
+	// trimming configuration: sequences to look for and kill off
+	// We look for the given sequence, which may overlap the read
+	// sequence or be contained within it.  If the overlap is good
+	// enough, it is cut off.  We can do this on the 3' end (adapters)
+	// or the 5' end (strange artefacts).
+	repeated string trim_right = 5 ;
+	repeated string trim_left  = 6 ;
 }
 
 // vim:expandtab:ts=4:sw=4:cindent

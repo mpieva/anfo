@@ -134,6 +134,14 @@ message FourQuality {
     required bytes quality_t = 4 ;
 } 
 
+message Read {
+    required string seqid = 1 ;
+    optional string description = 13 ;
+    optional string sequence = 2 ;
+    optional bytes quality = 14 ;
+    optional FourQuality four_quality = 15 ;
+}
+
 message Result {
     // sequence identifier, can be left out iff it is implicit, e.g.
     // from being contained in a database where the id is the key
@@ -162,12 +170,12 @@ message Result {
     optional uint32 num_raw_seeds = 16 ;
     optional uint32 num_grown_seeds = 17 ;
     optional uint32 num_clumps = 18 ;
-	optional uint32 num_useless = 22 ;
+    optional uint32 num_useless = 22 ;
 
     // Some statistics about the alignment process
-	optional uint32 open_nodes_after_alignment = 19 ;
-	optional uint32 closed_nodes_after_alignment = 20 ;
-	optional uint32 tracked_closed_nodes_after_alignment = 21 ;
+    optional uint32 open_nodes_after_alignment = 19 ;
+    optional uint32 closed_nodes_after_alignment = 20 ;
+    optional uint32 tracked_closed_nodes_after_alignment = 21 ;
 
     // Best hit globally, if any.  Difference in bit score to the next
     // best one with different species, with different order, iff such
@@ -185,6 +193,10 @@ message Result {
     optional sint32 diff_to_next = 7 ;
     optional sint32 diff_to_next_chromosome = 8 ;
     optional sint32 diff_to_next_chromosome_class = 9 ;
+
+    // if this result is the consensus of multiple reads, those reads
+    // can go here
+    repeated Read member = 23 ;
 }
 
 // An output file is a magic number ("ANFO") folowed by an Output

@@ -68,6 +68,7 @@ inline void getword( Reader& r, std::string& s )
 {
 	s.clear() ;
 	while( r && !isspace( r.peek() ) ) s.push_back( r.get() ) ;
+	while( r &&  isspace( r.peek() ) ) r.get() ;
 }
 inline void getline( Reader& r, std::string& s )
 {

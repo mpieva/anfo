@@ -1,5 +1,6 @@
 #include "anfo_common.h"
 
+#include "trim.h"
 #include "outputfile.h"
 
 #include "config.pb.h"
@@ -51,8 +52,10 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 	}
 }
 
+static const int maxd = 32 ;
+static const int minscore = 4 ;
 
-int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< alignment_type >& ol )
+int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignment_type >& ol )
 {
 	r.set_seqid( ps.get_name() ) ;
 	if( !ps.get_descr().empty() ) r.set_description( ps.get_descr() ) ;
@@ -76,7 +79,40 @@ int Mapper::index_sequence( const QSequence &ps, output::Result &r, std::deque< 
 			ps.four_qualities( qs ) ;
 	}
 
-	// XXX: set trim points?
+	// trim adapters, set trim points
+	// How does this work?  We create an overlap alignment, then
+	// calculate an alignment score from the number of differences.  The
+	// formula equals a match score of 1 and a mismatch score of -3.
+	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
+	// score is good enough, we trim.
+
+	if( mi.trim_right_size() || mi.trim_left_size() ) ps.drop_trailing_ns() ;
+
+	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
+	{
+		int ymax, xmax = mi.trim_right(i).size() ;
+		int diff = align( ps.rbegin(), ps.rend(), mi.trim_right(i).rbegin(), mi.trim_right(i).rend(),
+				          maxd, overlap, 0, &ymax ) ;
+		int score = xmax + ymax - 8 * diff ;
+		if( diff < maxd && score >= minscore && ymax > 0 )
+		{
+			r.set_trim_right( ps.length() - ymax ) ;
+			ps.trim_right( ps.length() - ymax ) ;
+		}
+	}
+
+	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
+	{
+		int ymax, xmax = mi.trim_left(i).size() ;
+		int diff = align( ps.begin(), ps.end(), mi.trim_left(i).begin(), mi.trim_left(i).end(),
+				          maxd, overlap, 0, &ymax ) ;
+		int score = xmax + ymax - 8 * diff ;
+		if( diff < maxd && score >= minscore && ymax > 0 )
+		{
+			r.set_trim_left( r.trim_left() + ymax ) ;
+			ps.trim_left( ymax ) ;
+		}
+	}
 
 	Policy p = select_policy( mi, ps ) ;
 

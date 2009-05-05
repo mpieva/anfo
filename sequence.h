@@ -305,6 +305,7 @@ class QSequence
 
 	public:
 		typedef std::vector< Base >::const_iterator const_iterator ;
+		typedef std::vector< Base >::const_reverse_iterator const_reverse_iterator ;
 		typedef std::vector< Base >::iterator iterator ;
 		typedef Base const *const_pointer ;
 		typedef Base const &const_reference ;
@@ -330,6 +331,11 @@ class QSequence
 
 		const_pointer start() const { return &seq_[1] ; }
 		unsigned length() const { return seq_.size() - 2 ; }
+
+		const_iterator begin() const { return seq_.begin() + 1 ; }
+		const_iterator end() const { return seq_.end() - 1 ; }
+		const_reverse_iterator rbegin() const { return seq_.rbegin() + 1 ; }
+		const_reverse_iterator rend() const { return seq_.rend() - 1 ; }
 
 		const std::string &get_name() const { return name_ ; }
 		const std::string &get_descr() const { return description_ ; } 
@@ -375,6 +381,21 @@ class QSequence
 		friend bool read_fastq(
 				google::protobuf::io::ZeroCopyInputStream* zis,
 				QSequence& qs, bool solexa_scores, char origin ) ;
+
+		void trim_right( unsigned n ) 
+		{
+			if( n < length() ) seq_.erase( seq_.begin()+n+1, seq_.end()-1 ) ;
+		}
+		void trim_left( unsigned n )
+		{
+			if( n < length() ) seq_.erase( seq_.begin()+1, seq_.begin()+1+n ) ;
+		}
+		void drop_trailing_ns()
+		{
+			unsigned n = length() ;
+			while( n && seq_[n].ambicode == 15 ) --n ;
+			trim_right( n+1 ) ;
+		}
 } ;
 
 //! \brief reads a sequence from a FASTA, FASTQ or 4Q file

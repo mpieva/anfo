@@ -85,7 +85,9 @@ class MergeStream : public Stream
 
 		void add_stream( auto_ptr< Stream > s )
 		{
+			assert( s->get_header().is_sorted_by_coordinate() ) ;
 			merge_sensibly( hdr_, s->get_header() ) ;
+
 			Result r ;
 			if( s->read_result( r ) ) 
 			{
@@ -241,6 +243,85 @@ template< typename I > class StreamAdapter : public Stream
 		}
 } ;
 
+
+class RmdupStream : public Stream
+{
+	private:
+		Stream* str_ ;
+		output::Result cur_ ;
+		bool good_ ;
+
+	public:
+		RmdupStream( Stream *str ) : str_( str ), good_( str_->read_result( cur_ ) ) 
+		{ assert( str_->get_header().is_sorted_by_coordinate() ) ; }
+
+		virtual const output::Header& get_header() { return str_->get_header() ; }
+		virtual const output::Footer& get_footer() { return str_->get_footer() ; }
+		virtual bool read_result( output::Result& ) ;
+
+	private:
+		static bool is_duplicate( const output::Result& lhs, const output::Result& rhs ) ;
+		void add_read( const output::Result& rhs ) ;
+} ;
+
+bool RmdupStream::is_duplicate( const output::Result& lhs, const output::Result& rhs ) 
+{
+	if( !lhs.has_best_to_genome() || !rhs.has_best_to_genome() ) return false ;
+	const output::Hit &l = lhs.best_to_genome(), &r = rhs.best_to_genome() ;
+
+	bool z = l.genome_name() == r.genome_name() && l.sequence() == r.sequence()
+		&& l.start_pos() == r.start_pos() && l.aln_length() == r.aln_length() ;
+	if( z && l.cigar() != r.cigar() ) 
+		std::clog << "WARNING: " << lhs.seqid() << " and " << rhs.seqid() 
+			      << " have matching coordinates but different alignments." << std::endl ;
+	return z ;
+}
+
+void RmdupStream::add_read( const output::Result& rhs ) 
+{
+	output::Read *rd = cur_.add_member() ;
+	if( rhs.has_seqid() ) rd->set_seqid( rhs.seqid() ) ;
+	if( rhs.has_description() ) rd->set_description( rhs.description() ) ;
+	if( rhs.has_sequence() ) rd->set_sequence( rhs.sequence() ) ;
+	if( rhs.has_quality() ) rd->set_quality( rhs.quality() ) ;
+	if( rhs.has_four_quality() ) *rd->mutable_four_quality() = rhs.four_quality() ;
+
+	/// XXX: do the actual merge
+}
+
+bool RmdupStream::read_result( output::Result& r ) 
+{
+	if( !good_ ) return false ;
+	
+	// Get next result from input stream; it can either be merged or
+	// not.  If merged, continue.  Else return whatever we accumulated
+	// and store the one that didn't fit.
+
+	output::Result next ;
+	while( str_->read_result( next ) )
+	{
+		if( !is_duplicate( cur_, next ) ) 
+		{
+			r = cur_ ;
+			cur_ = next ;
+			return true ;
+		}
+
+		// if cur is a plain result, turn it into a degenerate merged one
+		if( cur_.member_size() == 0 )
+		{
+			add_read( cur_ ) ;
+			cur_.set_seqid( "C_" + cur_.seqid() ) ;
+			cur_.clear_description() ;
+		}
+		add_read( next ) ;
+	}
+
+	// input stream ended --> return accumulator
+	r = cur_ ;
+	good_ = false ;
+	return true ;
+}
 
 // keep queues of streams ordered and separate, so we don't merge the
 // same stuff repeatedly
@@ -398,16 +479,22 @@ int main_( int argc, const char **argv )
 		else enqueue_stream( s ) ;
 	}
 	if( !stream_per_slice.empty() ) 
-		cout << "\033[KWARNING: input appears to be incomplete" << endl ;
+		cerr << "\033[KWARNING: input appears to be incomplete" << endl ;
 
-	// at the end, merge everything
-	sort_scratch() ;
-	clog << "\033[Kdone sorting" << endl ;
-	auto_ptr<Stream> as( new StreamAdapter< deque< Result* >::const_iterator >(
-				scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
+	for( map< int, BestHitStream* >::iterator l = stream_per_slice.begin(), r = stream_per_slice.end() ;
+			l != r ; ++l ) enqueue_stream( auto_ptr<Stream>( l->second ) ) ;
 
 	MergeStream final_stream ;
-	final_stream.add_stream( as ) ;
+
+	// at the end, merge everything
+	if( scratch_space.begin() != scratch_space.end() ) {
+		clog << "\033[Kfinal sort" << endl ;
+		sort_scratch() ;
+		clog << "\033[Kdone sorting" << endl ;
+		auto_ptr<Stream> as( new StreamAdapter< deque< Result* >::const_iterator >(
+					scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
+		final_stream.add_stream( as ) ;
+	}
 
 	for( MergeableQueues::const_iterator i = mergeable_queues.begin() ; i != mergeable_queues.end() ; ++i )
 		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
