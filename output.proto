@@ -37,7 +37,7 @@ message Header {
 }
 
 message Footer {
-	optional uint32 exit_code = 1 [default=0] ;
+	required uint32 exit_code = 1 ;
 }
 
 // Result hits... all very ad-hoc and ugly.  We need:
@@ -124,22 +124,11 @@ enum Reason {
 	repeats_only = 5 ;
 }
 
-// Quality scores for each of the possible bases (raw, Phred scale)
-// Obviously this is strictly more powerful than the sequence and/or one
-// quality score, 
-message FourQuality {
-    required bytes quality_a = 1 ;
-    required bytes quality_c = 2 ;
-    required bytes quality_g = 3 ;
-    required bytes quality_t = 4 ;
-} 
-
 message Read {
     required string seqid = 1 ;
     optional string description = 13 ;
     optional string sequence = 2 ;
     optional bytes quality = 14 ;
-    optional FourQuality four_quality = 15 ;
 }
 
 message Result {
@@ -152,16 +141,14 @@ message Result {
 
     // quality scores (Phred scale, raw, without silly offsets)
     optional bytes quality = 14 ;
-    // alternatively, detailed quality scores
-    optional FourQuality four_quality = 15 ;
 
     // the sequence itself, if so desired (ASCII encoding---do we want
     // something more compact?)
     optional string sequence = 2 ;
 
     // number of bases trimmed at 5' (at 3') end if trimming was done
-    optional uint32 trim_left = 11 [ default = 0 ] ;
-    optional uint32 trim_right = 12 [ default = 0 ] ;
+    optional uint32 trim_left = 11 ;
+    optional uint32 trim_right = 12 ;
 
     // Reason we arrived at this result
     optional Reason reason = 10 [ default = aligned ] ;

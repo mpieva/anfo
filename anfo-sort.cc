@@ -284,7 +284,6 @@ void RmdupStream::add_read( const output::Result& rhs )
 	if( rhs.has_description() ) rd->set_description( rhs.description() ) ;
 	if( rhs.has_sequence() ) rd->set_sequence( rhs.sequence() ) ;
 	if( rhs.has_quality() ) rd->set_quality( rhs.quality() ) ;
-	if( rhs.has_four_quality() ) *rd->mutable_four_quality() = rhs.four_quality() ;
 
 	/// XXX: do the actual merge
 }

@@ -62,21 +62,11 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 	switch( ps.get_validity() ) 
 	{
 		case QSequence::bases_with_quality:
+		case QSequence::bases_with_qualities:
+		case QSequence::qualities_only:
 			r.set_quality( ps.qualities() ) ;
-
 		case QSequence::bases_only:
 			r.set_sequence( ps.as_string() ) ;
-			break ;
-
-		case QSequence::bases_with_qualities:
-			r.set_sequence( ps.as_string() ) ;
-
-		case QSequence::qualities_only:
-			std::string *qs[] = { r.mutable_four_quality()->mutable_quality_a(),
-				                  r.mutable_four_quality()->mutable_quality_c(),
-				                  r.mutable_four_quality()->mutable_quality_t(),
-				                  r.mutable_four_quality()->mutable_quality_g() } ;
-			ps.four_qualities( qs ) ;
 	}
 
 	// trim adapters, set trim points

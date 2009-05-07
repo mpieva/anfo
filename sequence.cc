@@ -210,6 +210,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 			}
 		}
 	}
+#if 0
 	else
 	{
 		size_t pos[4] = {1,1,1,1} ;
@@ -250,6 +251,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 					                      std::min( qs.seq_[p].qscores[2], qs.seq_[p].qscores[3] ) ) ;
 		}
 	}
+#endif
 
 	qs.validity_ = got_quals ? got_seq ? QSequence::bases_with_qualities : QSequence::qualities_only
 		                     : got_qual ? QSequence::bases_with_quality : QSequence::bases_only ;
