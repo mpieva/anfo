@@ -328,6 +328,7 @@ class QSequence
 		//! equivalent to a Q score of 30 by default.  Useful mostly for
 		//! debugging.
 		QSequence( const char* p, int q_score = 30 ) ;
+		QSequence( const char* p, const uint8_t* q, const std::string &name, const std::string &descr ) ;
 
 		const_pointer start() const { return &seq_[1] ; }
 		unsigned length() const { return seq_.size() - 2 ; }

@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <iosfwd>
 #include <string>
+#include <sstream>
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -45,6 +46,21 @@ T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 	return x ;
 }
 
+template< typename T >
+T throw_if_negative( T x, const char* a, const char* b = 0 )
+{
+	if( x < 0 )
+	{
+		std::stringstream msg ;
+#ifdef _GNU_SOURCE
+		msg << program_invocation_short_name << ": " ;
+#endif
+		msg << x << " while " << a ;
+		if( b ) msg << ' '<< b ;
+		throw msg.str() ;
+	}
+	return x ;
+}
 //! \brief near drop-in for write(2)
 //! Would you believe it, write(2) sometimes decides to write less than
 //! what was requested.  No idea why, but a loop around it solves it.  
@@ -139,5 +155,7 @@ void set_proc_title( const char *title ) ;
 //! and abort cleanly if it is not null.  Use this to cause an early
 //! shutdown, e.g. on reception of a signal.
 extern volatile int exit_with ;
+
+enum PacketTag { packet_config, packet_read, packet_result, packet_quit } ;
 
 #endif

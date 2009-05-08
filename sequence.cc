@@ -68,7 +68,7 @@ inline void getword( Reader& r, std::string& s )
 {
 	s.clear() ;
 	while( r && !isspace( r.peek() ) ) s.push_back( r.get() ) ;
-	while( r &&  isspace( r.peek() ) ) r.get() ;
+	while( r &&  isspace( r.peek() && r.peek() != '\n' ) ) r.get() ;
 }
 inline void getline( Reader& r, std::string& s )
 {
@@ -101,6 +101,16 @@ QSequence::QSequence( const char* p, int q_score )
 	for( ; *p ; ++p )
 		if( encodes_nuc( *p ) ) 
 			seq_.push_back( Base( to_ambicode( *p ), q_score ) ) ;
+	seq_.push_back( Base() ) ;
+}
+
+QSequence::QSequence( const char* p, const uint8_t* q, const std::string& name, const std::string &descr )
+		: seq_(), name_(name), description_(descr), validity_( bases_with_quality )
+{
+	seq_.push_back( Base() ) ;
+	for( ; *p ; ++p, ++q )
+		if( encodes_nuc( *p ) ) 
+			seq_.push_back( Base( to_ambicode( *p ), *q ) ) ;
 	seq_.push_back( Base() ) ;
 }
 					
@@ -246,7 +256,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 						std::max_element( qs.seq_[p].qualities, qs.seq_[p].qualities+4 ) 
 						- qs.seq_[p].qualities ) ;
 			// generate single Q-Score (take minimum, that's a good
-			// approximation)
+			// approximation) XXX probably wrong
 			qs.seq_[p].qscore = std::min( std::min( qs.seq_[p].qscores[0], qs.seq_[p].qscores[1] ),
 					                      std::min( qs.seq_[p].qscores[2], qs.seq_[p].qscores[3] ) ) ;
 		}
