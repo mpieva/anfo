@@ -102,8 +102,8 @@ class Worker
 		//! to disconnect everything, whether that works or not is
 		//! irrelevant.
 		~Worker() {
-			enet_peer_disconnect( grampa_, 0 ) ;
-			enet_peer_disconnect( gcontrol_, 0 ) ;
+			enet_peer_disconnect_later( grampa_, 0 ) ;
+			enet_peer_disconnect_later( gcontrol_, 0 ) ;
 			enet_host_flush( host_ ) ;
 			enet_host_destroy( host_ ) ;
 			enet_deinitialize() ;
@@ -124,7 +124,8 @@ class Worker
 		{
 			ENetEvent event ;
 			throw_if_negative( enet_host_service( host_, &event, timeout ), "servicing host" ) ;
-			if( event.type == ENET_EVENT_TYPE_NONE ) return timeout ? 1 ^ INT_MIN : 0 ;
+			// is a timeout an error? may be dangerous...
+			if( event.type == ENET_EVENT_TYPE_NONE ) return 0 ; // timeout ? 1 ^ INT_MIN : 0 ;
 			if( event.type == ENET_EVENT_TYPE_DISCONNECT && event.peer == gcontrol_ ) return INT_MIN ;
 			if( event.type == ENET_EVENT_TYPE_DISCONNECT && event.peer == grampa_ ) return 1 ^ INT_MIN ;
 			if( event.type == ENET_EVENT_TYPE_RECEIVE && event.peer == gcontrol_ )

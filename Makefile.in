@@ -23,7 +23,7 @@ DEFS ?= @DEFS@
 CXXFLAGS += -MMD -DNDEBUG
 CXXFLAGS += -Wunsafe-loop-optimizations -Wall -Werror
 
-PROGS := fa2dna dnaindex anfo-type anfo-sort anfo2sam anfo-sge anfo-standalone
+PROGS := fa2dna dnaindex anfo-type anfo-sort anfo2sam anfo-sge anfo-standalone anfo-enet anfo-control 
 TARGETS := $(PROGS) index-test file-info dump-params
 
 ifeq (@SIZEOF_INT_P@,4)
@@ -48,10 +48,13 @@ install_doc: doc/html/index.html
 	$(INSTALL_DATA) doc/html/* @htmldir@/html
 
 
-anfo-combine: output.pb.h config.pb.h
+anfo-combine.o: output.pb.h config.pb.h
+anfo-common.o: output.pb.h config.pb.h
+anfo-enet.o: output.pb.h config.pb.h
 anfo-standalone.o: config.pb.h output.pb.h
 anfo-type.o: output.pb.h config.pb.h
 anfo2sam.o: output.pb.h config.pb.h
+anfo2fna.o: output.pb.h config.pb.h
 dnaindex.cc: config.pb.h
 dump-params.o: output.pb.h config.pb.h
 fa2dna.o: config.pb.h

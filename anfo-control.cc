@@ -14,12 +14,8 @@
 #include <iostream>
 #include <memory>
 
-//! \todo Teardown of workers is not handled gracefully.  When we
-//!       decide to go down, we should explicitly disconnect every
-//!       worker in turn.
-//! \todo Unannounced disconnection of workers is not handled correctly.
-//!       We need to recover messages in flight and distribute then to
-//!       other workers.
+static const int max_timeouts = 8 ;
+
 void qs_to_read( const QSequence& qs, output::Read& rd ) 
 {
 	rd.set_seqid( qs.get_name() ) ;
@@ -53,7 +49,7 @@ int main_( int argc, const char**argv )
 	//
 	// - if someone connects, send him the config and preload with
 	//   sequences,
-	// - XXX: if someone disconnects, enqueue his workload,
+	// - if someone disconnects, enqueue his workload,
 	// - if we receive a result, write it out and send a replacement,
 	// - if we're out of sequences, send quit instead,
 	// - on timeout, simply bail out.
@@ -83,14 +79,20 @@ int main_( int argc, const char**argv )
 	output::Footer ofoot ;
 	ofoot.set_exit_code( 0 ) ;
 
-	int num_peers = 0, reads_in_flight = 0, reads_in = 0, reads_out = 0 ;
+	int reads_in_flight = 0, reads_in = 0, reads_out = 0, timeouts = 0 ;
+	std::deque< QSequence > incoming_queue ;
+
+	typedef std::map< std::string, QSequence > SeqDir ;
+	typedef std::map< ENetPeer*, SeqDir > PeerDir ;
+	PeerDir peers ;
+
 	do {
 		ENetEvent event ;
 		throw_if_negative( enet_host_service( comsat, &event, 30000 ), "servicing host" ) ;
 		if( event.type == ENET_EVENT_TYPE_CONNECT ) 
 		{
 			std::clog << "\r\e[Kcomsat: worker connected, sending config and reads" << std::endl ;
-			++num_peers ;
+			std::map< std::string, QSequence > &seqs = peers[ event.peer ] ;
 
 			ENetPacket *p = enet_packet_create( 0, 1+conf.ByteSize(), ENET_PACKET_FLAG_RELIABLE ) ;
 			p->data[0] = packet_config ;
@@ -100,8 +102,14 @@ int main_( int argc, const char**argv )
 			for( int i = 0 ; i != 8 ; ++i )
 			{
 				QSequence qs ;
-				if( read_fastq( inp.get(), qs ) )
+				if( !incoming_queue.empty() || read_fastq( inp.get(), qs ) )
 				{
+					if( !incoming_queue.empty() )
+					{
+						qs = incoming_queue.front() ;
+						incoming_queue.pop_front() ;
+					}
+
 					output::Read rd ;
 					qs_to_read( qs, rd ) ;
 
@@ -111,33 +119,52 @@ int main_( int argc, const char**argv )
 					enet_peer_send( event.peer, 0, p ) ;
 					++reads_in_flight ;
 					++reads_out ;
+					seqs[ qs.get_name() ] = qs ;
+
 					std::clog << "\r\e[Ksent message " << qs.get_name() << "; " 
-						<< num_peers << " workers, " << reads_in_flight << " reads in flight." 
-						<< std::endl ;
+						<< peers.size() << " workers, " << reads_in_flight << " reads in flight, " 
+						<< seqs.size() << " on this peer." << std::endl ;
 				}
 			}
 		}
 		else if( event.type == ENET_EVENT_TYPE_DISCONNECT ) 
 		{
-			std::clog << "\r\e[Kcomsat: worker disconnected (this may not be good)" << std::endl ;
-			--num_peers ;
+			SeqDir sd = peers[ event.peer ] ; 
+			std::clog << "\r\e[Kcomsat: worker disconnected (" ;
+			if( sd.empty() ) std::clog << "not a problem" ;
+			else std::clog << sd.size() << " sequences re-enqueued" ;
+			std::clog << ')' << std::endl ;
+
+			for( SeqDir::const_iterator l = sd.begin(), r = sd.end() ; l != r ; ++l )
+				incoming_queue.push_back( l->second ) ;
+			reads_in_flight -= sd.size() ;
+			peers.erase( event.peer ) ;
 		}
 		else if( event.type == ENET_EVENT_TYPE_RECEIVE )
 		{
 			if( event.packet->dataLength && event.packet->data[0] == packet_result )
 			{
+				std::map< std::string, QSequence > &seqs = peers[ event.peer ] ;
 				output::Result res ;
 				res.ParseFromArray( event.packet->data+1, event.packet->dataLength-1 ) ;
 				write_delimited_message( cos, 2, res ) ;
 				--reads_in_flight ;
 				++reads_in ;
+				seqs.erase( res.seqid() ) ;
+
 				std::clog << "\r\e[Kreceived message; " 
-					<< num_peers << " workers, " << reads_in_flight << " reads in flight, " 
+					<< peers.size() << " workers, " << reads_in_flight << " reads in flight, " 
 					<< reads_in << " in, " << reads_out << " out." << std::endl ;
 
 				QSequence qs ;
-				if( read_fastq( inp.get(), qs ) )
+				if( !incoming_queue.empty() || read_fastq( inp.get(), qs ) )
 				{
+					if( !incoming_queue.empty() )
+					{
+						qs = incoming_queue.front() ;
+						incoming_queue.pop_front() ;
+					}
+
 					output::Read rd ;
 					qs_to_read( qs, rd ) ;
 					ENetPacket *p = enet_packet_create( 0, 1+rd.ByteSize(), ENET_PACKET_FLAG_RELIABLE ) ;
@@ -146,23 +173,34 @@ int main_( int argc, const char**argv )
 					enet_peer_send( event.peer, 0, p ) ;
 					++reads_in_flight ;
 					++reads_out ;
+					seqs[ qs.get_name() ] = qs ;
 
 					std::clog << "\r\e[Ksent message " << qs.get_name() << "; " 
-						<< num_peers << " workers, " << reads_in_flight << " reads in flight, " 
-						<< reads_in << " in, " << reads_out << " out." << std::endl ;
+						<< peers.size() << " workers, " << reads_in_flight << " reads in flight, " 
+						<< reads_in << " in, " << reads_out << " out, "
+						<< seqs.size() << " on this peer." << std::endl ;
 				}
 			}
 			enet_packet_destroy( event.packet ) ;
 		}
-		else if( event.type == ENET_EVENT_TYPE_NONE ) 
+
+		if( event.type == ENET_EVENT_TYPE_NONE ) 
 		{
-			ofoot.set_exit_code( 1 ) ;
-			break ;
+			std::clog << "Timeout, " << peers.size() << " workers still connected." << std::endl ;
+			++timeouts ;
+			if( timeouts == max_timeouts )
+				throw peers.empty() ? "no workers available, giving up" 
+					                : "network communication failed, aborting" ;
 		}
-	} while( num_peers && reads_in_flight ) ;
+		else timeouts = 0 ;
+	} while( reads_in_flight || !incoming_queue.empty() ) ;
 
 	write_delimited_message( cos, 3, ofoot ) ;
 
+	for( PeerDir::const_iterator l = peers.begin(), r = peers.end() ; l != r ; ++l )
+		enet_peer_disconnect_later( l->first, 0 ) ;
+
+	enet_host_flush( comsat ) ;
 	enet_host_destroy( comsat ) ;
 	enet_deinitialize() ;
 	return ofoot.exit_code() ;
