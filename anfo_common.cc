@@ -162,14 +162,14 @@ bool Mapper::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config:
 	return false ;
 }
 
-void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r )
+void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r, bool (*cb)(void*), void* par )
 {
-	uint32_t o, c, t, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
+	uint32_t o, c, tt, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
 	alignment_type::ClosedSet cl ;
-	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &t ) ;
+	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt, cb, par ) ;
 	r.set_open_nodes_after_alignment( o ) ;
 	r.set_closed_nodes_after_alignment( c ) ;
-	r.set_tracked_closed_nodes_after_alignment( t ) ;
+	r.set_tracked_closed_nodes_after_alignment( tt ) ;
 	if( !best )
 	{
 		r.set_reason( output::bad_alignment ) ;
@@ -224,7 +224,10 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 				std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
 				ol.end() ) ;
 		make_heap( ol.begin(), ol.end() ) ;
-		alignment_type second_best = find_cheapest( ol, cl, max_penalty ) ;
+		alignment_type second_best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt, cb, par ) ;
+		r.set_open_nodes_after_alignment( o ) ;
+		r.set_closed_nodes_after_alignment( c ) ;
+		r.set_tracked_closed_nodes_after_alignment( tt ) ;
 		if( second_best ) r.set_diff_to_next( second_best.penalty - penalty ) ;
 	}
 }

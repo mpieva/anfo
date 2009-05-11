@@ -3,16 +3,28 @@
 
 volatile int exit_with = 0 ;
 
+namespace {
+	std::string program_name ;
+	template <typename T> void perr(const T& e) {
+		std::cerr << "\r" << program_name << "[" << getpid() << "]: "
+			      << e << "\33[K" << std::endl ;
+	}
+	std::ostream& operator << ( std::ostream& s, const Exception& e ) {
+		e.print_to( s ) ; return s ;
+	}
+} ;
+
 extern int main_( int argc, const char * argv[] ) ;
 int main( int argc, const char * argv[] )
 {
+	program_name = argv[0] ;
 	try { return main_( argc, argv ) ; }
-	catch( const std::string& e ) { std::cerr << "\r\33[K" << e << std::endl ; }
-	catch( const char *e ) { std::cerr << "\r\33[K" << e << std::endl ; }
-	catch( char *e ) { std::cerr << "\r\33[K" << e << std::endl ; }
-	catch( const Exception& e ) { std::cerr << "\r\33[K" ; e.print_to( std::cerr ) ; std::cerr << std::endl ; }
-	catch( const std::exception& e ) { std::cerr << "\r\33[K" << e.what() << std::endl ; }
-	catch( ... ) { std::cerr << "\r\33[KOh noes!" << std::endl ; }
+	catch( const std::string& e ) { perr( e ) ; }
+	catch( const char *e ) { perr( e ) ; }
+	catch( char *e ) { perr( e ) ; }
+	catch( const Exception& e ) { perr( e ) ; }
+	catch( const std::exception& e ) { perr( e.what() ) ; }
+	catch( ... ) { perr( "Oh noes!" ) ; }
 	return 1 ;
 }
 

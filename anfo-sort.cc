@@ -47,7 +47,15 @@ static unsigned max_arr_size = 1024*1024*1024 ;
 //! the number of different indices is encoded in the header.  We run
 //! into problem if multiple distinct indices were used, it might be
 //! useful to have an override for that case.  A directory for temporary
-//! files is usefult, but we take that from the environment.
+//! files is useful, but we take that from the environment.  As far as
+//! genome files are needed, we can take the configuration from the
+//! input files.
+//!
+//! \todo implement copnsensus calling of PCR duplicates
+//! \todo implement score cutoff (we don't want crap alignments, and we
+//!       certainly don't want to include crap sequences in the
+//!       consensus calling)
+
 
 //! \brief compares hits by smallest genome coordinate
 //! Comparison is first done lexically on the subject name, then on the

@@ -7,16 +7,19 @@
 
 #include <cerrno>
 #include <iosfwd>
-#include <string>
 #include <sstream>
+#include <string>
 
-#include <sys/mman.h>
-#include <unistd.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 
 #if HAVE_FCNTL_H
-# include <fcntl.h>
+#include <fcntl.h>
+#endif
+
+#if HAVE_UNISTD_H
+#include <unistd.h>
 #endif
 
 struct Exception { virtual void print_to( std::ostream& ) const = 0 ;
@@ -36,9 +39,6 @@ T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 	if( x == y )
 	{
 		std::string msg ;
-#ifdef _GNU_SOURCE
-		msg.append( program_invocation_short_name ).append( ": " ) ;
-#endif
 		msg.append( strerror( errno ) ).append( " while " ).append( a ) ;
 		if( b ) msg.append( " " ).append( b ) ;
 		throw msg ;
@@ -52,15 +52,13 @@ T throw_if_negative( T x, const char* a, const char* b = 0 )
 	if( x < 0 )
 	{
 		std::stringstream msg ;
-#ifdef _GNU_SOURCE
-		msg << program_invocation_short_name << ": " ;
-#endif
 		msg << x << " while " << a ;
 		if( b ) msg << ' '<< b ;
 		throw msg.str() ;
 	}
 	return x ;
 }
+
 //! \brief near drop-in for write(2)
 //! Would you believe it, write(2) sometimes decides to write less than
 //! what was requested.  No idea why, but a loop around it solves it.  

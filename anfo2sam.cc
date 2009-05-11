@@ -58,32 +58,56 @@ enum bad_stuff { goodness = 0, no_hit, multiple_hits, no_seqid, no_seq, bad_ciga
 const char *descr[] = { 0, "had no hit", "had multiple hits", "missed the sequence id"
 	                  , "missed the sequence", "had a bad CIGAR" } ;
 
-// About MAPQ: this is supposed to be the "quality of the mapping",
-// which we interpret as confidence in the aligned position.  We can
-// infer this from the score of the best and the second best alignment:
-// if the difference is D, then the best alignment is exp(D/10) times
-// more likely than the second best.  The SAM documentation hints that
-// this is exactly the quantity they want to encode in MAPQ, so all we
-// need to do is rescale it (from natural to decadic logarithm).  If
-// there is no second hit, we'll assume a "perfect" mapping by writing
-// out a 255.
+//! \page anfo_to_sam Conversion to SAM
+//! \c anfo2sam converts a single ANFO file into a single SAM file.  If
+//! the ANFO file is sorted by genome coordinate, the resulting SAM file
+//! will be sorted, too, and be labelled correctly, so it can directly
+//! be converted to BAM and be indexed. A few decisions had to be made
+//! on the interpretation of SAM fields.  
+//!
+//! About MAPQ: this is supposed to be the "quality of the mapping",
+//! which should apparently be interpreted as confidence in the aligned
+//! position.  We can infer this from the score of the best and the
+//! second best alignment: if the difference is D, then the best
+//! alignment is exp(D/10) times more likely than the second best.  The
+//! SAM documentation hints that this is exactly the quantity they want
+//! to encode in MAPQ, so all we need to do is rescale it (from natural
+//! to decadic logarithm).  If there is no second hit, we'll assume a
+//! "perfect" mapping by writing out a 255.
+//!
+//! \todo In reality, the map quality would only be the score cutoff,
+//!       which is the cutoff from the header (appropriate to this
+//!       particular sequence) scaled by the sequence length.  In the
+//!       current setup, only sequences of length 40 or above really
+//!       achieve a MAPQ of 255.
+//!
+//! About the hit to convert: ANFO is happy represernting more than one
+//! hit per sequence, but SAM is not.  We will convert the \c
+//! best_to_genome entry, ignoring everything else.  This is both the
+//! most useful alignment and the one best in line with the intended use
+//! of SAM.
+//!
+//! About the alignment score: This optional field of SAM is filled with
+//! the raw ANFO alignment score, which is a bit difficult to interpret
+//! if you're used to other aligners.  A lower score means a better
+//! alignment, and a score of (length-20) * 18 is about the quality that
+//! would give a zero score in BLAST.  Since SAM doesn't specify
+//! anything about the alignment, we'll leave it that way.
+//!
+//! \todo calculate other SAM/BAM flags
+
 bad_stuff protoHit_2_bam_Hit(output::Result &result){
 
-    if (!result.has_best_hit() && !result.has_best_to_genome()) return no_hit ;
-    if (result.has_best_hit() && result.has_best_to_genome()) return multiple_hits ;
-    if (!result.has_seqid()) return no_seqid;
-    if (!result.has_sequence()) return no_seq;
+    if (!result.has_best_to_genome()) return no_hit ;
+    if (!result.has_seqid()) return no_seqid ;
+    if (!result.has_sequence()) return no_seq ;
 
-	// XXX 
-	// Either one of those two is fine, depending on what we actually
-	// want.  mixing them is probably wrong.  (But right now it's okay,
-	// since only best_to_genome will ever be present.)
-    output::Hit hit = (result.has_best_hit())?result.best_hit():result.best_to_genome();
+    output::Hit hit = result.best_to_genome() ;
 
 	if (len_from_bin_cigar(hit.cigar()) != result.sequence().length()) return bad_cigar ;
 
 /*QNAME*/   std::cout << result.seqid() << "\t";
-/*FLAG */   std::cout << (hit.aln_length() < 0 ? BAM_FREVERSE : 0) << "\t";  // TODO: calc flag
+/*FLAG */   std::cout << (hit.aln_length() < 0 ? BAM_FREVERSE : 0) << "\t";
 /*RNAME*/   std::cout << hit.sequence() << "\t";
 /*POS*/     std::cout << 1+hit.start_pos() << "\t";
 /*MAPQ*/   	std::cout << ( result.has_diff_to_next() 

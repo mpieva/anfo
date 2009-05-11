@@ -649,7 +649,7 @@ State find_cheapest(
 		uint32_t *open_nodes_after_alignment = 0,
 		uint32_t *closed_nodes_after_alignment = 0,
 		uint32_t *tracked_closed_nodes_after_alignment = 0,
-        std::ostream *log = 0 )
+		bool (*cb)(void*) = 0, void *par = 0 ) 
 {
 	int iter = 0 ;
 	while( !open_list.empty() && !exit_with )
@@ -675,10 +675,11 @@ State find_cheapest(
 			}
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
-		if( ++iter % 10000000 == 0 && log ) (*log)
+		/*if( ++iter % 10000000 == 0 && log ) (*log)
 				<< "After " << iter << " expansions, open list contains "
 				<< open_list.size() << " nodes, and " << deep_count( closed_list )
-				<< " nodes are closed." << std::endl ;
+				<< " nodes are closed." << std::endl ;*/
+		if( ++iter % 10000 == 0 && cb ) exit_with = (*cb)(par) ;
 	}
 
     if( open_nodes_after_alignment ) *open_nodes_after_alignment = 0 ;
