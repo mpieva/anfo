@@ -3,6 +3,7 @@
 #endif
 
 #include "anfo_common.h"
+#include "queue.h"
 #include "util.h"
 
 #include "config.pb.h"
@@ -61,21 +62,66 @@
 //! That way, SGE keeps a bit of control (we can still be killed).
 //!
 //! Since long alignments kill the ENet subsystem, we need to serve the
-//! ENet host regularly.  Passing a callback to the long running
-//! functions (\c find_cheapest at the moment) should work fine.
-//! (Threads would be cumbersome, signal won't work because malloc is
-//! not reentrant.)
+//! ENet host regularly.  Since messing with _every_ calculation to
+//! include enet support is cumbersome, we'll use one thread for enet
+//! comms and one for calculation.  Communication is done through two
+//! queues of pointers to raw packets; the actual worker goes into the
+//! background, by sending a null pointer, we can tell it to shut down.
+//! It will respond by sending a null pointer itself.  We'll limit the
+//! que size to 16, which is twice a smuch as we ever expect to get
+//! sent.  If the incoming queu overflows, we will defend ourselves by
+//! simply dropping the packet.
 
 class Worker 
 {
 	private:
 		int id_ ;
-		std::deque< ENetPacket* > incoming_ ;
+		Queue< ENetPacket*, 16 > incoming_ ;
+		Queue< ENetPacket*, 16 > outgoing_ ;
+
 		ENetHost *host_ ;
 		ENetPeer *grampa_, *gcontrol_ ;
+		pthread_t worker_thread_ ;
 		std::auto_ptr< Mapper > mapper ;
 
 	public:
+		//! \brief actual worker thread
+		void run_worker()
+		{
+			while( ENetPacket *packet = incoming_.dequeue() )
+			{
+				if( packet->dataLength && packet->data[0] == packet_config )
+				{
+					// got configuration 
+					config::Config conf ;
+					conf.ParseFromArray( packet->data+1, packet->dataLength-1 ) ;
+					mapper.reset( new Mapper( conf ) ) ;
+				}
+				if( packet->dataLength && packet->data[0] == packet_read && mapper.get() )
+				{
+					// got sequence
+					output::Read read ;
+					read.ParseFromArray( packet->data+1, packet->dataLength-1 ) ;
+
+					QSequence ps( read.sequence().c_str(), (const uint8_t*)read.quality().c_str(),
+							read.seqid(), read.description() ) ;
+					output::Result res ;
+					std::deque< alignment_type > ol ;
+					int pmax = mapper->index_sequence( ps, res, ol ) ;
+					if( pmax != INT_MAX ) mapper->process_sequence( ps, pmax, ol, res ) ;
+
+					ENetPacket *p = enet_packet_create( 0, 1+res.ByteSize(), ENET_PACKET_FLAG_RELIABLE ) ;
+					p->data[0] = packet_result ;
+					res.SerializeToArray( p->data+1, p->dataLength-1 ) ;
+					outgoing_.enqueue( p ) ;
+				}
+				enet_packet_destroy( packet ) ;
+			}
+			outgoing_.enqueue(0) ;
+		}
+
+		static void *run_worker_wrap( void *p ) { ((Worker*)p)->run_worker() ; return 0 ; }
+
 		//! \brief initialization including network setup
 		//! \param id numerical id of this worker (used to identify it
 		//!           in log messages)
@@ -95,6 +141,8 @@ class Worker
 
 			gcontrol_ = throw_errno_if_null(
 					enet_host_connect( host_, remote_address, 1 ), "connecting to ground control" ) ;
+
+			throw_if_not_null( pthread_create( &worker_thread_, 0, run_worker_wrap, this ), "creating worker thread" ) ;
 		}
 		
 		//! \brief tries to shutdown
@@ -109,7 +157,7 @@ class Worker
 			enet_deinitialize() ;
 		}
 
-		//! \brief serves a single event
+		//! \brief serves ENet events in a loop
 		//! ENet dictates that everything has to be event driven:
 		//! - If a packet comes in, we enqueue it.
 		//! - If someone disconnects, we return false (thus causing an early exit).
@@ -120,70 +168,41 @@ class Worker
 		//! \return return 0 if processing shall continue, else an
 		//!                exit code xored with INT_MIN
 
-		int serve_event( int timeout ) 
+		int run()
 		{
-			ENetEvent event ;
-			throw_if_negative( enet_host_service( host_, &event, timeout ), "servicing host" ) ;
-			// is a timeout an error? may be dangerous...
-			if( event.type == ENET_EVENT_TYPE_NONE ) return 0 ; // timeout ? 1 ^ INT_MIN : 0 ;
-			if( event.type == ENET_EVENT_TYPE_DISCONNECT && event.peer == gcontrol_ ) return INT_MIN ;
-			if( event.type == ENET_EVENT_TYPE_DISCONNECT && event.peer == grampa_ ) return 1 ^ INT_MIN ;
-			if( event.type == ENET_EVENT_TYPE_RECEIVE && event.peer == gcontrol_ )
-				incoming_.push_back( event.packet ) ;
-			return 0 ;
-		}
-
-		static bool serve_event_cb( void *p ) { return ((Worker*)p)->serve_event(0) ; }
-
-		//! \brief alternate between serving the network and aligning
-		//! If we have a packet queued, we dequeue it and act on it (by
-		//! configuring the aligner or aligning a sequence).  Else we
-		//! serve ENet with a long timeout and bail if nothing happens-
-		int run() 
-		{
+			int timeout = 1000 ;
 			for(;;)
 			{
-				if( incoming_.empty() )
+				ENetEvent event ;
+				throw_if_negative( enet_host_service( host_, &event, timeout ), "servicing host" ) ;
+
+				// is a timeout an error? may be dangerous...
+				// if( event.type == ENET_EVENT_TYPE_NONE ) {} // return 0 ; // timeout ? 1 ^ INT_MIN : 0 ;
+				if( event.type == ENET_EVENT_TYPE_DISCONNECT && event.peer == gcontrol_ ) break ; // return INT_MIN ;
+				if( event.type == ENET_EVENT_TYPE_DISCONNECT && event.peer == grampa_ ) break ; //  return 1 ^ INT_MIN ;
+				if( event.type == ENET_EVENT_TYPE_RECEIVE && event.peer == gcontrol_ )
 				{
-					int r = serve_event( 60000 ) ;
-					if( r ) return r ^ INT_MIN ;
+					// just enqueue it, but if it doesn't fit, destroy
+					// it in self-defense
+					if( !incoming_.try_enqueue( event.packet ) ) enet_packet_destroy( event.packet ) ;
 				}
-				else
+				else if( event.type == ENET_EVENT_TYPE_RECEIVE ) 
+					enet_packet_destroy( event.packet ) ;
+
+				ENetPacket *p ;
+				if( outgoing_.try_dequeue( p ) )
 				{
-					ENetPacket *packet = incoming_.front() ;
-					incoming_.pop_front() ;
-
-					if( packet->dataLength && packet->data[0] == packet_config )
-					{
-						// got configuration 
-						config::Config conf ;
-						conf.ParseFromArray( packet->data+1, packet->dataLength-1 ) ;
-						mapper.reset( new Mapper( conf ) ) ;
-					}
-					if( packet->dataLength && packet->data[0] == packet_read && mapper.get() )
-					{
-						// got sequence
-						output::Read read ;
-						read.ParseFromArray( packet->data+1, packet->dataLength-1 ) ;
-
-						QSequence ps( read.sequence().c_str(), (const uint8_t*)read.quality().c_str(),
-								read.seqid(), read.description() ) ;
-						output::Result res ;
-						std::deque< alignment_type > ol ;
-						int pmax = mapper->index_sequence( ps, res, ol ) ;
-						if( pmax != INT_MAX ) mapper->process_sequence( ps, pmax, ol, res, serve_event_cb, this ) ;
-						if( exit_with ) return exit_with ;
-
-						ENetPacket *p = enet_packet_create( 0, 1+res.ByteSize(), ENET_PACKET_FLAG_RELIABLE ) ;
-						p->data[0] = packet_result ;
-						res.SerializeToArray( p->data+1, p->dataLength-1 ) ;
-						enet_peer_send( gcontrol_, 0, p ) ;
-					}
-					enet_packet_destroy( packet ) ;
+					enet_peer_send( gcontrol_, 0, p ) ;
+					timeout = 0 ;
 				}
+				else timeout = 1000 ;
 			}
-		}
 
+			exit_with = 1 ; // in case alignments are still running
+			incoming_.enqueue( 0 ) ; // signal worker to exit
+			pthread_join( worker_thread_, 0 ) ;
+			return 0 ;
+		}
 } ;
 
 //! \brief runs local master task
@@ -239,8 +258,12 @@ int main_( int argc, const char**argv )
 	else {
 		// middle child: detach from parent (is chdir() and umask() needed, and if so, why?)
 		throw_errno_if_minus1( setsid(), "creating session" ) ;
-		// chdir("/");
-		// umask(0);
+		throw_errno_if_minus1( chdir("/"), "changing working directory" ) ;
+		umask( 0 ) ;
+		
+		throw_errno_if_null( freopen( "/dev/null", "r", stdin), "redirecting stdin" ) ;
+		throw_errno_if_null( freopen( "/dev/null", "w", stdout), "redirecting stdout" ) ;
+		throw_errno_if_null( freopen( "/dev/null", "w", stderr), "redirecting stderr" ) ;
 
 		for( unsigned i = 0 ; i != nworkers ; ++i )
 			if( !throw_errno_if_minus1( fork(), "forking worker" ) )

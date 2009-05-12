@@ -59,6 +59,19 @@ T throw_if_negative( T x, const char* a, const char* b = 0 )
 	return x ;
 }
 
+template< typename T >
+T throw_if_not_null( T x, const char* a, const char* b = 0 )
+{
+	if( x != 0 )
+	{
+		std::stringstream msg ;
+		msg << x << " while " << a ;
+		if( b ) msg << ' '<< b ;
+		throw msg.str() ;
+	}
+	return x ;
+}
+
 //! \brief near drop-in for write(2)
 //! Would you believe it, write(2) sometimes decides to write less than
 //! what was requested.  No idea why, but a loop around it solves it.  
