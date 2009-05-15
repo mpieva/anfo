@@ -256,7 +256,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 						std::max_element( qs.seq_[p].qualities, qs.seq_[p].qualities+4 ) 
 						- qs.seq_[p].qualities ) ;
 			// generate single Q-Score (take minimum, that's a good
-			// approximation) XXX probably wrong
+			// approximation) X X X probably wrong
 			qs.seq_[p].qscore = std::min( std::min( qs.seq_[p].qscores[0], qs.seq_[p].qscores[1] ),
 					                      std::min( qs.seq_[p].qscores[2], qs.seq_[p].qscores[3] ) ) ;
 		}
