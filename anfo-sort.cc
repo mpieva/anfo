@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "compress_stream.h"
+#include "logdom.h"
 #include "outputfile.h"
 #include "util.h"
 
@@ -252,16 +253,71 @@ template< typename I > class StreamAdapter : public Stream
 } ;
 
 
+/*! \brief stream with PCR duplicates removed
+    A set of duplicate is (more or less by definition) a set of reads
+    that map to the same position.
+   
+    \todo Refine the definition of 'duplicate'.  It appears sensible to
+          also require the sequences to have the same length
+          (effectively always the case on Solexa, unless the first base
+          is lost, which already kills the algorithm; it's not so easy
+          on 454).  It also appears worthwhile to forbid alignments that
+          hang off of a contig, though maybe the requirement for the
+          same length will catch them.
+   
+	Any set of duplicates is merged (retaining the original reads in an
+	auxilliary structure), and a consensus is called with new quality
+	scores.  A quality score (for base A) is defined as \f[ Q := -10
+	\log_{10} P( \bar{A} | \omega ), \f] that is, a representation of
+	the probability of the base being wrong given some observation \f$
+	\omega. \f$  It follows that \f[ Q = -10 \log_{10} \frac{
+	P(\omega|\bar{A}) P(\bar{A}) }{ P(\omega) } = -10 \log_{10} P( \omega
+	| \bar{A} ) \f] by assuming a uniform base composition in the sample
+	(\f$ P(A)=\frac{1}{4} \f$) and after base calling (\f$
+	P(\omega)=\frac{1}{4} \f$).
+
+	When combining observations \f$ \omega_1, \ldots, \omega_n \f$, they
+	are all independent, hence the probabilities conditioned on the
+	actual base can be multiplied.  To get the final quality when
+	calling an A:
+	\f[ P(A|\bigcap_n \omega_n) = \frac{ P(\bigcap_n \omega_n | A) P(A) }{ P(\bigcap_n \omega_n) }
+	                            = \frac{ P(A) \prod_n P(\omega_n | A) }{ P(\bigcap_n \omega_n) } \f]
+
+	The unconditional probabilities in the denominator are not
+	independent, we have to replace them by total probabilites:
+	\f[ = \frac{ P(A) \prod_n P(\omega_n | A) }{ \sum_N P(\bigcap_n \omega_n | N) P(N) } \f]
+
+	Again, assuming a uniform base composition, the priors are all equal
+	and cancel, and now the conditional probabilities are again
+	independent.
+	\f[ = \frac{ \prod_n P(\omega_n | A) }{ \sum_N \prod_n P(\omega_n | N) } \f]
+
+	Tracking this incrementally is easy, we need to store the four
+	products.  Computation needs to be done in the log domain to avoid
+	loss of precision.  What remains is how to get an estimate of \f$
+	P(\omega | N) \f$.  We easily get \f$ P(\omega | A) \f$ (see above),
+	which will normally be very close to one, and the sum of the other
+	three.  To distribute the sum, we set
+	\f[ P(\omega|N) = \frac{P(N|\omega) * P(\omega)}{\P(N)} =
+	P(N|\omega) = P(N|\bar{A}) * P(\bar{A}|\omega) \f]
+	and estimate \f$ P(N|\bar{A}) \f$ from misclassfication statistics
+	of the base caller.
+ */
+
 class RmdupStream : public Stream
 {
 	private:
 		Stream* str_ ;
 		output::Result cur_ ;
+		std::vector< Logdom > quals_[4] ;
 		bool good_ ;
 
 	public:
-		RmdupStream( Stream *str ) : str_( str ), good_( str_->read_result( cur_ ) ) 
-		{ assert( str_->get_header().is_sorted_by_coordinate() ) ; }
+		RmdupStream( Stream *str ) : str_( str )
+		{
+			assert( str_->get_header().is_sorted_by_coordinate() ) ;
+			good_ = str_->read_result( cur_ ) ;
+		}
 
 		virtual const output::Header& get_header() { return str_->get_header() ; }
 		virtual const output::Footer& get_footer() { return str_->get_footer() ; }
@@ -274,14 +330,12 @@ class RmdupStream : public Stream
 
 bool RmdupStream::is_duplicate( const output::Result& lhs, const output::Result& rhs ) 
 {
+	if( lhs.has_sequence() && rhs.has_sequence() && lhs.sequence() != rhs.sequence() ) return false ;
 	if( !lhs.has_best_to_genome() || !rhs.has_best_to_genome() ) return false ;
 	const output::Hit &l = lhs.best_to_genome(), &r = rhs.best_to_genome() ;
 
 	bool z = l.genome_name() == r.genome_name() && l.sequence() == r.sequence()
 		&& l.start_pos() == r.start_pos() && l.aln_length() == r.aln_length() ;
-	if( z && l.cigar() != r.cigar() ) 
-		std::clog << "WARNING: " << lhs.seqid() << " and " << rhs.seqid() 
-			      << " have matching coordinates but different alignments." << std::endl ;
 	return z ;
 }
 
@@ -293,30 +347,48 @@ void RmdupStream::add_read( const output::Result& rhs )
 	if( rhs.has_sequence() ) rd->set_sequence( rhs.sequence() ) ;
 	if( rhs.has_quality() ) rd->set_quality( rhs.quality() ) ;
 
-	/// XXX: do the actual merge
+	// XXX How do we deal with ambiguity codes?  What's the meaning of
+	// their quality scores?
+	for( int i = 0 ; i != abs( rhs.best_to_genome().aln_length() ) ; ++i )
+	{
+		int base = -1 ;
+		switch( rhs.sequence()[i] ) {
+			case 'a': case 'A': base = 0 ; break ;
+			case 'c': case 'C': base = 1 ; break ;
+			case 't': case 'T':
+			case 'u': case 'U': base = 2 ; break ;
+			case 'g': case 'G': base = 3 ; break ;
+		}
+
+		Logdom qual = Logdom::from_phred( rhs.has_quality() ? rhs.quality()[i] : 30 ) ;
+		for( int j = 0 ; j != 4 ; ++j )
+			// XXX distribute errors sensibly
+			quals_[j].at(i) *= j != base 
+				? qual / Logdom::from_float( 3 ) 
+				: Logdom::from_float(1) - qual ;
+	}
 }
 
 bool RmdupStream::read_result( output::Result& r ) 
 {
 	if( !good_ ) return false ;
-	
+
 	// Get next result from input stream; it can either be merged or
 	// not.  If merged, continue.  Else return whatever we accumulated
 	// and store the one that didn't fit.
 
 	output::Result next ;
-	while( str_->read_result( next ) )
+	while( (good_ = str_->read_result( next )) && is_duplicate( cur_, next ) )
 	{
-		if( !is_duplicate( cur_, next ) ) 
-		{
-			r = cur_ ;
-			cur_ = next ;
-			return true ;
-		}
-
 		// if cur is a plain result, turn it into a degenerate merged one
 		if( cur_.member_size() == 0 )
 		{
+			for( size_t i = 0 ; i != 4 ; ++i )
+			{
+				quals_[i].clear() ;
+				quals_[i].resize( abs( cur_.best_to_genome().aln_length() ) ) ;
+			}
+
 			add_read( cur_ ) ;
 			cur_.set_seqid( "C_" + cur_.seqid() ) ;
 			cur_.clear_description() ;
@@ -324,9 +396,45 @@ bool RmdupStream::read_result( output::Result& r )
 		add_read( next ) ;
 	}
 
-	// input stream ended --> return accumulator
+	// input stream ended or alignments don't match --> return accumulator
+	// re-basecall iff we actually did merge
+	if( cur_.member_size() ) 
+	{
+		cur_.clear_sequence() ;
+		cur_.clear_quality() ;
+		for( int i = 0 ; i != abs( cur_.best_to_genome().aln_length() ) ; ++i )
+		{
+			size_t m = 0 ;
+			for( size_t j = 1 ; j != 4 ; ++j )
+				// select base with highest quality
+				if( quals_[j].at( i ) > quals_[m].at( i ) ) m = j ;
+			// but calculate the error probability from _all_others_ to
+			// retain precision
+
+			for( size_t j = 0 ; j != 4 ; ++j )
+				std::cerr << ' ' << (j==m ? '*' : ' ') << ' ' << quals_[j].at( i ).to_float() << std::endl ;
+
+			Logdom num = quals_[m?0:1].at(i) ;
+			Logdom denom = quals_[0].at(i) ;
+			for( size_t j = 1 ; j != 4 ; ++j )
+			{
+				denom += quals_[j].at( i ) ;
+				// std::cerr << "     " << denom.to_float() << std::endl ;
+				if( j != m ) num += quals_[j].at( i ) ;
+			}
+
+			int qscore = (num/denom).to_phred() ;
+			if( qscore > 127 ) qscore = 127 ;
+
+			std::cerr << num.to_float() << '/' << denom.to_float() 
+				<< " == " << (num/denom).to_phred() << std::endl ;
+			cur_.mutable_sequence()->push_back( "ACTG"[m] ) ;
+			cur_.mutable_quality()->push_back( qscore ) ;
+		}
+	}
+
 	r = cur_ ;
-	good_ = false ;
+	cur_ = next ;
 	return true ;
 }
 
@@ -509,7 +617,10 @@ int main_( int argc, const char **argv )
 	
 	if( final_stream.get_header().has_version() ) {
 		clog << "\033[KMerging everything to output." << endl ;
-		int r = write_stream_to_file( 1, final_stream, true ) ;
+		RmdupStream rs( &final_stream ) ;
+		// int r = write_stream_to_file( 1, final_stream, true ) ;
+		int fd = open( "/var/tmp/x.anfo", O_CREAT | O_TRUNC | O_WRONLY ) ;
+		int r = write_stream_to_file( fd, rs, true ) ;
 		for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
 		clog << "\033[KDone" << endl ;
 		return r ;
