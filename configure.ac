@@ -16,8 +16,9 @@ AC_SUBST(PROTOC)
 AC_SUBST(DOXYGEN)
 
 # Checks for libraries.
-AC_CHECK_LIB([m], [exp])
-AC_CHECK_LIB([pthread], [pthread_create])
+AC_SEARCH_LIBS([exp], [m])
+AC_SEARCH_LIBS([log1p], [m])
+AC_SEARCH_LIBS([pthread_create], [pthread])
 AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
