@@ -10,7 +10,7 @@
 #include "output.pb.h"
 #include <iostream>
 #include <stdint.h>
-#include "outputfile.h"
+#include "stream.h"
 #include <string>
 #include "util.h"
 
@@ -38,20 +38,6 @@ std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end ) {
 		else                               s << (unsigned)(uint8_t)(*begin) - 192 << 'D' ;
 	}
     return s ;
-}
-
-// About len: since we're doing semi-global alignments, it is actually
-// an error if the sequence length and the effective len from the cigar
-// do not match.  However, files with such errors exist, so we need to
-// filter out those faulty alignments.
-unsigned len_from_bin_cigar( const std::string& cigar ) {
-	unsigned l = 0 ;
-	for( size_t i = 0 ; i != cigar.size() ; ++i )
-	{
-		if( (uint8_t)cigar[i] < 128 ) l += (uint8_t)cigar[i] ;
-		else if( (uint8_t)cigar[i] < 192 ) l += (unsigned)(uint8_t)cigar[i] - 128 ;
-	}
-	return l ;
 }
 
 enum bad_stuff { goodness = 0, no_hit, multiple_hits, no_seqid, no_seq, bad_cigar, bad_stuff_max } ; 
@@ -87,6 +73,12 @@ const char *descr[] = { 0, "had no hit", "had multiple hits", "missed the sequen
 //! most useful alignment and the one best in line with the intended use
 //! of SAM.
 //!
+//! About len: since we're doing semi-global alignments, it is actually
+//! an error if the sequence length (taking trim points into account)
+//! and the effective len from the cigar do not match.  However, files
+//! with such errors exist, so we need to filter out those faulty
+//! alignments.
+//!
 //! About the alignment score: This optional field of SAM is filled with
 //! the raw ANFO alignment score, which is a bit difficult to interpret
 //! if you're used to other aligners.  A lower score means a better
@@ -104,7 +96,7 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 
     output::Hit hit = result.best_to_genome() ;
 
-	if (len_from_bin_cigar(hit.cigar()) != result.sequence().length()) return bad_cigar ;
+	if (streams::len_from_bin_cigar(hit.cigar()) != result.sequence().length()) return bad_cigar ;
 
 /*QNAME*/   std::cout << result.seqid() << "\t";
 /*FLAG */   std::cout << (hit.aln_length() < 0 ? BAM_FREVERSE : 0) << "\t";
@@ -144,22 +136,25 @@ int main_( int argc, const char * argv[] ){
     }
 
     int discarded[bad_stuff_max] = {0};
-    AnfoFile f_anfo(argv[1]);
-	output::Header hdr = f_anfo.get_header();
+	streams::AnfoReader f_anfo(argv[1]);
+	output::Header hdr = f_anfo.fetch_header();
 	std::cout << "@HD\tVN:1.0" ;
 	if( hdr.is_sorted_by_coordinate() ) std::cout << "\tSO:coordinate" ;
 	else if( hdr.is_sorted_by_name() ) std::cout << "\tSO:queryname" ;
 	std::cout << "\n@PG\tID:ANFO\tVN:" << hdr.version() << '\n' ;
 
-    for( output::Result res ; f_anfo.read_result( res ) ; ) 
+	while( f_anfo.get_state() == streams::Stream::have_output )
+	{
+		output::Result res = f_anfo.fetch_result() ; 
         if (bad_stuff r = protoHit_2_bam_Hit(res))
             discarded[r]++;
+	}
 
 	for( int b = 1 ; b != bad_stuff_max ; ++b )
 		if (discarded[b])
 			std::cerr << discarded[b] << " reads " << descr[b] << std::endl;
 
-    return (EXIT_SUCCESS);
+    return (f_anfo.fetch_footer().exit_code());
 }
 
 

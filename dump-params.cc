@@ -10,7 +10,7 @@
 
 #include "align.h"
 #include "conffile.h"
-#include "outputfile.h"
+#include "stream.h"
 #include "util.h"
 
 #include "output.pb.h"
@@ -20,10 +20,10 @@ int main_( int argc, const char** argv )
 {
 	if( argc != 2 ) throw "expected exactly one argument" ;
 
-	AnfoFile af( argv[1], true ) ;
-	config::Config conf = af.get_footer().exit_code() 
+	streams::AnfoReader af( argv[1], true ) ;
+	config::Config conf = af.fetch_footer().exit_code() 
 		? parse_text_config( argv[1] )
-		: af.get_header().config() ;
+		: af.fetch_header().config() ;
 	
 	if( !conf.has_aligner() ) throw "couldn't find aligner configuration" ;
 	simple_adna::configure( conf.aligner(), &std::cout ) ;

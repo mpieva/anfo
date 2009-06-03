@@ -1,8 +1,9 @@
 #include "config.pb.h"
 #include "index.h"
-#include "outputfile.h"
+#include "stream.h"
 #include "util.h"
 
+#include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/text_format.h>
 
@@ -50,7 +51,7 @@ int main_( int argc, const char**argv )
 			google::protobuf::io::IstreamInputStream iis( &fd ) ;
 			google::protobuf::io::CodedInputStream cis( &iis ) ;
 			config::Config c ;
-			read_delimited_message( cis, c ) ;
+			streams::read_delimited_message( cis, c ) ;
 			google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
 			google::protobuf::TextFormat::Print( c, &os ) ;
 		}

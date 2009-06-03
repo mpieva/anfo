@@ -1,8 +1,7 @@
-#include "output.pb.h"
-#include "outputfile.h"
 #include "conffile.h"
-
 #include "index.h"
+#include "output.pb.h"
+#include "stream.h"
 
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -12,6 +11,7 @@ using namespace google::protobuf::io ;
 using namespace google::protobuf ;
 using namespace config ;
 using namespace output ;
+using namespace streams ;
 
 FileOutputStream out(1) ;
 
@@ -112,20 +112,22 @@ void add_alignment( std::string::const_iterator qry, output::Hit &h, const confi
 int main_( int argc, const char** argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	config::Config conf ;
+	Config conf ;
 	Genomes genomes ;
 
 	for( int argi = 1 ; argi != argc ; ++argi )
 	{
-		AnfoFile af( argv[argi] ) ;
-		output::Header hdr = af.get_header() ;
+		AnfoReader af( argv[argi] ) ;
+		Header hdr = af.fetch_header() ;
 		print_msg( hdr ) ;
-		for( Result r ; af.read_result( r ) ; ) {
+		while( af.get_state() == Stream::have_output )
+		{
+			Result r = af.fetch_result() ;
 			if( r.has_best_to_genome() && r.best_to_genome().has_cigar() )
 				add_alignment( r.sequence().begin(), *r.mutable_best_to_genome(), hdr.config(), genomes ) ;
 			print_msg( r ) ;
 		}
-		print_msg( af.get_footer() ) ;
+		print_msg( af.fetch_footer() ) ;
 	}
 	return 0 ;
 }

@@ -138,6 +138,8 @@ template <typename Iter> int path_open(
 	return throw_errno_if_minus1( fd, "opening", name.c_str() ) ;
 }
 
+template< typename T > struct delete_ptr { void operator()( T* p ) const { delete p ; } } ;
+
 #ifndef _BSD_SOURCE
 // fake for systems that don't provide madvise()
 inline int madvise( void*, size_t, int ) { return 0 ; }
@@ -168,5 +170,6 @@ void set_proc_title( const char *title ) ;
 extern volatile int exit_with ;
 
 enum PacketTag { packet_config, packet_read, packet_result, packet_quit } ;
+
 
 #endif

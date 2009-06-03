@@ -1,7 +1,7 @@
 #include "anfo_common.h"
 
+#include "stream.h"
 #include "trim.h"
-#include "outputfile.h"
 
 #include "config.pb.h"
 #include "output.pb.h"

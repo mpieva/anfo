@@ -114,14 +114,14 @@ enum Reason {
     // decided not to align because there were too many seeds
     too_many_seeds = 2 ;
 
-    // all alignments exceeded the e-value cutoff
+    // all alignments exceeded the e-value or score cutoff
     bad_alignment = 3 ;
 
     // no policy how to align, therefore no alignment
     no_policy = 4 ;
 
-	// only repetitive seeds
-	repeats_only = 5 ;
+    // only repetitive seeds
+    repeats_only = 5 ;
 }
 
 message Read {
@@ -186,7 +186,7 @@ message Result {
     repeated Read member = 23 ;
 }
 
-// An output file is a magic number ("ANFO") folowed by an Output
+// An output file is a magic number ("ANFO") followed by an Output
 // message.  We read and write it one field at a time, though.
 message Output {
     required Header header = 1 ;

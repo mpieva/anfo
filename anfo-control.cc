@@ -1,8 +1,8 @@
 
 #include "compress_stream.h"
 #include "conffile.h"
-#include "outputfile.h"
 #include "sequence.h"
+#include "stream.h"
 
 #include "config.pb.h"
 #include "output.pb.h"
@@ -65,7 +65,7 @@ int main_( int argc, const char**argv )
 	cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
-	write_delimited_message( cos, 1, ohdr ) ;
+	streams::write_delimited_message( cos, 1, ohdr ) ;
 	std::clog << "wrote header" << std::endl ;
 
 	google::protobuf::io::FileInputStream raw_inp( 0 ) ;
@@ -147,7 +147,7 @@ int main_( int argc, const char**argv )
 				std::map< std::string, QSequence > &seqs = peers[ event.peer ] ;
 				output::Result res ;
 				res.ParseFromArray( event.packet->data+1, event.packet->dataLength-1 ) ;
-				write_delimited_message( cos, 2, res ) ;
+				streams::write_delimited_message( cos, 2, res ) ;
 				--reads_in_flight ;
 				++reads_in ;
 				seqs.erase( res.seqid() ) ;
@@ -195,7 +195,7 @@ int main_( int argc, const char**argv )
 		else timeouts = 0 ;
 	} while( reads_in_flight || !incoming_queue.empty() ) ;
 
-	write_delimited_message( cos, 3, ofoot ) ;
+	streams::write_delimited_message( cos, 3, ofoot ) ;
 
 	for( PeerDir::const_iterator l = peers.begin(), r = peers.end() ; l != r ; ++l )
 		enet_peer_disconnect_later( l->first, 0 ) ;

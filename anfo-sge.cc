@@ -15,7 +15,7 @@
 #include "anfo_common.h"
 #include "compress_stream.h"
 #include "conffile.h"
-#include "outputfile.h"
+#include "stream.h"
 #include "util.h"
 
 #include "config.pb.h"
@@ -103,8 +103,8 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "no output file" ;
 
 	unsigned slicenum = 0, total_slices = 1 ;
-	if( const char* tid = getenv("SGE_TASK_ID") ) slicenum = atoi(tid) -1 ;
-	if( const char* tid = getenv("SGE_TASK_LAST") ) if( stride == 1 ) stride = atoi(tid) ;
+	if( const char* tid = getenv("SGE_TASK_ID") ) slicenum = atoi(tid) ? atoi(tid)-1 : 0 ;
+	if( const char* tid = getenv("SGE_TASK_LAST") ) if( stride == 1 ) stride = atoi(tid) ? atoi(tid) : 1 ;
 
 	Config conf = get_default_config( config_file ) ;
 	for( int i = 0 ; i != conf.policy_size() ; ++i )
@@ -163,7 +163,7 @@ int main_( int argc, const char * argv[] )
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
 	if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
 	if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
-	write_delimited_message( cos, 1, ohdr ) ;
+	streams::write_delimited_message( cos, 1, ohdr ) ;
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
@@ -196,7 +196,7 @@ int main_( int argc, const char * argv[] )
 				std::deque< alignment_type > ol ;
 				int pmax = mapper.index_sequence( ps, r, ol ) ;
 				if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-				write_delimited_message( cos, 2, r ) ;
+				streams::write_delimited_message( cos, 2, r ) ;
 			}
 		}
 		if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
@@ -205,7 +205,7 @@ int main_( int argc, const char * argv[] )
 
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	write_delimited_message( cos, 3, ofoot ) ;
+	streams::write_delimited_message( cos, 3, ofoot ) ;
 
 	if( !exit_with && strcmp( output_file, "-" ) )
 		throw_errno_if_minus1(

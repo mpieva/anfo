@@ -5,7 +5,7 @@
 #include "compress_stream.h"
 #include "conffile.h"
 #include "index.h"
-#include "outputfile.h"
+#include "stream.h"
 #include "queue.h"
 #include "util.h"
 
@@ -86,7 +86,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		write_delimited_message( q->output_stream, 2, *r ) ;
+		streams::write_delimited_message( q->output_stream, 2, *r ) ;
 		delete r ;
 	}
 	return 0 ;
@@ -238,7 +238,7 @@ int main_( int argc, const char * argv[] )
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	write_delimited_message( common_data.output_stream, 1, ohdr ) ;
+	streams::write_delimited_message( common_data.output_stream, 1, ohdr ) ;
 
 	// Running in multiple threads.  The main thread will read the
 	// input and enqueue it, then signal end of input by adding a null
@@ -301,7 +301,7 @@ int main_( int argc, const char * argv[] )
 	clog << endl ;
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	write_delimited_message( common_data.output_stream, 3, ofoot ) ;
+	streams::write_delimited_message( common_data.output_stream, 3, ofoot ) ;
 
 	if( !exit_with && strcmp( output_file, "-" ) )
 		throw_errno_if_minus1(
