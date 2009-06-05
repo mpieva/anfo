@@ -224,7 +224,10 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 				std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
 				ol.end() ) ;
 		make_heap( ol.begin(), ol.end() ) ;
-		alignment_type second_best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
+
+		// search long enough to make sensible mapping quality possible
+		uint32_t max_penalty_2 = 600 + penalty ;
+		alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
 		r.set_open_nodes_after_alignment( o ) ;
 		r.set_closed_nodes_after_alignment( c ) ;
 		r.set_tracked_closed_nodes_after_alignment( tt ) ;

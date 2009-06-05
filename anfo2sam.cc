@@ -103,7 +103,7 @@ bad_stuff protoHit_2_bam_Hit(output::Result &result){
 /*RNAME*/   std::cout << hit.sequence() << "\t";
 /*POS*/     std::cout << 1+hit.start_pos() << "\t";
 /*MAPQ*/   	std::cout << ( result.has_diff_to_next() 
-					? (int)( 0.5 + result.diff_to_next() / std::log(10.0) ) : 255 ) << '\t' ;
+					? std::min( (int)( 0.5 + result.diff_to_next() / std::log(10.0) ), 254) : 254 ) << '\t' ;
 /*CIGAR*/   ( hit.aln_length() >= 0 ? decode_binCigar(std::cout, hit.cigar().begin(), hit.cigar().end() )
 			                        : decode_binCigar(std::cout, hit.cigar().rbegin(), hit.cigar().rend() ) ) << "\t";
           // We don't have paired end reads
