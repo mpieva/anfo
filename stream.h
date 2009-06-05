@@ -1,6 +1,7 @@
 #ifndef INCLUDED_STREAM_H
 #define INCLUDED_STREAM_H
 
+#include "compress_stream.h"
 #include "logdom.h"
 #include "output.pb.h"
 #include "util.h"
@@ -129,7 +130,7 @@ class Stream
 		//! \brief returns the header
 		//! The header can be requested any time, unless the stream is
 		//! in the invalid state.
-		virtual Header fetch_header() { throw MissingMethod(__FUNCTION__) ; }
+		virtual Header fetch_header() { return hdr_ ; }
 
 		//! \brief reads the next result
 		//! Every result can only be read once, internal iterator style.
@@ -139,8 +140,9 @@ class Stream
 
 		//! \brief returns the footer
 		//! Only after all results have been consumed is the footer
-		//! available.
-		virtual Footer fetch_footer() { throw MissingMethod(__FUNCTION__) ; }
+		//! available.  If anything goes wrong internally, the LSB
+		//! should be set in \c exit_code.
+		virtual Footer fetch_footer() { return foot_ ; }
 
 		//! \brief sets the stream header
 		//! Output streams and stream filters need the header to become
@@ -160,6 +162,7 @@ class Stream
 		virtual void put_footer( const Footer& ) { throw MissingMethod(__FUNCTION__) ; }
 } ;
 
+void transfer( Stream& in, Stream& out ) ;
 
 //! \brief base class of streams that read from many streams
 class FanInStream : public Stream
@@ -206,16 +209,30 @@ class AnfoReader : public Stream
 		AnfoReader( int fd, const std::string& name = "<unknown>", bool quiet = false ) ;
 
 		virtual ~AnfoReader() { --num_files_ ; }
-		virtual Header fetch_header() { return hdr_ ; }
 		virtual Result fetch_result() ;
-
-		//! \brief reads the footer message
-		//! If an error occured during earlier processing, the exit_code
-		//! inside the footer message will have its LSB set.
-		virtual Footer fetch_footer() { return foot_ ; }
 
 		//! \internal
 		static unsigned num_open_files() { return num_files_ ; }
+} ;
+
+//! \brief stream that writes result in native (ANFO) format
+//! The file will be in a format that can be read in by streams::AnfoReader.
+class AnfoWriter : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::FileOutputStream > fos_ ;
+		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos_ ;
+		google::protobuf::io::CodedOutputStream o_ ;
+
+	public:
+		AnfoWriter( google::protobuf::io::ZeroCopyOutputStream* ) ;
+		AnfoWriter( int fd, bool expensive = false ) ;
+		AnfoWriter( const char* fname, bool expensive = false ) ;
+
+
+		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; state_ = need_input ; } 
+		virtual void put_result( const Result& r ) { write_delimited_message( o_, 2, r ) ; }
+		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; state_ = end_of_stream ; }
 } ;
 
 //! \brief filters that drop or modify isolated records
@@ -226,11 +243,8 @@ class Filter : public Stream
 	public:
 		virtual bool xform( Result& ) = 0 ;
 
-		virtual void put_header( const Header& hdr ) { hdr_ = hdr ; state_ = need_input ; }
-		virtual Header fetch_header() { return hdr_ ; } // XXX leave some traces? 
-
-		virtual void put_footer( const Footer& foot ) { foot_ = foot ; state_ = end_of_stream ; }
-		virtual Footer fetch_footer() { return foot_ ; } // XXX leave some traces? 
+		virtual void put_header( const Header& hdr ) { hdr_ = hdr ; state_ = need_input ; }// XXX leave some traces? 
+		virtual void put_footer( const Footer& foot ) { foot_ = foot ; state_ = end_of_stream ; }// XXX leave some traces? 
 
 		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
 		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
@@ -370,33 +384,9 @@ class ConcatStream : public FanInStream
 
 	public:
 		virtual void add_stream( Stream* ) ;
-		virtual Header fetch_header() { return hdr_ ; }
-		virtual Footer fetch_footer() { return foot_ ; }
 		virtual Result fetch_result() ;
 } ;
 
-//! \brief stream that writes result in native (ANFO) format
-//! The file will be in a format that can be read in by ::AnfoReader.
-class NativeOutputStream : public Stream
-{
-	private:
-
-	public:
-		//! \param fd file descriptor to write to
-		//! \param expensive if set, computationally expensive compression is
-		//!                  used (normally meaning bzip2 instead of gzip)
-		NativeOutputStream( int fd, bool expensive = false ) ;
-
-		//! \param zos Google-style output stream to write to
-		//! \param expensive if set, computationally expensive compression is
-		//!                  used (normally meaning bzip2 instead of gzip)
-		NativeOutputStream( google::protobuf::io::ZeroCopyOutputStream *zos, bool expensive = false ) ;
-
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
-		virtual void put_footer( const Footer& ) ;
-} ;
-
-} ;
+} // namespace streams
 
 #endif

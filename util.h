@@ -171,5 +171,15 @@ extern volatile int exit_with ;
 
 enum PacketTag { packet_config, packet_read, packet_result, packet_quit } ;
 
+//! \brief creates a temporary file 
+//! The name is constructed from a directory taken from the environment
+//! variables \c ANFO_TEMP, \c TMPDIR, \c TEMP, or \c TMP, whichever
+//! first one is set, and a unique file name.  The file is opened and
+//! then unlinked, and both the name and the file descriptor are
+//! returned.  Note that the name can only serve informational purposes,
+//! since it's already gone by the time this function returns.
+//! \param name contains the file name on return
+//! \return the file descriptor
+int mktempfile( std::string* name = 0 ) ;
 
 #endif

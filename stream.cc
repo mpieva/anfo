@@ -22,6 +22,14 @@ using namespace google::protobuf::io ;
 using namespace output ;
 using namespace std ;
 
+void transfer( Stream& in, Stream& out ) 
+{
+	out.put_header( in.fetch_header() ) ;
+	while( in.get_state() == Stream::have_output && out.get_state() == Stream::need_input )
+		out.put_result( in.fetch_result() ) ;
+	out.put_footer( in.fetch_footer() ) ;
+}
+
 int AnfoReader::num_files_ = 0 ;
 
 AnfoReader::AnfoReader( const std::string& name, bool quiet )
@@ -100,6 +108,30 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 		}
 	}
 }
+
+AnfoWriter::AnfoWriter( ZeroCopyOutputStream *zos ) : o_( zos )
+{
+	o_.WriteRaw( "ANFO", 4 ) ;
+}
+
+AnfoWriter::AnfoWriter( int fd, bool expensive )
+	: fos_( new FileOutputStream( fd ) )
+	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
+	, o_( zos_.get() )
+{
+	o_.WriteRaw( "ANFO", 4 ) ;
+}
+
+AnfoWriter::AnfoWriter( const char* fname, bool expensive )
+	: fos_( new FileOutputStream( throw_errno_if_minus1(
+					open( fname, O_WRONLY | O_CREAT ), "opening", fname ) ) )
+	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
+	, o_( zos_.get() )
+{
+	fos_->SetCloseOnDelete( true ) ;
+	o_.WriteRaw( "ANFO", 4 ) ;
+}
+
 
 template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
 {
@@ -219,31 +251,6 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 	lhs.MergeFrom( rhs ) ;
 	lhs.set_exit_code( exit_code ) ;
 }
-
-#if 0
-int write_stream_to_file( int fd, Stream &s, bool expensive )
-{
-	FileOutputStream fos( fd ) ;
-	auto_ptr< ZeroCopyOutputStream > zos(
-			expensive ? compress_small( &fos ) : compress_fast( &fos ) ) ;
-	return write_stream_to_file( zos.get(), s ) ;
-}
-
-int write_stream_to_file( ZeroCopyOutputStream *zos, Stream &s ) 
-{
-	CodedOutputStream o( zos ) ;
-	
-	o.WriteRaw( "ANFO", 4 ) ;
-	write_delimited_message( o, 1, s.get_header() ) ;
-
-	for( Result r ; s.read_result( r ) ; ) 
-		write_delimited_message( o, 2, r ) ;
-	
-	Footer f = s.get_footer() ;
-	write_delimited_message( o, 3, f ) ;
-	return f.exit_code() ;
-}
-#endif
 
 unsigned len_from_bin_cigar( const string& cigar )
 {
@@ -418,6 +425,7 @@ void ConcatStream::add_stream( Stream* s )
 	}
 	else
 	{
+		if( state_ == invalid ) state_ = end_of_stream ;
 		merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
 		delete s ;
 	}

@@ -1,4 +1,7 @@
 #include "util.h"
+
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 
 volatile int exit_with = 0 ;
@@ -51,3 +54,22 @@ void set_proc_title( const char *title )
 	}
 }
 
+int mktempfile( std::string* name )
+{
+	const char *suffix = "/anfo_sort_XXXXXX" ;
+	const char *base = getenv("ANFO_TEMP") ;
+	if( !base ) base = getenv("TMPDIR") ;
+	if( !base ) base = getenv("TEMP") ;
+	if( !base ) base = getenv("TMP") ;
+	if( !base ) base = "." ;
+
+	char  n1[ strlen(base) + strlen(suffix) + 1 ] ;
+	char *n2 = n1 ;
+	while( *base ) *n2++ = *base++ ;
+	while( *suffix ) *n2++ = *suffix++ ;
+	*n2 = 0 ;
+    int fd = throw_errno_if_minus1( mkstemp( n1 ), "making temp file" ) ;
+	throw_errno_if_minus1( unlink( n1 ), "unlinking temp name" ) ;
+	if( name ) *name = n1 ;
+	return fd ;
+}

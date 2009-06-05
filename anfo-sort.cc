@@ -10,28 +10,16 @@
 #include <google/protobuf/text_format.h>
 
 #include <algorithm>
-#include <cstdlib>
 #include <deque>
 #include <iostream>
 
 #include <glob.h>
 #include <popt.h>
 
-#if HAVE_ALLOCA_H
-#  include <alloca.h>
-#endif
-
-#if HAVE_UNISTD_H
-#  include <unistd.h>
-#endif
-
 using namespace google::protobuf ;
 using namespace google::protobuf::io ;
 using namespace std ;
 using namespace output ;
-
-static unsigned max_que_size = 256 ;
-static unsigned max_arr_size = 1024*1024*1024 ;
 
 //! \page anfo-sort
 //! \brief reads ANFO files, sorts and merges them.
@@ -59,6 +47,7 @@ static unsigned max_arr_size = 1024*1024*1024 ;
 //!       certainly don't want to include crap sequences in the
 //!       consensus calling)
 
+namespace streams {
 
 //! \brief compares hits by smallest genome coordinate
 //! Comparison is first done lexically on the subject name, then on the
@@ -82,59 +71,61 @@ struct by_genome_coordinate {
 
 //! \brief merges sorted streams into a sorted stream
 //! \todo needs to be parameterized with a comparison function (we
-//!       already have two).
+//!       already need two).
 class MergeStream : public FanInStream
 {
 	private:
-		vector< Stream* > streams_ ;
 		deque< Result > rs_ ;
-		output::Header hdr_ ;
-		output::Footer foot_ ;
 
 	public:
 		MergeStream() {}
-		virtual ~MergeStream() { for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
+		virtual ~MergeStream() {}
 
 		virtual void add_stream( Stream* s )
 		{
-			assert( s->get_header().is_sorted_by_coordinate() ) ;
-			merge_sensibly( hdr_, s->get_header() ) ;
+			assert( s->fetch_header().is_sorted_by_coordinate() ) ;
+			merge_sensibly( hdr_, s->fetch_header() ) ;
 
-			Result r ;
-			if( s->read_result( r ) ) 
+			if( s->get_state() == have_output )
 			{
-				rs_.push_back( r ) ;
+				rs_.push_back( s->fetch_result() ) ;
 				streams_.push_back( s ) ;
+				state_ = have_output ;
 			}
 			else
 			{
-				merge_sensibly( foot_, s->get_footer() ) ;
+				if( state_ == invalid ) state_ = end_of_stream ;
+				merge_sensibly( foot_, s->fetch_footer() ) ;
+				delete s ;
 			}
 		}
 
-		virtual const output::Header& get_header() { return hdr_ ; }
-		virtual const output::Footer& get_footer() { return foot_ ; }
-		virtual bool read_result( output::Result& ) ;
+		virtual Header fetch_header() { return hdr_ ; }
+		virtual Footer fetch_footer() { return foot_ ; }
+		virtual Result fetch_result() ;
 } ;
 
-bool MergeStream::read_result( output::Result& res ) 
+Result MergeStream::fetch_result() 
 {
-	if( rs_.empty() ) return false ;
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
 		if( by_genome_coordinate()( &rs_[ i ], &rs_[ min_idx ] ) )
 			min_idx = i ;
 
-	res = rs_[ min_idx ] ;
+	Result res = rs_[ min_idx ] ;
 	Stream *sm = streams_[ min_idx ] ;
-	if( !sm->read_result( rs_[ min_idx ] ) ) 
+	if( sm->get_state() == have_output )
 	{
-		merge_sensibly( foot_, sm->get_footer() ) ;
+		rs_[ min_idx ] = sm->fetch_result() ; 
+	}
+	else
+	{
+		merge_sensibly( foot_, sm->fetch_footer() ) ;
 		delete sm ;
 		streams_.erase( streams_.begin() + min_idx ) ;
 		rs_.erase( rs_.begin() + min_idx ) ;
+		if( rs_.empty() ) state_ = end_of_stream ;
 	}
-	return true ;
 }
 
 
@@ -147,54 +138,63 @@ bool MergeStream::read_result( output::Result& res )
 class BestHitStream : public FanInStream
 {
 	private:
-		vector< Stream* > streams_ ;
-		output::Header hdr_ ;
-		output::Footer foot_ ;
-
-		typedef map< string, pair< size_t, output::Result > > Buffer ;
+		typedef map< string, pair< size_t, Result > > Buffer ;
 		Buffer buffer_ ;
-		size_t cur_input_, nread_, nwritten_ ;
+		size_t cur_input_, nread_, nwritten_, nstreams_ ;
 
 	public:
-		BestHitStream() : streams_(), cur_input_(0), nread_(0), nwritten_(0) {}
-		virtual ~BestHitStream() {for_each(streams_.begin(),streams_.end(),delete_ptr<Stream>());}
+		BestHitStream() : cur_input_(0), nread_(0), nwritten_(0), nstreams_(0) {}
+		virtual ~BestHitStream() {}
 
 		//! \brief reads a stream's header and adds the stream as input
 		virtual void add_stream( Stream* s ) {
-			merge_sensibly( hdr_, s->get_header() ) ;
-			streams_.push_back( s ) ;
+			merge_sensibly( hdr_, s->fetch_header() ) ;
+			++nstreams_ ;
+			if( s->get_state() == have_output )
+			{
+				streams_.push_back( s ) ;
+				state_ = have_output ;
+			}
+			else
+			{
+				if( state_ == invalid ) state_ = end_of_stream ;
+				merge_sensibly( foot_, s->fetch_footer() ) ;
+				delete s ;
+			}
 		}
 
 		//! \brief checks if enough inputs are known
 		//! Checks if at least as many inputs are known as requested.
 		//! If that number isn't known, it assumed only one index was
-		//! used and takes the number of slices declared for it.  
-		bool enough_inputs( size_t n ) const { return streams_.size() >= n ; }
+		//! used and takes the number of slices declared for it.  (This
+		//! is mostly useful in MegaMergeStream to clean up after a grid
+		//! job.)
 		bool enough_inputs() const
 		{
-			if( streams_.empty() ) return false ;
-			if(  hdr_.config().policy_size() == 0 ) return true ;
-			if(  hdr_.config().policy(0).use_compact_index_size() == 0 ) return true ;
+			if( hdr_.config().policy_size() == 0 
+					|| hdr_.config().policy(0).use_compact_index_size() == 0 ) return false ;
 			if( !hdr_.config().policy(0).use_compact_index(0).has_number_of_slices() ) return true ;
-			return enough_inputs( hdr_.config().policy(0).use_compact_index(0).number_of_slices() ) ;
+			return nstreams_ >= hdr_.config().policy(0).use_compact_index(0).number_of_slices() ;
 		}
 
 		//! \brief returns the merged headers
 		//! Redundant information is removed from the headers (e.g.
 		//! repeated paths), the rest is merged as best as possible.
-		virtual const output::Header& get_header() { return hdr_ ; }
+		virtual Header fetch_header() { return hdr_ ; }
 		
 		//! \brief reads a footer
 		//! All footers are merged, the exit codes are logically OR'ed,
 		//! and the LSB is set if something wen't wrong internally.
-		virtual const output::Footer& get_footer() { return foot_ ; }
+		virtual Footer fetch_footer() { return foot_ ; }
 
 
 		//! \brief reports on one sequence
 		//! Enough information is read until one sequence has been
 		//! described by each input stream.  Everything else is buffered
 		//! if necessary.
-		virtual bool read_result( output::Result& res )
+		//! XXX totally broken
+#if 0
+		virtual Result fetch_result()
 		{
 			for( bool cont = true ; cur_input_ || cont ; )
 			{
@@ -234,141 +234,174 @@ class BestHitStream : public FanInStream
 			buffer_.erase( buffer_.begin()->first ) ;
 			return true ;
 		}
+#endif
 } ;
 
-template< typename I > class StreamAdapter : public Stream
+//! \brief presents a container as an input stream
+//! The container must be of pointers to \c Result, the stream acts as
+//! input stream.  A suitable header and footer are supplied at
+//! construction time.
+template< typename I > class ContainerStream : public Stream
 {
 	private:
-		Header hdr_ ;
 		I cur_, end_ ;
-		Footer foot_ ;
-	public:
-		StreamAdapter( const Header &hdr, I begin, I end, const Footer &foot ) 
-			: hdr_( hdr ), cur_( begin ), end_( end ), foot_( foot ) {}
 
-		virtual const Header& get_header() { return hdr_ ; }
-		virtual const Footer& get_footer() { return foot_ ; }
-		virtual bool read_result( Result& r ) {
-			if( cur_ == end_ ) return false ;
-			r = *( *cur_++ ) ;
-			return true ;
+	public:
+		ContainerStream( const Header &hdr, I begin, I end, const Footer &foot ) 
+			: cur_( begin ), end_( end )
+		{
+			hdr_ = hdr ;
+			foot_ = foot ;
+			state_ = cur_ == end_ ? end_of_stream : have_output ;
+		}
+
+		virtual Header fetch_header() { return hdr_ ; }
+		virtual Footer fetch_footer() { return foot_ ; }
+		virtual Result fetch_result() {
+			Result r = **cur_ ;
+			++cur_ ;
+			if( cur_ == end_ ) state_ = end_of_stream ;
+			return r ;
 		}
 } ;
 
+//! \brief stream filter that sorts its input
+//! This stream is intended to sort large amounts of data.  To do that,
+//! it performs a quick sort on blocks that fit into memory (the maximum
+//! size is configured at construction time), writes them out to
+//! temporary files, then reads them back in and does a merge sort.  If
+//! too many files are open (as counted by \c AnfoReader, again
+//! configurable at construction time), some temporary files are merge
+//! sorted into a bigger one.
+//!
+//! \todo We need to parameterize the way to sort (by name, by
+//!       coordinate, anything else).
 
-
-// keep queues of streams ordered and separate, so we don't merge the
-// same stuff repeatedly
-typedef deque< Stream* > MergeableQueue ;
-typedef map< unsigned, MergeableQueue > MergeableQueues ;
-MergeableQueues mergeable_queues ;
-
-typedef deque< Result* > ScratchSpace ;
-ScratchSpace scratch_space ;
-Header scratch_header ;
-Footer scratch_footer ;
-int64_t total_scratch_size = 0 ;
-
-void sort_scratch() {
-    if( scratch_space.size() > 1 )
-		clog << "\033[KSorting " << scratch_space.size() << " results in memory" << endl ;
-    sort( scratch_space.begin(), scratch_space.end(), by_genome_coordinate() ) ;
-}
-
-int mktempfile( string &name )
+class SortingStream : public FanInStream
 {
-	const char *suffix = "/anfo_sort_XXXXXX" ;
-	const char *base = getenv("ANFO_TEMP") ;
-	if( !base ) base = getenv("TMPDIR") ;
-	if( !base ) base = getenv("TEMP") ;
-	if( !base ) base = getenv("TMP") ;
-	if( !base ) base = "." ;
+	private:
+		typedef deque< streams::Stream* > MergeableQueue ;
+		typedef map< unsigned, MergeableQueue > MergeableQueues ;
+		typedef deque< Result* > ScratchSpace ;
 
-	char *n1 = (char*)alloca( strlen(base) + strlen(suffix) + 1 ) ;
-	char *n2 = n1 ;
-	while( *base ) *n2++ = *base++ ;
-	while( *suffix ) *n2++ = *suffix++ ;
-	*n2 = 0 ;
-    int fd = throw_errno_if_minus1( mkstemp( n1 ), "making temp file" ) ;
-	throw_errno_if_minus1( unlink( n1 ), "unlinking temp name" ) ;
-	name = n1 ;
-	return fd ;
-}
+		//! We keep multiple queues of streams ordered and separated by
+		//! the number of times they have been merged.  This way we
+		//! don't merge the stuff over and over, and instead tend to do
+		//! a merge that gives the greatest reduction in number of open
+		//! files with least amount of IO.  The key is the number of
+		//! times a file has already been merged with others, the value
+		//! is just a set of streams.
+		MergeableQueues mergeable_queues_ ;
 
-void enqueue_stream( Stream*, int = 0 ) ;
+		//! Storage to perform quicksort in.
+		ScratchSpace scratch_space_ ;
+		Header scratch_header_ ;
+		Footer scratch_footer_ ;
+		int64_t total_scratch_size_ ;
 
-void flush_scratch() {
+		unsigned max_que_size_, max_arr_size_ ;
+
+
+		//! \brief quicksort the scratch area
+		//! \internal
+		void sort_scratch() {
+			if( scratch_space_.size() > 1 )
+				clog << "\033[KSorting " << scratch_space_.size() << " results in memory" << endl ;
+			sort( scratch_space_.begin(), scratch_space_.end(), streams::by_genome_coordinate() ) ;
+		}
+
+		void enqueue_stream( streams::Stream*, int = 0 ) ;
+		void flush_scratch() ;
+
+	public:
+		SortingStream( unsigned as = 1024*1024*1024, unsigned qs = 256)
+			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ) {}
+
+		virtual ~SortingStream()
+		{ for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ; }
+
+		virtual void add_stream( Stream* s ) { enqueue_stream( s, 0 ) ; }
+
+		// XXX put_* and fetch* functions are missing!!!1
+} ;
+
+
+void SortingStream::flush_scratch()
+{
 	sort_scratch() ;
 	string tempname ;
-	int fd = mktempfile( tempname ) ;
-
-	scratch_header.set_is_sorted_by_coordinate( true ) ;
-	StreamAdapter< deque< Result* >::const_iterator >
-		sa( scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ;
-	clog << "\033[KWriting to tempfile " << tempname << endl ;
-	write_stream_to_file( fd, sa ) ;
+	int fd = mktempfile( &tempname ) ;
+	{
+		scratch_header_.set_is_sorted_by_coordinate( true ) ;
+		ContainerStream< deque< Result* >::const_iterator >
+			sa( scratch_header_, scratch_space_.begin(), scratch_space_.end(), scratch_footer_ ) ;
+		AnfoWriter out( fd ) ;
+		transfer( sa, out ) ;
+		clog << "\033[KWriting to tempfile " << tempname << endl ;
+	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
-	
-	enqueue_stream( new AnfoFile( fd, tempname.c_str() ) ) ;
+	enqueue_stream( new AnfoReader( fd, tempname.c_str() ), 1 ) ;
 
-	for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
-	scratch_space.clear() ;
-	total_scratch_size = 0 ;
+	for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
+	scratch_space_.clear() ;
+	total_scratch_size_ = 0 ;
 }
 
-void enqueue_stream( Stream* s, int level ) 
+void SortingStream::enqueue_stream( streams::Stream* s, int level ) 
 {
-	Header h = s->get_header() ;
+	Header h = s->fetch_header() ;
 	if( h.is_sorted_by_coordinate() ) {
-		mergeable_queues[ level ].push_back( s ) ;
+		mergeable_queues_[ level ].push_back( s ) ;
 
-		if( AnfoFile::num_open_files() > max_que_size ) {
+		if( AnfoReader::num_open_files() > max_que_size_ ) {
 			// get the biggest bin, we'll merge everything below that
 			unsigned max_bin = 0 ;
-			for( MergeableQueues::const_iterator i = mergeable_queues.begin() ;
-					i != mergeable_queues.end() ; ++i ) 
-				if( i->second.size() > mergeable_queues[max_bin].size() )
+			for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ;
+					i != mergeable_queues_.end() ; ++i ) 
+				if( i->second.size() > mergeable_queues_[max_bin].size() )
 					max_bin = i->first ;
 
 			unsigned total_inputs = 0 ;
-			for( MergeableQueues::iterator i = mergeable_queues.begin() ; i->first <= max_bin ; ++i ) 
+			for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
 				total_inputs += i->second.size() ;
 
-			// we must actully make progress, and it must be more than
-			// just a single stream to avoid quadratic behaviour (only
-			// important in a weird corner case)
+			// we must actually make progress, and more than just a
+			// single stream must be merged to avoid quadratic behaviour
+			// (only important in a weird corner case)
 			if( total_inputs > 2 ) {
 				string fname ;
-				int fd = mktempfile( fname ) ;
+				int fd = mktempfile( &fname ) ;
 				clog << "\033[KMerging bins 0.." << max_bin << " to tempfile " << fname << endl ;
 				{
-					MergeStream ms ;
-					for( MergeableQueues::iterator i = mergeable_queues.begin() ; i->first <= max_bin ; ++i ) 
+					streams::MergeStream ms ;
+					for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
 					{
 						for( size_t j = 0 ; j != i->second.size() ; ++j )
 							ms.add_stream( i->second[j] ) ;
 						i->second.clear() ;
 					}
-					write_stream_to_file( fd, ms ) ;
+					AnfoWriter out( fd ) ;
+					transfer( ms, out ) ;
 				}
-
 				throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
-				enqueue_stream( new AnfoFile( fd, fname.c_str() ), max_bin + 1 ) ;
+				enqueue_stream( new streams::AnfoReader( fd, fname.c_str() ), max_bin + 1 ) ;
 			}
 		}
 	}
 	else
 	{
-		scratch_header.MergeFrom( h ) ;
-		for( Result r ; s->read_result( r ) ; ) {
-			scratch_space.push_back( new Result( r ) ) ;
-			total_scratch_size += r.SpaceUsed() ;
-			if( total_scratch_size >= max_arr_size ) flush_scratch() ;
+		merge_sensibly( scratch_header_, h ) ;
+		while( s->get_state() == streams::Stream::have_output )
+		{
+			scratch_space_.push_back( new Result( s->fetch_result() ) ) ;
+			total_scratch_size_ += scratch_space_.back()->SpaceUsed() ;
+			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
 	    }
-		scratch_footer.MergeFrom( s->get_footer() ) ;
+		merge_sensibly( scratch_footer_, s->fetch_footer() ) ;
 	}
 }
 
+#if 0
 int main_( int argc, const char **argv )
 {
 	if( argc < 2 ) return 0 ;
@@ -386,12 +419,12 @@ int main_( int argc, const char **argv )
 		glob( *arg, GLOB_NOSORT | GLOB_APPEND, 0, &the_glob ) ;
 
 	// iterate over glob results, collect into BestHitStreams
-	map< int, BestHitStream* > stream_per_slice ;
+	map< int, streams::BestHitStream* > stream_per_slice ;
 	for( char **arg = the_glob.gl_pathv ; 
 			arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 	{
 		clog << "\033[KReading from file " << *arg << endl ;
-		Stream* s = new AnfoFile( *arg ) ;
+		streams::Stream* s = new streams::AnfoReader( *arg ) ;
 		Header h = s->get_header() ;
 		if( h.has_sge_slicing_stride() ) {
 			BestHitStream* &bhs = stream_per_slice[ h.sge_slicing_index(0) ] ;
@@ -444,43 +477,44 @@ int main_( int argc, const char **argv )
 		return 1 ;
 	}
 }
+#endif
 
 class RepairHeaderStream : public Stream
 {
-	private:
-		std::auto_ptr< Stream > s_ ;
-		std::auto_ptr< output::Header > h_ ;
-
 	public:
-		RepairHeaderStream( Stream* s ) : s_(s) {}
 		virtual ~RepairHeaderStream() {}
 
-		virtual const output::Header& get_header() ;
-		virtual bool read_result( output::Result& r ) { return s_->read_result( r ) ; }
-		virtual const output::Footer& get_footer() { return s_->get_footer() ; }
+		virtual void put_header( const Header& ) ;
+		virtual Header fetch_header() { return hdr_ ; }
+
+		virtual void put_result( const Result& r ) { res_ = r ; state_ = have_output ; }
+		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
+
+		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
+		virtual Footer fetch_footer() { return foot_ ; }
 } ;
 
-const output::Header& RepairHeaderStream::get_header() 
+void RepairHeaderStream::put_header( const Header& h ) 
 {
-	if( !h_.get() ) {
-		char tmpname[] = "/tmp/anfo_header_XXXXXX" ;
-		int fd = mkstemp( tmpname ) ;
-		{
-			FileOutputStream fos( fd ) ;
-			TextFormat::Print( s_->get_header(), &fos ) ;
-		}
-
-		string cmd = string( getenv("EDITOR") ) + " " + tmpname ;
-		for(;;) {
-			system( cmd.c_str() ) ;
-			h_.reset( new Header ) ;
-			lseek( fd, 0, SEEK_SET ) ;
-			FileInputStream fis( fd ) ;
-			if( TextFormat::Parse( &fis, h_.get() ) ) break ;
-		} 
+	char tmpname[] = "/tmp/anfo_header_XXXXXX" ;
+	int fd = mkstemp( tmpname ) ;
+	{
+		FileOutputStream fos( fd ) ;
+		TextFormat::Print( h, &fos ) ;
 	}
-	return *h_ ;
+
+	string cmd = string( getenv("EDITOR") ) + " " + tmpname ;
+	for(;;) {
+		system( cmd.c_str() ) ;
+		lseek( fd, 0, SEEK_SET ) ;
+		FileInputStream fis( fd ) ;
+		if( TextFormat::Parse( &fis, &hdr_ ) ) break ;
+	} 
+	throw_errno_if_minus1( unlink( tmpname ), "unlinking", tmpname ) ;
+	state_ = need_input ;
 }
+
+} // namespace
 
 //! \page anfo_stream stream-like operations on ANFO files
 //!
@@ -495,44 +529,58 @@ const output::Header& RepairHeaderStream::get_header()
 //! files are "sucked" through the filter pipeline, driven by the
 //! calculation of a few statistics, which are printed at the end.
 
-typedef Stream* (*FilterMaker)( float, float, const char*, const char*, Stream* ) ;
+using namespace streams ;
 
-struct FilterParams {
-	float slope, intercept ;
-	const char *genome, *arg ;
-	FilterMaker maker ;
+template< typename S > struct FilterParams {
+	typedef S* (*F)( float, float, const char*, const char* ) ;
+
+	float slope ;
+	float intercept ;
+	const char* genome ;
+	const char* arg ;
+	F maker ;
 } ;
 
-typedef std::vector< FilterParams > FilterStack ;
+typedef std::vector< FilterParams< Stream > > FilterStack ;
+// XXX b0rk3d
 Stream* run_filter_stack( const FilterStack& st, Stream* in )
 {
-	for( FilterStack::const_iterator l = st.begin(), r = st.end() ; l != r ; ++l )
-		in = (l->maker)( l->slope, l->intercept, l->genome, l->arg, in ) ;
+	// for( FilterStack::const_iterator l = st.begin(), r = st.end() ; l != r ; ++l )
+		// in = (l->maker)( l->slope, l->intercept, l->genome, l->arg, in ) ;
 	return in ;
 }
 
-Stream* mk_sort_by_pos( float, float, const char* genome, const char*, Stream* s ) {}
-Stream* mk_sort_by_name( float, float, const char*, const char*, Stream* s ) {}
+Stream* mk_sort_by_pos( float, float, const char* genome, const char* )
+{ return new SortingStream() ; } // XXX use genome 
 
-Stream* mk_filter_by_length( float, float, const char*, const char* arg, Stream* in )
-{ return new LengthFilterStream( in, atoi(arg) ) ; }
+Stream* mk_sort_by_name( float, float, const char*, const char* )
+{ return 0 ; } // XXX stream is missing
 
-Stream* mk_filter_by_score( float s, float i, const char* g, const char*, Stream* in )
-{ return new ScoreFilterStream( in, s, i, g ) ; }
+Stream* mk_filter_by_length( float, float, const char*, const char* arg )
+{ return new LengthFilter( atoi(arg) ) ; }
 
-Stream* mk_filter_by_hit( float, float, const char*, const char* arg, Stream* s )
-{ return new HitFilterStream( s, arg ) ; }
+Stream* mk_filter_by_score( float s, float i, const char* g, const char* )
+{ return new ScoreFilter( s, i, g ) ; }
 
-Stream* mk_edit_header( float, float, const char*, const char* arg, Stream* s )
-{ return new RepairHeaderStream( s ) ; }
+Stream* mk_filter_by_hit( float, float, const char*, const char* arg )
+{ return new HitFilter( arg ) ; }
 
-Stream* mk_rmdup( float, float, const char*, const char*, Stream* s )
-{ return new RmdupStream( s ) ; }
+Stream* mk_edit_header( float, float, const char*, const char* arg )
+{ return new RepairHeaderStream() ; } // XXX configurable editor?
 
-Stream* mk_output( float, float, const char*, const char* arg, Stream* s ) {}
-Stream* mk_output_sam( float, float, const char*, const char* arg, Stream* s ) {}
-Stream* mk_output_fasta( float, float, const char*, const char* arg, Stream* s ) {}
-Stream* mk_output_glz( float, float, const char*, const char* arg, Stream* s ) {}
+Stream* mk_rmdup( float, float, const char*, const char* )
+{ return 0 ; } // return new RmdupStream() ; } // XXX use genome? how?
+
+FanInStream* mk_merge( float, float, const char*, const char* arg ) {} // XXX
+FanInStream* mk_mega_merge( float, float, const char*, const char* arg ) {} // XXX
+FanInStream* mk_concat( float, float, const char*, const char* arg ) {} // XXX
+
+Stream* mk_output( float, float, const char*, const char* arg )
+{ return new AnfoWriter( arg, true ) ; }
+
+Stream* mk_output_sam( float, float, const char*, const char* arg ) {} // XXX
+Stream* mk_output_fasta( float, float, const char*, const char* arg ) {} // XXX
+Stream* mk_output_glz( float, float, const char*, const char* arg ) {} // XXX
 
 int main_( int argc, const char **argv )
 {
@@ -540,9 +588,29 @@ int main_( int argc, const char **argv )
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_hit, opt_edit_header, opt_merge,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_sam,
-		opt_output_fasta, opt_output_glz, opt_version } ;
+		opt_output_fasta, opt_output_glz, opt_version, opt_MAX } ;
 
-	FilterParams params = { 0, 0, 0, 0 } ;
+	FilterParams<Stream>::F filter_makers[opt_MAX] = {
+		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
+		mk_filter_by_score, mk_filter_by_hit, mk_edit_header, 0,
+		0, 0, mk_rmdup, 0, 0,
+		0, 0, 0 } ;
+
+	FilterParams<FanInStream>::F merge_makers[opt_MAX] = {
+		0, 0, 0, 0,
+		0, 0, 0, mk_merge,
+		mk_mega_merge, mk_concat, 0, 0, 0,
+		0, 0, 0 } ;
+
+	FilterParams<Stream>::F output_makers[opt_MAX] = {
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, mk_output, mk_output_sam,
+		mk_output_fasta, mk_output_glz, 0 } ;
+
+
+	float param_slope = 0, param_intercept = 0 ;
+	const char *param_genome = 0 ;
 	int param_noise = 1 ;
 
 	struct poptOption options[] = {
@@ -561,10 +629,10 @@ int main_( int argc, const char **argv )
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
 		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write consensus in glz format to FILE", "FILE" },
 
-		{ "set-slope",      0 , POPT_ARG_FLOAT,  &params.slope,     0, "set slope for subsequent filters to S", "S" },
-		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &params.intercept, 0, "set length intercept for filters to L", "L" },
-		{ "set-genome",     0 , POPT_ARG_STRING, &params.genome,    0, "set interesting genome for most operations to G", "G" },
-		{ "clear-genome",   0 , POPT_ARG_VAL,    &params.genome,    0, "clear interesting genome", 0 },
+		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
+		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length intercept for filters to L", "L" },
+		{ "set-genome",     0 , POPT_ARG_STRING, &param_genome,     0, "set interesting genome for most operations to G", "G" },
+		{ "clear-genome",   0 , POPT_ARG_VAL,    &param_genome,     0, "clear interesting genome", 0 },
 
 		{ "quiet",         'q', POPT_ARG_VAL,    &param_noise,      0, "suppress most output", 0 },
 		{ "verbose",       'v', POPT_ARG_VAL,    &param_noise,      2, "produce more output", 0 },
@@ -572,14 +640,13 @@ int main_( int argc, const char **argv )
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
-	FilterMaker filter_makers[] = { 0, mk_sort_by_pos, mk_sort_by_name,
-		mk_filter_by_length, mk_filter_by_score, mk_filter_by_hit,
-		mk_edit_header, 0, 0, 0, mk_rmdup, mk_output, mk_output_sam,
-		mk_output_fasta, mk_output_glz } ;
-
-	FilterStack filters_initial, filters_terminal ;
+	FilterStack filters_initial ;
 	FilterStack *filters_current = &filters_initial ;
-	std::auto_ptr< FanInStream > merging_stream ;
+
+	std::auto_ptr< FanInStream > merging_stream( new ConcatStream ) ;
+
+	std::deque< FilterStack > filters_terminal ;
+	filters_terminal.push_back( FilterStack() ) ;
 
 	poptContext pc = poptGetContext( "anfo", argc, argv, options, 0 ) ;
 	poptSetOtherOptionHelp( pc, "[OPTION...] [sequence-file...]" ) ;
@@ -592,35 +659,51 @@ int main_( int argc, const char **argv )
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 		}
-		else if( rc >= 0 && rc * sizeof(filter_makers[0]) < sizeof(filter_makers) && filter_makers[rc] )
+		else if( rc >= 0 && filter_makers[rc] )
 		{
-			filters_current->push_back( params ) ;
-			filters_current->back().arg = poptGetOptArg( pc ) ;
-			filters_current->back().maker = filter_makers[rc] ;
+			FilterParams< Stream > fp = {
+				param_slope, param_intercept, param_genome, poptGetOptArg( pc )
+			} ;
+			filters_current->push_back( fp ) ;
 		}
-		else if( rc == opt_merge ) {
-			merging_stream.reset( new BestHitStream ) ;
-			filters_current = &filters_terminal ;
+		else if( rc >= 0 && merge_makers[rc] )
+		{
+			// make sure we are still creating input filters
+			if( filters_current != &filters_initial )
+				throw "merge-like commands cannot not follow merge- or output-like commands" ;
+
+			merging_stream.reset( (merge_makers[rc])(
+						param_slope, param_intercept, param_genome, poptGetOptArg( pc ) ) ) ;
+
+			// from now on we build output filters
+			filters_current = &filters_terminal.back() ;
 		}
-		else if( rc == opt_mega_merge ) {
-			merging_stream.reset( new MegaMergeStream ) ;
-			filters_current = &filters_terminal ;
+		else if( rc >= 0 && output_makers[rc] )
+		{
+			// make sure we are creating output filters
+			if( filters_current == &filters_initial )
+				filters_current = &filters_terminal.back() ;
+
+			// create filter
+			FilterParams< Stream > fp = {
+				param_slope, param_intercept, param_genome, poptGetOptArg( pc )
+			} ;
+			filters_current->push_back( fp ) ;
+
+			// start new output stream
+			filters_terminal.push_back( FilterStack() ) ;
+			filters_current = &filters_terminal.back() ;
 		}
-		else if( rc == opt_concat ) {
-			merging_stream.reset( new ConcatStream ) ;
-			filters_current = &filters_terminal ;
-		}
-		else {
+		else
+		{
 			std::clog << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 		}
 	}
 
-	if( !merging_stream.get() ) merging_stream.reset( new ConcatStream ) ;
-
 	while( const char* arg = poptGetArg( pc ) ) {
-		merging_stream->add_stream( run_filter_stack( filters_initial, new AnfoFile( arg ) ) ) ;
+		merging_stream->add_stream( run_filter_stack( filters_initial, new AnfoReader( arg ) ) ) ;
 	}
 	std::auto_ptr< Stream > final_stream( run_filter_stack( filters_terminal, merging_stream.release() ) ) ;
 	for( Result r ; final_stream->read_result( r ) ; ) {
