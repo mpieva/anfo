@@ -72,7 +72,7 @@ struct by_genome_coordinate {
 //! \brief merges sorted streams into a sorted stream
 //! \todo needs to be parameterized with a comparison function (we
 //!       already need two).
-class MergeStream : public FanInStream
+class MergeStream : public StreamBundle
 {
 	private:
 		deque< Result > rs_ ;
@@ -126,6 +126,7 @@ Result MergeStream::fetch_result()
 		rs_.erase( rs_.begin() + min_idx ) ;
 		if( rs_.empty() ) state_ = end_of_stream ;
 	}
+	return res ;
 }
 
 
@@ -135,7 +136,7 @@ Result MergeStream::fetch_result()
 //! This sequence is then delivered.  Everything works fine, as long as
 //! the sequence names come in in roughly the same order.  Else it still
 //! works, but eats memory.
-class BestHitStream : public FanInStream
+class BestHitStream : public StreamBundle
 {
 	private:
 		typedef map< string, pair< size_t, Result > > Buffer ;
@@ -277,7 +278,7 @@ template< typename I > class ContainerStream : public Stream
 //! \todo We need to parameterize the way to sort (by name, by
 //!       coordinate, anything else).
 
-class SortingStream : public FanInStream
+class SortingStream : public StreamBundle
 {
 	private:
 		typedef deque< streams::Stream* > MergeableQueue ;
@@ -514,6 +515,149 @@ void RepairHeaderStream::put_header( const Header& h )
 	state_ = need_input ;
 }
 
+class FanOut : public StreamBundle
+{
+	public:
+		FanOut() {}
+		virtual ~FanOut() {}
+
+		virtual void add_stream( Stream* s ) { streams_.push_back( s ) ; }
+
+		virtual void put_header( const Header& ) ;
+		virtual void put_result( const Result& ) ;
+		virtual void put_footer( const Footer& ) ;
+} ;
+
+void FanOut::put_header( const Header& h )
+{
+	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
+		(*i)->put_header( h ) ;
+	state_ = streams_.front()->get_state() ;
+}
+
+void FanOut::put_result( const Result& r )
+{
+	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
+		(*i)->put_result( r ) ;
+	state_ = streams_.front()->get_state() ;
+}
+
+void FanOut::put_footer( const Footer& f )
+{
+	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
+		(*i)->put_footer( f ) ;
+	state_ = streams_.front()->get_state() ;
+}
+
+class Compose : public StreamBundle
+{
+	private:
+		void update_status() ;
+
+	public:
+		Compose() {}
+		virtual ~Compose() {}
+
+		virtual void add_stream( Stream* s ) { streams_.push_back( s ) ; }
+
+		virtual void put_header( const Header& ) ;
+		virtual void put_result( const Result& ) ;
+		virtual void put_footer( const Footer& ) ;
+
+		virtual Header fetch_header() ;
+		virtual Result fetch_result() ;
+		virtual Footer fetch_footer() ;
+} ;
+
+void Compose::put_header( const Header& h_ )
+{
+	Header h = h_ ;
+	citer i = streams_.begin(), e = streams_.end() ;
+	for( e-- ; i != e ; ++i )
+	{
+		(*i)->put_header( h ) ;
+		h = (*i)->fetch_header() ;
+	}
+	(*i)->put_header( h ) ;
+	update_status() ;
+}
+
+Header Compose::fetch_header() 
+{
+	citer i = streams_.begin(), e = streams_.end() ;
+	Header h = (*i)->fetch_header() ;
+	for( ++i ; i != e ; ++i )
+	{
+		(*i)->put_header( h ) ;
+		h = (*i)->fetch_header() ;
+	}
+	update_status() ;
+	return h ;
+}
+
+void Compose::put_result( const Result& r )
+{
+	streams_.front()->put_result( r ) ;
+	update_status() ;
+}
+
+Result Compose::fetch_result()
+{
+	Result r = streams_.back()->fetch_result() ;
+	update_status() ;
+	return r ;
+}
+
+void Compose::put_footer( const Footer& f )
+{
+	streams_.front()->put_footer( f ) ;
+	update_status() ;
+}
+
+Footer Compose::fetch_footer() 
+{
+	Footer f = streams_.back()->fetch_footer() ;
+	update_status() ;
+	return f ;
+}
+
+void Compose::update_status()
+{
+	// look at a stream at a time, starting from the end
+	for( criter i = streams_.rbegin() ;; )
+	{
+		// if we fell of the far end, we need more input
+		if( i == streams_.rend() ) { state_ = need_input ; return ; }
+		// else consider the state
+		state s = (*i)->get_state() ;
+		if( s == need_input ) {
+			// input comes from previous stream
+			++i ;
+		}
+		else if( s == have_output ) {
+			// output's available, either to the outside or to
+			// downstream filters
+			if( i == streams_.rbegin() ) { state_ = have_output ; return ; }
+			Result r = (*i)->fetch_result() ;
+			--i ;
+			(*i)->put_result( r ) ;
+		}
+		else if( s == end_of_stream ) {
+			// nothing left, pass the footer to see if some data is
+			// buffered
+			if( i == streams_.rbegin() ) { state_ = end_of_stream ; return ; }
+			Footer f = (*i)->fetch_footer() ;
+			--i ;
+			(*i)->put_footer( f ) ;
+		}
+		else {
+			// easy: something's broken
+			state_ = invalid ;
+			return ;
+		}
+	}
+}
+
 } // namespace
 
 //! \page anfo_stream stream-like operations on ANFO files
@@ -542,13 +686,6 @@ template< typename S > struct FilterParams {
 } ;
 
 typedef std::vector< FilterParams< Stream > > FilterStack ;
-// XXX b0rk3d
-Stream* run_filter_stack( const FilterStack& st, Stream* in )
-{
-	// for( FilterStack::const_iterator l = st.begin(), r = st.end() ; l != r ; ++l )
-		// in = (l->maker)( l->slope, l->intercept, l->genome, l->arg, in ) ;
-	return in ;
-}
 
 Stream* mk_sort_by_pos( float, float, const char* genome, const char* )
 { return new SortingStream() ; } // XXX use genome 
@@ -571,16 +708,27 @@ Stream* mk_edit_header( float, float, const char*, const char* arg )
 Stream* mk_rmdup( float, float, const char*, const char* )
 { return 0 ; } // return new RmdupStream() ; } // XXX use genome? how?
 
-FanInStream* mk_merge( float, float, const char*, const char* arg ) {} // XXX
-FanInStream* mk_mega_merge( float, float, const char*, const char* arg ) {} // XXX
-FanInStream* mk_concat( float, float, const char*, const char* arg ) {} // XXX
+StreamBundle* mk_merge( float, float, const char*, const char* )
+{ return new MergeStream() ; } // XXX use genome?
+
+StreamBundle* mk_mega_merge( float, float, const char*, const char* )
+{ return 0 ; } // new MegaMergeStream() ; } // XXX use genome?
+
+StreamBundle* mk_concat( float, float, const char*, const char* )
+{ return new ConcatStream() ; }
 
 Stream* mk_output( float, float, const char*, const char* arg )
 { return new AnfoWriter( arg, true ) ; }
 
-Stream* mk_output_sam( float, float, const char*, const char* arg ) {} // XXX
-Stream* mk_output_fasta( float, float, const char*, const char* arg ) {} // XXX
-Stream* mk_output_glz( float, float, const char*, const char* arg ) {} // XXX
+Stream* mk_output_sam( float, float, const char*, const char* arg )
+{ return 0 ; } // XXX
+
+Stream* mk_output_fasta( float, float, const char*, const char* arg )
+{ return 0 ; } // XXX
+
+Stream* mk_output_glz( float, float, const char*, const char* arg )
+{ return 0 ; } // XXX
+
 
 int main_( int argc, const char **argv )
 {
@@ -596,7 +744,7 @@ int main_( int argc, const char **argv )
 		0, 0, mk_rmdup, 0, 0,
 		0, 0, 0 } ;
 
-	FilterParams<FanInStream>::F merge_makers[opt_MAX] = {
+	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, mk_merge,
 		mk_mega_merge, mk_concat, 0, 0, 0,
@@ -643,9 +791,10 @@ int main_( int argc, const char **argv )
 	FilterStack filters_initial ;
 	FilterStack *filters_current = &filters_initial ;
 
-	std::auto_ptr< FanInStream > merging_stream( new ConcatStream ) ;
+	std::auto_ptr< StreamBundle > merging_stream( new ConcatStream ) ;
 
-	std::deque< FilterStack > filters_terminal ;
+	typedef std::deque< FilterStack > FilterStacks ;
+	FilterStacks filters_terminal ;
 	filters_terminal.push_back( FilterStack() ) ;
 
 	poptContext pc = poptGetContext( "anfo", argc, argv, options, 0 ) ;
@@ -703,12 +852,30 @@ int main_( int argc, const char **argv )
 	}
 
 	while( const char* arg = poptGetArg( pc ) ) {
-		merging_stream->add_stream( run_filter_stack( filters_initial, new AnfoReader( arg ) ) ) ;
+		auto_ptr< Compose > c( new Compose ) ;
+		c->add_stream( new AnfoReader( arg ) ) ;
+		for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
+			c->add_stream( (i->maker)( i->intercept, i->slope, i->genome, i->arg ) ) ;
+		merging_stream->add_stream( c.release() ) ;
 	}
-	std::auto_ptr< Stream > final_stream( run_filter_stack( filters_terminal, merging_stream.release() ) ) ;
-	for( Result r ; final_stream->read_result( r ) ; ) {
-		// XXX build some stats?
+
+	FanOut out ;
+	// only one output and that one is empty?  add a writer for stdout
+	if( filters_terminal.size() == 1 && filters_terminal[0].empty() )
+	{
+		out.add_stream( new AnfoWriter( 1 ) ) ;
 	}
+	else for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
+	{
+		if( !i->empty() ) {
+			auto_ptr< Compose > c( new Compose ) ;
+			for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
+				c->add_stream( (j->maker)( j->intercept, j->slope, j->genome, j->arg ) ) ;
+			out.add_stream( c.release() ) ;
+		}
+	}
+
+	transfer( *merging_stream, out ) ;
 	poptFreeContext( pc ) ;
 	return 0 ;
 }

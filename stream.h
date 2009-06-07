@@ -165,16 +165,18 @@ class Stream
 void transfer( Stream& in, Stream& out ) ;
 
 //! \brief base class of streams that read from many streams
-class FanInStream : public Stream
+class StreamBundle : public Stream
 {
 	protected:
 		std::deque< Stream* > streams_ ;
+		typedef std::deque< Stream* >::const_iterator citer ;
+		typedef std::deque< Stream* >::const_reverse_iterator criter ;
 
 	public:
-		virtual ~FanInStream() { for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
+		virtual ~StreamBundle() { for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
 		
 		//! \brief adds an input stream
-		//! The stream is taken ownership of and freed when the FanInStream
+		//! The stream is taken ownership of and freed when the StreamBundle
 		//! is destroyed.
 		virtual void add_stream( Stream* ) = 0 ;
 } ;
@@ -377,7 +379,7 @@ class RmdupStream : public Stream
 //! \brief a stream that concatenates its input streams
 //! The headers and footers are merged sensibly (plain merge with removal of
 //! redundant information), then the results are simply concatenated.
-class ConcatStream : public FanInStream
+class ConcatStream : public StreamBundle
 {
 	private:
 		std::deque< output::Result > rs_ ;
