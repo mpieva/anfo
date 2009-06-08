@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "compress_stream.h"
+#include "output_streams.h"
 #include "stream.h"
 #include "util.h"
 
@@ -687,11 +688,22 @@ template< typename S > struct FilterParams {
 
 typedef std::vector< FilterParams< Stream > > FilterStack ;
 
+class NotImplemented : public Exception
+{
+	private:
+		const char *method_ ;
+
+	public:
+		NotImplemented( const char* m ) : method_( m ) {}
+		virtual void print_to( ostream& s ) const 
+		{ s << "method not implemented: " << method_ ; }
+} ;
+
 Stream* mk_sort_by_pos( float, float, const char* genome, const char* )
 { return new SortingStream() ; } // XXX use genome 
 
 Stream* mk_sort_by_name( float, float, const char*, const char* )
-{ return 0 ; } // XXX stream is missing
+{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX stream is missing
 
 Stream* mk_filter_by_length( float, float, const char*, const char* arg )
 { return new LengthFilter( atoi(arg) ) ; }
@@ -706,28 +718,31 @@ Stream* mk_edit_header( float, float, const char*, const char* arg )
 { return new RepairHeaderStream() ; } // XXX configurable editor?
 
 Stream* mk_rmdup( float, float, const char*, const char* )
-{ return 0 ; } // return new RmdupStream() ; } // XXX use genome? how?
+{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // return new RmdupStream() ; } // XXX use genome? how?
 
 StreamBundle* mk_merge( float, float, const char*, const char* )
 { return new MergeStream() ; } // XXX use genome?
 
 StreamBundle* mk_mega_merge( float, float, const char*, const char* )
-{ return 0 ; } // new MegaMergeStream() ; } // XXX use genome?
+{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // new MegaMergeStream() ; } // XXX use genome?
 
 StreamBundle* mk_concat( float, float, const char*, const char* )
 { return new ConcatStream() ; }
 
-Stream* mk_output( float, float, const char*, const char* arg )
-{ return new AnfoWriter( arg, true ) ; }
+Stream* mk_output      ( float, float, const char*, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new AnfoWriter( 1, true ) : new AnfoWriter( fn, true ) ; } 
 
-Stream* mk_output_sam( float, float, const char*, const char* arg )
-{ return 0 ; } // XXX
+Stream* mk_output_text ( float, float, const char*, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new TextWriter( 1 ) : new TextWriter( fn ) ; } 
 
-Stream* mk_output_fasta( float, float, const char*, const char* arg )
-{ return 0 ; } // XXX
+Stream* mk_output_sam  ( float, float, const char*, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new SamWriter( cout.rdbuf() ) : new SamWriter( fn ) ; } 
 
-Stream* mk_output_glz( float, float, const char*, const char* arg )
-{ return 0 ; } // XXX
+Stream* mk_output_fastq( float, float, const char*, const char* arg )
+{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX
+
+Stream* mk_output_glz  ( float, float, const char*, const char* arg )
+{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX
 
 
 int main_( int argc, const char **argv )
@@ -736,7 +751,7 @@ int main_( int argc, const char **argv )
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_hit, opt_edit_header, opt_merge,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_sam,
-		opt_output_fasta, opt_output_glz, opt_version, opt_MAX } ;
+		opt_output_fastq, opt_output_glz, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
@@ -754,7 +769,7 @@ int main_( int argc, const char **argv )
 		0, 0, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_sam,
-		mk_output_fasta, mk_output_glz, 0 } ;
+		mk_output_fastq, mk_output_glz, 0 } ;
 
 
 	float param_slope = 0, param_intercept = 0 ;
@@ -774,7 +789,7 @@ int main_( int argc, const char **argv )
 		{ "rmdup",         'd', POPT_ARG_NONE,   0, opt_rmdup,         "remove dups", 0 },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alns in sam format to FILE", "FILE" },
-		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
+		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write alignments in fastq format to FILE", "FILE" },
 		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write consensus in glz format to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
@@ -811,7 +826,8 @@ int main_( int argc, const char **argv )
 		else if( rc >= 0 && filter_makers[rc] )
 		{
 			FilterParams< Stream > fp = {
-				param_slope, param_intercept, param_genome, poptGetOptArg( pc )
+				param_slope, param_intercept, param_genome, 
+				poptGetOptArg( pc ), filter_makers[rc]
 			} ;
 			filters_current->push_back( fp ) ;
 		}
@@ -835,7 +851,8 @@ int main_( int argc, const char **argv )
 
 			// create filter
 			FilterParams< Stream > fp = {
-				param_slope, param_intercept, param_genome, poptGetOptArg( pc )
+				param_slope, param_intercept, param_genome,
+				poptGetOptArg( pc ), output_makers[rc]
 			} ;
 			filters_current->push_back( fp ) ;
 
@@ -863,7 +880,7 @@ int main_( int argc, const char **argv )
 	// only one output and that one is empty?  add a writer for stdout
 	if( filters_terminal.size() == 1 && filters_terminal[0].empty() )
 	{
-		out.add_stream( new AnfoWriter( 1 ) ) ;
+		out.add_stream( new TextWriter( 1 ) ) ;
 	}
 	else for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
 	{

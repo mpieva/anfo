@@ -123,8 +123,7 @@ AnfoWriter::AnfoWriter( int fd, bool expensive )
 }
 
 AnfoWriter::AnfoWriter( const char* fname, bool expensive )
-	: fos_( new FileOutputStream( throw_errno_if_minus1(
-					open( fname, O_WRONLY | O_CREAT ), "opening", fname ) ) )
+	: fos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0777 ), "opening", fname ) ) )
 	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
 	, o_( zos_.get() )
 {
