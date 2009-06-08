@@ -443,4 +443,13 @@ Result ConcatStream::fetch_result()
 	return r ;
 }
 
+bool QualFilter::xform( Result& r )
+{
+	if( r.has_quality() ) 
+		for( size_t i = 0 ; i != r.sequence().size() && i != r.quality().size() ; ++i )
+			if( r.quality()[i] < q_ ) r.mutable_sequence()[i] = '-' ;
+	return true ;
+}
+
+
 } ; // namespace

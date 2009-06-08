@@ -299,6 +299,37 @@ class HitFilter : public Filter
 		virtual bool xform( Result& ) ;
 } ;
 
+//! \brief filters for minimum multiplicity
+//! Only results that stem from duplicate removal with a minimum
+//! multiplicity are retained.  Intended for the analysis of libraries
+//! sequenced with high redundancy to lower sequencing error.
+class MultiFilter : public Filter
+{
+	private:
+		int n_ ;
+
+	public:
+		MultiFilter( int n ) : n_(n) {}
+		virtual ~MultiFilter() {}
+		virtual bool xform( Result& r ) { return r.member_size() >= n_ ; }
+} ;
+
+//! \brief stream that filters out low quality bases
+//! Bases with insufficient quality are replaced by gap symbols.
+//! Strictly speaking gap symbols in a sequence don't make sense and
+//! would confuse many tools, but the intention here is to apply this
+//! filter only when producing legacy FASTA out where it serves to
+//! suppress the counting of low quality bases.
+class QualFilter : public Filter
+{
+	private:
+		int q_ ;
+
+	public:
+		QualFilter( int q ) : q_(q) {}
+		virtual ~QualFilter() {}
+		virtual bool xform( Result& ) ;
+} ;
 
 /*! \brief stream with PCR duplicates removed
     A set of duplicate is (more or less by definition) a set of reads

@@ -84,8 +84,9 @@ class MergeStream : public StreamBundle
 
 		virtual void add_stream( Stream* s )
 		{
-			assert( s->fetch_header().is_sorted_by_coordinate() ) ;
-			merge_sensibly( hdr_, s->fetch_header() ) ;
+			Header h = s->fetch_header() ;
+			assert( h.is_sorted_by_coordinate() ) ;
+			merge_sensibly( hdr_, h ) ;
 
 			if( s->get_state() == have_output )
 			{
@@ -279,7 +280,7 @@ template< typename I > class ContainerStream : public Stream
 //! \todo We need to parameterize the way to sort (by name, by
 //!       coordinate, anything else).
 
-class SortingStream : public StreamBundle
+class SortingStream : public Stream
 {
 	private:
 		typedef deque< streams::Stream* > MergeableQueue ;
@@ -294,11 +295,12 @@ class SortingStream : public StreamBundle
 		//! times a file has already been merged with others, the value
 		//! is just a set of streams.
 		MergeableQueues mergeable_queues_ ;
+		MergeStream final_stream_ ;
 
 		//! Storage to perform quicksort in.
 		ScratchSpace scratch_space_ ;
-		Header scratch_header_ ;
-		Footer scratch_footer_ ;
+		// Header scratch_header_ ;
+		// Footer scratch_footer_ ;
 		int64_t total_scratch_size_ ;
 
 		unsigned max_que_size_, max_arr_size_ ;
@@ -316,15 +318,29 @@ class SortingStream : public StreamBundle
 		void flush_scratch() ;
 
 	public:
-		SortingStream( unsigned as = 1024*1024*1024, unsigned qs = 256)
-			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ) {}
+		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256)
+		// SortingStream( unsigned as = 32*1024*1024, unsigned qs = 32 )
+			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as )
+		{ foot_.set_exit_code( 0 ) ; }
 
 		virtual ~SortingStream()
-		{ for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ; }
+		{
+			for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
+			for( MergeableQueues::iterator i = mergeable_queues_.begin(), e = mergeable_queues_.end() ; i != e ; ++i )
+				for_each( i->second.begin(), i->second.end(), delete_ptr<Stream>() ) ;
+		}
 
-		virtual void add_stream( Stream* s ) { enqueue_stream( s, 0 ) ; }
+		virtual void put_header( const Header& h ) { hdr_ = h ; hdr_.set_is_sorted_by_coordinate(true) ; state_ = need_input ; }
+		virtual void put_footer( const Footer& ) ;
+		virtual void put_result( const Result& r ) {
+			scratch_space_.push_back( new Result( r ) ) ;
+			total_scratch_size_ += scratch_space_.back()->SpaceUsed() ;
+			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
+		}
 
-		// XXX put_* and fetch* functions are missing!!!1
+		virtual Header fetch_header() { return hdr_ ; }
+		virtual Result fetch_result() { Result r = final_stream_.fetch_result() ; state_ = final_stream_.get_state() ; return r ; }
+		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_.fetch_footer() ) ; return foot_ ; }
 } ;
 
 
@@ -334,9 +350,9 @@ void SortingStream::flush_scratch()
 	string tempname ;
 	int fd = mktempfile( &tempname ) ;
 	{
-		scratch_header_.set_is_sorted_by_coordinate( true ) ;
+		// scratch_header_.set_is_sorted_by_coordinate( true ) ;
 		ContainerStream< deque< Result* >::const_iterator >
-			sa( scratch_header_, scratch_space_.begin(), scratch_space_.end(), scratch_footer_ ) ;
+			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
 		AnfoWriter out( fd ) ;
 		transfer( sa, out ) ;
 		clog << "\033[KWriting to tempfile " << tempname << endl ;
@@ -352,80 +368,81 @@ void SortingStream::flush_scratch()
 void SortingStream::enqueue_stream( streams::Stream* s, int level ) 
 {
 	Header h = s->fetch_header() ;
-	if( h.is_sorted_by_coordinate() ) {
-		mergeable_queues_[ level ].push_back( s ) ;
+	assert( h.is_sorted_by_coordinate() ) ;
+	mergeable_queues_[ level ].push_back( s ) ;
 
-		if( AnfoReader::num_open_files() > max_que_size_ ) {
-			// get the biggest bin, we'll merge everything below that
-			unsigned max_bin = 0 ;
-			for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ;
-					i != mergeable_queues_.end() ; ++i ) 
-				if( i->second.size() > mergeable_queues_[max_bin].size() )
-					max_bin = i->first ;
+	if( AnfoReader::num_open_files() > max_que_size_ ) {
+		// get the biggest bin, we'll merge everything below that
+		unsigned max_bin = 0 ;
+		for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ;
+				i != mergeable_queues_.end() ; ++i ) 
+			if( i->second.size() > mergeable_queues_[max_bin].size() )
+				max_bin = i->first ;
 
-			unsigned total_inputs = 0 ;
-			for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
-				total_inputs += i->second.size() ;
+		unsigned total_inputs = 0 ;
+		for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
+			total_inputs += i->second.size() ;
 
-			// we must actually make progress, and more than just a
-			// single stream must be merged to avoid quadratic behaviour
-			// (only important in a weird corner case)
-			if( total_inputs > 2 ) {
-				string fname ;
-				int fd = mktempfile( &fname ) ;
-				clog << "\033[KMerging bins 0.." << max_bin << " to tempfile " << fname << endl ;
+		// we must actually make progress, and more than just a
+		// single stream must be merged to avoid quadratic behaviour
+		// (only important in a weird corner case)
+		if( total_inputs > 2 ) {
+			string fname ;
+			int fd = mktempfile( &fname ) ;
+			clog << "\033[KMerging bins 0.." << max_bin << " to tempfile " << fname << endl ;
+			{
+				streams::MergeStream ms ;
+				for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
 				{
-					streams::MergeStream ms ;
-					for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
-					{
-						for( size_t j = 0 ; j != i->second.size() ; ++j )
-							ms.add_stream( i->second[j] ) ;
-						i->second.clear() ;
-					}
-					AnfoWriter out( fd ) ;
-					transfer( ms, out ) ;
+					for( size_t j = 0 ; j != i->second.size() ; ++j )
+						ms.add_stream( i->second[j] ) ;
+					i->second.clear() ;
 				}
-				throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
-				enqueue_stream( new streams::AnfoReader( fd, fname.c_str() ), max_bin + 1 ) ;
+				AnfoWriter out( fd ) ;
+				transfer( ms, out ) ;
 			}
+			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
+			enqueue_stream( new streams::AnfoReader( fd, fname.c_str() ), max_bin + 1 ) ;
 		}
 	}
-	else
-	{
-		merge_sensibly( scratch_header_, h ) ;
-		while( s->get_state() == streams::Stream::have_output )
-		{
-			scratch_space_.push_back( new Result( s->fetch_result() ) ) ;
-			total_scratch_size_ += scratch_space_.back()->SpaceUsed() ;
-			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
-	    }
-		merge_sensibly( scratch_footer_, s->fetch_footer() ) ;
-	}
 }
+
+//! \brief ends the input, initiates sorting
+//! Only when the input ends can we completely sort it, so setting the
+//! footer switches to output mode.  Here we collect the temporary files
+//! we've written and become a \c MergeStream.
+void SortingStream::put_footer( const Footer& f ) 
+{
+	foot_ = f ;
+
+	// if anything's buffered, sort it and include it in the merge
+	if( scratch_space_.begin() != scratch_space_.end() ) {
+		clog << "\033[Kfinal sort" << endl ;
+		sort_scratch() ;
+		clog << "\033[Kdone sorting" << endl ;
+		final_stream_.add_stream( new ContainerStream< deque< Result* >::const_iterator >(
+					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
+	}
+
+	// add any streams that have piled up
+	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
+		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
+			final_stream_.add_stream( *j ) ;
+	mergeable_queues_.clear() ;
+	
+	state_ = final_stream_.get_state() ;
+
+	// sanity check if we got a complete header (not sure if this can
+	// possibly go wrong any more; probably only gets triggered when
+	// there was no input at all)
+	// if( !hdr_.has_version() ) throw "SortingStream: insufficient input, cannot produce output" ;
+}
+
 
 #if 0
 int main_( int argc, const char **argv )
 {
-	if( argc < 2 ) return 0 ;
-
-    if( !strcmp( argv[1], "-q" ) ) {
-        clog.rdbuf(0) ;
-        ++argv ;
-        --argc ;
-    }
-
-	// iterate over command line, glob everything
-	glob_t the_glob ;
-	glob( argv[1], GLOB_NOSORT, 0, &the_glob ) ;
-    for( const char **arg = argv+2 ; arg != argv+argc ; ++arg )
-		glob( *arg, GLOB_NOSORT | GLOB_APPEND, 0, &the_glob ) ;
-
-	// iterate over glob results, collect into BestHitStreams
-	map< int, streams::BestHitStream* > stream_per_slice ;
-	for( char **arg = the_glob.gl_pathv ; 
-			arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 	{
-		clog << "\033[KReading from file " << *arg << endl ;
 		streams::Stream* s = new streams::AnfoReader( *arg ) ;
 		Header h = s->get_header() ;
 		if( h.has_sge_slicing_stride() ) {
@@ -450,40 +467,16 @@ int main_( int argc, const char **argv )
 	for( map< int, BestHitStream* >::iterator l = stream_per_slice.begin(), r = stream_per_slice.end() ;
 			l != r ; ++l ) enqueue_stream( l->second ) ;
 
-	MergeStream final_stream ;
-
-	// at the end, merge everything
-	if( scratch_space.begin() != scratch_space.end() ) {
-		clog << "\033[Kfinal sort" << endl ;
-		sort_scratch() ;
-		clog << "\033[Kdone sorting" << endl ;
-		final_stream.add_stream( new StreamAdapter< deque< Result* >::const_iterator >(
-					scratch_header, scratch_space.begin(), scratch_space.end(), scratch_footer ) ) ;
-	}
-
-	for( MergeableQueues::const_iterator i = mergeable_queues.begin() ; i != mergeable_queues.end() ; ++i )
-		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
-			final_stream.add_stream( *j ) ;
-	
-	if( final_stream.get_header().has_version() ) {
-		clog << "\033[KMerging everything to output." << endl ;
-		RmdupStream rs( &final_stream ) ;
-		// int r = write_stream_to_file( 1, final_stream, true ) ;
-		int fd = open( "/var/tmp/x.anfo", O_CREAT | O_TRUNC | O_WRONLY ) ;
-		int r = write_stream_to_file( fd, rs, true ) ;
-		for_each( scratch_space.begin(), scratch_space.end(), delete_ptr<Result>() ) ;
-		clog << "\033[KDone" << endl ;
-		return r ;
-	} else {
-		clog << "\033[KInsufficient input, cannot write." << endl ;
-		return 1 ;
-	}
 }
 #endif
 
 class RepairHeaderStream : public Stream
 {
+	private:
+		const char* editor_ ;
+
 	public:
+		RepairHeaderStream( const char* e ) : editor_( e ) {}
 		virtual ~RepairHeaderStream() {}
 
 		virtual void put_header( const Header& ) ;
@@ -505,7 +498,7 @@ void RepairHeaderStream::put_header( const Header& h )
 		TextFormat::Print( h, &fos ) ;
 	}
 
-	string cmd = string( getenv("EDITOR") ) + " " + tmpname ;
+	string cmd = string( editor_ ? editor_ : getenv("EDITOR") ) + " " + tmpname ;
 	for(;;) {
 		system( cmd.c_str() ) ;
 		lseek( fd, 0, SEEK_SET ) ;
@@ -699,8 +692,8 @@ class NotImplemented : public Exception
 		{ s << "method not implemented: " << method_ ; }
 } ;
 
-Stream* mk_sort_by_pos( float, float, const char* genome, const char* )
-{ return new SortingStream() ; } // XXX use genome 
+Stream* mk_sort_by_pos( float, float, const char* genome, const char* arg )
+{ return new SortingStream( (arg ? atoi( arg ) : 1024) * 1024 * 1024 ) ; } // XXX use genome 
 
 Stream* mk_sort_by_name( float, float, const char*, const char* )
 { throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX stream is missing
@@ -714,8 +707,14 @@ Stream* mk_filter_by_score( float s, float i, const char* g, const char* )
 Stream* mk_filter_by_hit( float, float, const char*, const char* arg )
 { return new HitFilter( arg ) ; }
 
+Stream* mk_filter_qual( float, float, const char*, const char* arg )
+{ return new QualFilter( atoi( arg ) ) ; }
+
+Stream* mk_filter_multi( float, float, const char*, const char* arg )
+{ return new MultiFilter( atoi( arg ) ) ; }
+
 Stream* mk_edit_header( float, float, const char*, const char* arg )
-{ return new RepairHeaderStream() ; } // XXX configurable editor?
+{ return new RepairHeaderStream( arg ) ; }
 
 Stream* mk_rmdup( float, float, const char*, const char* )
 { throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // return new RmdupStream() ; } // XXX use genome? how?
@@ -752,25 +751,25 @@ int main_( int argc, const char **argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
-		opt_filter_score, opt_filter_hit, opt_edit_header, opt_merge,
+		opt_filter_score, opt_filter_hit, opt_filter_qual, opt_filter_multi, opt_edit_header, opt_merge,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_sam,
 		opt_output_fasta, opt_output_table, opt_output_glz, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
-		mk_filter_by_score, mk_filter_by_hit, mk_edit_header, 0,
+		mk_filter_by_score, mk_filter_by_hit, mk_filter_qual, mk_filter_multi, mk_edit_header, 0,
 		0, 0, mk_rmdup, 0, 0,
 		0, 0, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, mk_merge,
+		0, 0, 0, 0, 0, mk_merge,
 		mk_mega_merge, mk_concat, 0, 0, 0,
 		0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_sam,
 		mk_output_fasta, mk_output_table, mk_output_glz, 0 } ;
 
@@ -779,13 +778,18 @@ int main_( int argc, const char **argv )
 	const char *param_genome = 0 ;
 	int param_noise = 1 ;
 
+	int POPT_ARG_OSTR = POPT_ARG_STRING | POPT_ARGFLAG_OPTIONAL ;
+	int POPT_ARG_OINT = POPT_ARG_INT | POPT_ARGFLAG_OPTIONAL ;
+
 	struct poptOption options[] = {
-		{ "sort-pos",      's', POPT_ARG_NONE,   0, opt_sort_pos,      "sort by alignment position", 0 },
+		{ "sort-pos",      's', POPT_ARG_OINT,   0, opt_sort_pos,      "sort by alignment position", 0 },
 		{ "sort-name",     'S', POPT_ARG_NONE,   0, opt_sort_name,     "sort by read name", 0 },
 		{ "filter-length", 'l', POPT_ARG_INT,    0, opt_filter_length, "filter for length of at least L", "L" },
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
 		{ "filter-hit",    'h', POPT_ARG_NONE,   0, opt_filter_hit,    "filter for having a hit", 0 },
-		{ "edit-header",    0 , POPT_ARG_NONE,   0, opt_edit_header,   "invoke the text editor on the stream's header", 0 },
+		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
+		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
+		{ "edit-header",    0 , POPT_ARG_OSTR,   0, opt_edit_header,   "invoke editor PRG on the stream's header", "PRG" },
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge streams to retain best hits", 0 },
 		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid", 0 },
@@ -794,7 +798,7 @@ int main_( int argc, const char **argv )
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alns in sam format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write a table with simple stats to FILE", "FILE" },
-		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write consensus in glz format to FILE", "FILE" },
+		{ "afroengineer",   0 , POPT_ARG_STRING, 0, opt_output_glz,    "not-quite-assemble in glz format to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
 		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length intercept for filters to L", "L" },
@@ -872,9 +876,21 @@ int main_( int argc, const char **argv )
 		}
 	}
 
-	while( const char* arg = poptGetArg( pc ) ) {
+	// iterate over non-option arguments, glob everything
+	glob_t the_glob ;
+	int glob_flag = GLOB_NOSORT ;
+
+	while( const char* arg = poptGetArg( pc ) )
+	{
+		glob( arg, glob_flag, 0, &the_glob ) ;
+		glob_flag |= GLOB_APPEND ;
+	}
+
+	// iterate over glob results
+	for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
+	{
 		auto_ptr< Compose > c( new Compose ) ;
-		c->add_stream( new AnfoReader( arg ) ) ;
+		c->add_stream( new AnfoReader( *arg ) ) ;
 		for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
 			c->add_stream( (i->maker)( i->intercept, i->slope, i->genome, i->arg ) ) ;
 		merging_stream->add_stream( c.release() ) ;
