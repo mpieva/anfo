@@ -738,8 +738,11 @@ Stream* mk_output_text ( float, float, const char*, const char* fn )
 Stream* mk_output_sam  ( float, float, const char*, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new SamWriter( cout.rdbuf() ) : new SamWriter( fn ) ; } 
 
-Stream* mk_output_fastq( float, float, const char*, const char* arg )
-{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX
+Stream* mk_output_fasta( float, float, const char*, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new FastaWriter( cout.rdbuf() ) : new FastaWriter( fn ) ; } 
+
+Stream* mk_output_table( float, float, const char*, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new TableWriter( cout.rdbuf() ) : new TableWriter( fn ) ; }
 
 Stream* mk_output_glz  ( float, float, const char*, const char* arg )
 { throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX
@@ -751,25 +754,25 @@ int main_( int argc, const char **argv )
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_hit, opt_edit_header, opt_merge,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_sam,
-		opt_output_fastq, opt_output_glz, opt_version, opt_MAX } ;
+		opt_output_fasta, opt_output_table, opt_output_glz, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_hit, mk_edit_header, 0,
 		0, 0, mk_rmdup, 0, 0,
-		0, 0, 0 } ;
+		0, 0, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, mk_merge,
 		mk_mega_merge, mk_concat, 0, 0, 0,
-		0, 0, 0 } ;
+		0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_sam,
-		mk_output_fastq, mk_output_glz, 0 } ;
+		mk_output_fasta, mk_output_table, mk_output_glz, 0 } ;
 
 
 	float param_slope = 0, param_intercept = 0 ;
@@ -789,7 +792,8 @@ int main_( int argc, const char **argv )
 		{ "rmdup",         'd', POPT_ARG_NONE,   0, opt_rmdup,         "remove dups", 0 },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alns in sam format to FILE", "FILE" },
-		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write alignments in fastq format to FILE", "FILE" },
+		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
+		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write a table with simple stats to FILE", "FILE" },
 		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write consensus in glz format to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
@@ -817,7 +821,7 @@ int main_( int argc, const char **argv )
 	poptReadDefaultConfig( pc, 0 ) ;
 
 	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
-	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) )
+	for( int rc = poptGetNextOpt( pc ) ; rc != -1 ; rc = poptGetNextOpt(pc) )
 	{
 		if( rc == opt_version ) {
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;

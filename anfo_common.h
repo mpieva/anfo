@@ -14,9 +14,6 @@
 
 #include <fnmatch.h>
 
-typedef std::map< std::string, CompactGenome > Genomes ; 
-typedef std::map< std::string, FixedIndex > Indices ;
-
 //! \brief Configures type of alignment to be done.
 //! This is a hack and only intended as a stopgap.
 // typedef flat_alignment alignment_type ;

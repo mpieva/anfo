@@ -12,19 +12,19 @@
 namespace output { class Hit ; }
 namespace config { class Config ; }
 
-namespace streams
-{
+namespace streams {
 
+//! \brief writes in google's text format
+//! This is the human readable version of the native format.
+//! Additionally, alignment strings and a CLUSTAL-style 'conservation'
+//! line are added, provided the reference genome is available.
 class TextWriter : public Stream
 {
 	private:
 		google::protobuf::io::FileOutputStream fos_ ;
+		Genomes genomes_ ;
 
 		void print_msg( const google::protobuf::Message& ) ;
-		void add_alignment( std::string::const_iterator qry, output::Hit &h, const config::Config &conf ) ;
-		
-		typedef std::map< std::string, CompactGenome > Genomes ; 
-		Genomes genomes_ ;
 
 	public:
 		TextWriter( int fd ) : fos_( fd ) {}
@@ -40,16 +40,7 @@ class TextWriter : public Stream
 			state_ = need_input ;
 		}
 
-		virtual void put_result( const Result& r )
-		{
-			if( r.has_best_to_genome() && r.best_to_genome().has_cigar() )
-			{
-				Result r_ = r ;
-				add_alignment( r_.sequence().begin(), *r_.mutable_best_to_genome(), hdr_.config() ) ;
-				print_msg( r_ ) ;
-			}
-			else print_msg( r ) ;
-		}
+		virtual void put_result( const Result& ) ;
 
 		virtual void put_footer( const Footer& f )
 		{
@@ -58,6 +49,7 @@ class TextWriter : public Stream
 		}
 } ;
 
+//! \brief writes in SAM format
 class SamWriter : public Stream
 {
 	private:
@@ -113,6 +105,53 @@ class SamWriter : public Stream
 		}
 
 		virtual void put_footer( const Footer& ) ;
+} ;
+
+
+//! \brief writes in FASTA-format
+//! Each alignment appears as a pair of sequences, reference first,
+//! query last.  Score, coordinates and whether an adapter was trimmed
+//! are encoded in the header.  This is considered a legacy format,
+//! mostly useful to make substitution graphs from.
+class FastaWriter : public Stream
+{
+	private:
+		std::auto_ptr< std::filebuf > buf_ ;
+		std::ostream out_ ;
+		Genomes genomes_ ;
+
+	public:
+		FastaWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		{
+			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
+		}
+
+		FastaWriter( std::streambuf *s ) : buf_(), out_( s ) { }
+		virtual ~FastaWriter() {}
+
+		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
+		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
+		virtual void put_result( const Result& ) ;
+} ;
+
+class TableWriter : public Stream
+{
+	private:
+		std::auto_ptr< std::filebuf > buf_ ;
+		std::ostream out_ ;
+
+	public:
+		TableWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		{
+			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
+		}
+
+		TableWriter( std::streambuf *s ) : buf_(), out_( s ) { }
+		virtual ~TableWriter() {}
+
+		virtual void put_header( const Header& h ) { state_ = need_input ; }
+		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
+		virtual void put_result( const Result& ) ;
 } ;
 } // namespace
 

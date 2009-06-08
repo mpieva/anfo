@@ -361,5 +361,8 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 	v.erase( out, input_end ) ;
 }
 
+typedef std::map< std::string, CompactGenome > Genomes ; 
+typedef std::map< std::string, FixedIndex > Indices ;
+
 #endif
 

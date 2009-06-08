@@ -61,7 +61,6 @@ anfo-combine.o: output.pb.h config.pb.h
 anfo-common.o: output.pb.h config.pb.h
 anfo-enet.o: output.pb.h config.pb.h
 anfo-standalone.o: config.pb.h output.pb.h
-anfo2fna.o: output.pb.h config.pb.h
 dnaindex.cc: config.pb.h
 dump-params.o: output.pb.h config.pb.h
 fa2dna.o: config.pb.h

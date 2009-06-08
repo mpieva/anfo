@@ -6,30 +6,22 @@
 #include <google/protobuf/text_format.h>
 #include <cmath>
 
-namespace streams {
+namespace {
 
-void TextWriter::print_msg( const google::protobuf::Message& m )
+void add_alignment(
+		std::string::const_iterator qry,
+		output::Hit &h,
+		const config::Config &conf,
+		Genomes &genomes,
+		bool for_fastq ) 
 {
-	google::protobuf::TextFormat::Print( m, &fos_ ) ;
-	void* data ; int size ;
-	fos_.Next( &data, &size ) ;
-	*(char*)data = '\n' ;
-	data = (char*)data + 1 ;
-	--size ;
-	if( !size ) fos_.Next( &data, &size ) ;
-	*(char*)data = '\n' ;
-	data = (char*)data + 1 ;
-	--size ;
-	if( size ) fos_.BackUp( size ) ;
-}
-
-void TextWriter::add_alignment( std::string::const_iterator qry, output::Hit &h, const config::Config &conf ) 
-{
-	CompactGenome &g = genomes_[ h.genome_file() ] ;
+	CompactGenome &g = genomes[ h.genome_file() ] ;
 	if( !g.get_base() ) 
 	{
+		// if creating FASTQ, we need the genome, else we'll make do
+		// without it
 		try { CompactGenome( h.genome_file(), conf, MADV_RANDOM ).swap( g ) ; }
-		catch(...) { /* too bad, we'll make do without a genome */ }
+		catch(...) { if( for_fastq ) throw ; }
 	}
 
 	if( g.get_base() ) 
@@ -41,7 +33,7 @@ void TextWriter::add_alignment( std::string::const_iterator qry, output::Hit &h,
 
 		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
 		{
-			if( (uint8_t)h.cigar()[i] == 0 ) {
+			if( (uint8_t)h.cigar()[i] == 0 && !for_fastq ) {
 				r.push_back('~') ;
 				q.push_back('~') ;
 				c.push_back('~') ;
@@ -71,7 +63,7 @@ void TextWriter::add_alignment( std::string::const_iterator qry, output::Hit &h,
 
 		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
 		{
-			if( (uint8_t)h.cigar()[i] == 0 ) {
+			if( (uint8_t)h.cigar()[i] == 0 && !for_fastq ) {
 				q.push_back('~') ;
 			}
 			else if( (uint8_t)h.cigar()[i] < 128 ) for( size_t j = 0 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
@@ -85,6 +77,36 @@ void TextWriter::add_alignment( std::string::const_iterator qry, output::Hit &h,
 			}
 		}
 	}
+}
+
+} // namespace
+
+namespace streams {
+
+void TextWriter::print_msg( const google::protobuf::Message& m )
+{
+	google::protobuf::TextFormat::Print( m, &fos_ ) ;
+	void* data ; int size ;
+	fos_.Next( &data, &size ) ;
+	*(char*)data = '\n' ;
+	data = (char*)data + 1 ;
+	--size ;
+	if( !size ) fos_.Next( &data, &size ) ;
+	*(char*)data = '\n' ;
+	data = (char*)data + 1 ;
+	--size ;
+	if( size ) fos_.BackUp( size ) ;
+}
+
+void TextWriter::put_result( const Result& r )
+{
+	if( r.has_best_to_genome() && r.best_to_genome().has_cigar() )
+	{
+		Result r_ = r ;
+		add_alignment( r_.sequence().begin(), *r_.mutable_best_to_genome(), hdr_.config(), genomes_, false ) ;
+		print_msg( r_ ) ;
+	}
+	else print_msg( r ) ;
 }
 
 //! \page anfo_to_sam Conversion to SAM
@@ -190,6 +212,33 @@ void SamWriter::put_footer( const Footer& f )
 		if (discarded[b])
 			std::clog << "SamWriter: " << discarded[b] << " reads " << descr[b] << std::endl;
 	state_ = end_of_stream ;
+}
+
+void FastaWriter::put_result( const Result& r_ ) 
+{
+	if( r_.has_best_to_genome() && r_.best_to_genome().has_cigar() )
+	{
+		Result r = r_ ;
+		add_alignment( r.sequence().begin(), *r.mutable_best_to_genome(), hdr_.config(), genomes_, true ) ;
+		out_ << '>' << r.best_to_genome().sequence() << ' '
+			<< r.best_to_genome().start_pos()
+			<< "-+"[ r.best_to_genome().aln_length() > 0 ]
+			<< r.best_to_genome().start_pos() + abs(r.best_to_genome().aln_length()) - 1
+			<< '\n' << r.best_to_genome().ref() << '\n' 
+			<< '>' << r.seqid() 
+			<< ( r.has_trim_right() ? " adapter cut off\n" : "\n" ) 
+			<< r.best_to_genome().qry() << std::endl ;
+	}
+}
+
+void TableWriter::put_result( const Result& r )
+{
+	if( !r.has_best_to_genome() ) return ;
+	int e = r.has_trim_right() ? r.trim_right() : r.sequence().size() ;
+	int b = r.has_trim_left() ? r.trim_left() : 0 ;
+	int diff = r.has_diff_to_next() ? r.diff_to_next() : 9999 ;
+
+	out_ << e-b << '\t' << r.best_to_genome().score() << '\t' << diff << '\n' ;
 }
 
 } // namespace
