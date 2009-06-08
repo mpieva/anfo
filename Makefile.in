@@ -23,7 +23,7 @@ DEFS ?= @DEFS@
 CXXFLAGS += -MMD -DNDEBUG
 CXXFLAGS += -Wunsafe-loop-optimizations -Wall -Werror
 
-PROGS := fa2dna dnaindex anfo-sge anfo-sort 
+PROGS := fa2dna dnaindex anfo-sge anfo-tool 
 
 ifneq (,$(findstring -lpthread,$(LDLIBS)))
 PROGS += anfo-standalone
@@ -44,7 +44,7 @@ endif
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := align.o anfo_common.o config.pb.o index.o output.pb.o sequence.o stream.o util.o 
+OBJECTS := align.o anfo_common.o config.pb.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
 
 install: $(PROGS) $(if $(DOXYGEN),install_doc)
 	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
