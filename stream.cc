@@ -58,6 +58,7 @@ void AnfoReader::initialize()
 		if( cis.ReadVarint32( &tag ) && tag == 10 && cis.ReadVarint32( &tag ) ) {
 			int lim = cis.PushLimit( tag ) ;
 			if( hdr_.ParseFromCodedStream( &cis ) ) {
+				sanitize( hdr_ ) ;
 				cis.PopLimit( lim ) ;
 				++num_files_ ;
 				read_next_message( cis ) ;
@@ -176,6 +177,23 @@ void merge_sensibly( Header& lhs, const Header& rhs )
 
 	if( no_task_id ) lhs.clear_sge_task_id() ;
 	if( no_job_id ) lhs.clear_sge_job_id() ;
+	sanitize( lhs ) ;
+}
+
+void sanitize( Header& hdr )
+{
+	if( hdr.has_sge_slicing_stride() ) 
+	{
+		set< int > indices ;
+		for( int i = 0 ; i != hdr.sge_slicing_index_size() ; ++i )
+			indices.insert( hdr.sge_slicing_index(i) ) ;
+		
+		if( indices.size() == hdr.sge_slicing_stride() )
+		{
+			hdr.clear_sge_slicing_index() ;
+			hdr.clear_sge_slicing_stride() ;
+		}
+	}
 }
 
 //! \brief merges two results, keeping the best hit
@@ -301,11 +319,11 @@ bool HitFilter::xform( Result& r )
 	return false ;
 }
 
-#if 0
 //! \todo configure which genome we're interested in
 bool RmdupStream::is_duplicate( const output::Result& lhs, const output::Result& rhs ) 
 {
-	if( !lhs.has_best_to_genome() || !rhs.has_best_to_genome() ) return false ;
+	if( !lhs.has_best_to_genome() || !rhs.has_best_to_genome()
+			|| lhs.sequence().size() != rhs.sequence().size() ) return false ;
 	const output::Hit &l = lhs.best_to_genome(), &r = rhs.best_to_genome() ;
 
 	return l.genome_name() == r.genome_name() && l.sequence() == r.sequence()
@@ -322,7 +340,7 @@ void RmdupStream::add_read( const Result& rhs )
 	if( rhs.has_sequence() ) rd->set_sequence( rhs.sequence() ) ;
 	if( rhs.has_quality() ) rd->set_quality( rhs.quality() ) ;
 
-	for( int i = 0 ; i != abs( rhs.best_to_genome().aln_length() ) ; ++i )
+	for( size_t i = 0 ; i != rhs.sequence().size() ; ++i )
 	{
 		int base = -1 ;
 		switch( rhs.sequence()[i] ) {
@@ -342,77 +360,128 @@ void RmdupStream::add_read( const Result& rhs )
 	}
 }
 
+//! \brief returns the next result
+//! This also has to change state.  If we haven't seen a footer, we
+//! request more input.  Else we're at end of stream.
+Result RmdupStream::fetch_result() 
+{
+	Result r ;
+	swap( r, res_ ) ;
+	state_ = foot_.IsInitialized() ? end_of_stream : state_ = need_input ;
+	return r ;
+}
+
+//! \brief signals end of input stream
+//! After the footer no more input is possible.  We were waiting for
+//! input, so no output was available.  cur_ might contain valid data,
+//! and if so, we call a consensus and offer it as output.  Else we
+//! signal end of stream.
+void RmdupStream::put_footer( const Footer& f ) { 
+	foot_ = f ;
+	if( cur_.IsInitialized() ) 
+	{
+		state_ = have_output ;
+		call_consensus() ;
+		swap( cur_, res_ ) ;
+	}
+	else state_ = end_of_stream ;
+}
+
+//! \brief receives a result record and merges it if appropriate
 //! \todo We do not want to merge sequences that have a bad alignment
 //!       score, instead they should pass through without disturbing the
 //!       merging process.
-bool RmdupStream::read_result( output::Result& r ) 
+//!
+//! There are the following possibilities what to do here:
+//! - A result with a bad alignment is passed through (means it is
+//!   stored in res_ and output becomes available). XXX
+//! - If cur_ is invalid, the result is stored there and cur_ becomes
+//!   valid.
+//! - A result with correct coordinates (according to is_duplicate) is
+//!   directly merged into cur_, no output becomes available.
+//! - Anything else cannot be merged, so a consensus is called, cur_
+//!   moves to res_, next moves to cur_, and output becomes available.
+void RmdupStream::put_result( const Result& next ) 
 {
-	if( !good_ ) return false ;
-
-	// Get next result from input stream; it can either be merged or
-	// not.  If merged, continue.  Else return whatever we accumulated
-	// and store the one that didn't fit.
-
-	output::Result next ;
-	while( (good_ = str_->read_result( next )) && is_duplicate( cur_, next ) )
+	if( 0 /* check for bad alignment */ ) 
 	{
-		// if cur is a plain result, turn it into a degenerate merged one
+		res_ = next ;
+		state_ = have_output ;
+	}
+	else if( !cur_.IsInitialized() ) {
+		cur_ = next ;
+	}
+	else if( is_duplicate( cur_, next ) )
+	{
+		// Merge them.  If cur is a plain result, turn it into a
+		// degenerate merged one first...
 		if( cur_.member_size() == 0 )
 		{
 			for( size_t i = 0 ; i != 4 ; ++i )
 			{
 				quals_[i].clear() ;
-				quals_[i].resize( abs( cur_.best_to_genome().aln_length() ) ) ;
+				quals_[i].resize( cur_.sequence().size() ) ;
 			}
 
 			add_read( cur_ ) ;
 			cur_.set_seqid( "C_" + cur_.seqid() ) ;
 			cur_.clear_description() ;
 		}
+		// Merge the new one.  No state change necessary, we continue to
+		// request input.
 		add_read( next ) ;
 	}
-
-	// input stream ended or alignments don't match --> return accumulator
-	// re-basecall iff we actually did merge
-	if( cur_.member_size() ) 
+	else
 	{
-		cur_.clear_sequence() ;
-		cur_.clear_quality() ;
-		for( int i = 0 ; i != abs( cur_.best_to_genome().aln_length() ) ; ++i )
-		{
-			size_t m = 0 ;
-			for( size_t j = 1 ; j != 4 ; ++j )
-				// select base with highest quality
-				if( quals_[j].at( i ) > quals_[m].at( i ) ) m = j ;
-			// but calculate the error probability from _all_others_ to
-			// retain precision
-
-			for( size_t j = 0 ; j != 4 ; ++j )
-				std::cerr << ' ' << (j==m ? '*' : ' ') << ' ' << quals_[j].at( i ).to_float() << std::endl ;
-
-			Logdom num = quals_[m?0:1].at(i) ;
-			Logdom denom = quals_[0].at(i) ;
-			for( size_t j = 1 ; j != 4 ; ++j )
-			{
-				denom += quals_[j].at( i ) ;
-				if( j != m ) num += quals_[j].at( i ) ;
-			}
-
-			int qscore = (num/denom).to_phred() ;
-			if( qscore > 127 ) qscore = 127 ;
-
-			std::cerr << num.to_float() << '/' << denom.to_float() 
-				<< " == " << (num/denom).to_phred() << std::endl ;
-			cur_.mutable_sequence()->push_back( "ACTG"[m] ) ;
-			cur_.mutable_quality()->push_back( qscore ) ;
-		}
+		// Nothing to match.  Call a consensus for cur_, then move it to
+		// res_.  State that output is available, store new result in
+		// cur_.
+		call_consensus() ;
+		swap( res_, cur_ ) ;
+		cur_ = next ;
+		state_ = have_output ;
 	}
-
-	r = cur_ ;
-	cur_ = next ;
-	return true ;
 }
+
+void RmdupStream::call_consensus()
+{
+	if( !cur_.member_size() ) return ;
+
+	cur_.clear_sequence() ;
+	cur_.clear_quality() ;
+	for( size_t i = 0 ; i != quals_[0].size() ; ++i )
+	{
+		// select base with highest quality
+		size_t m = 0 ;
+		for( size_t j = 1 ; j != 4 ; ++j )
+			if( quals_[j].at( i ) > quals_[m].at( i ) ) m = j ;
+
+		// but calculate the error probability from _all_others_ to
+		// retain precision
+
+		Logdom num = quals_[m?0:1].at(i) ;
+		Logdom denom = quals_[0].at(i) ;
+		for( size_t j = 1 ; j != 4 ; ++j )
+		{
+			denom += quals_[j].at( i ) ;
+			if( j != m ) num += quals_[j].at( i ) ;
+		}
+
+		int qscore = (num/denom).to_phred() ;
+		if( qscore > 127 ) qscore = 127 ;
+
+#if 0
+		// debug code
+		for( size_t j = 0 ; j != 4 ; ++j )
+			std::cerr << ' ' << (j==m ? '*' : ' ') << ' ' << quals_[j].at( i ).to_float() << std::endl ;
+		std::cerr << num.to_float() << '/' << denom.to_float() 
+			<< " == " << (num/denom).to_phred() << std::endl ;
 #endif
+
+		cur_.mutable_sequence()->push_back( m["ACTG"] ) ;
+		cur_.mutable_quality()->push_back( qscore ) ;
+	}
+}
 
 void ConcatStream::add_stream( Stream* s )
 {
@@ -447,7 +516,7 @@ bool QualFilter::xform( Result& r )
 {
 	if( r.has_quality() ) 
 		for( size_t i = 0 ; i != r.sequence().size() && i != r.quality().size() ; ++i )
-			if( r.quality()[i] < q_ ) r.mutable_sequence()[i] = '-' ;
+			if( r.quality()[i] < q_ ) (*r.mutable_sequence())[i] = '-' ;
 	return true ;
 }
 

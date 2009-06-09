@@ -717,7 +717,7 @@ Stream* mk_edit_header( float, float, const char*, const char* arg )
 { return new RepairHeaderStream( arg ) ; }
 
 Stream* mk_rmdup( float, float, const char*, const char* )
-{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // return new RmdupStream() ; } // XXX use genome? how?
+{ return new RmdupStream() ; } // XXX use genome? how?
 
 StreamBundle* mk_merge( float, float, const char*, const char* )
 { return new MergeStream() ; } // XXX use genome?
@@ -798,7 +798,7 @@ int main_( int argc, const char **argv )
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alns in sam format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write a table with simple stats to FILE", "FILE" },
-		{ "afroengineer",   0 , POPT_ARG_STRING, 0, opt_output_glz,    "not-quite-assemble in glz format to FILE", "FILE" },
+		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_output_glz,    "not-quite-assemble in glz format into FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
 		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length intercept for filters to L", "L" },

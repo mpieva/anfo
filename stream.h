@@ -68,6 +68,7 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 	return true ;
 }
 
+void sanitize( Header& hdr ) ;
 void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
@@ -340,6 +341,7 @@ class QualFilter : public Filter
 		  requirement for the same length will catch most of them.
 	\todo Include a score cutoff so only good alignments are taken into account.
 	\todo Supply the genome the coordinates of which we want to look at.
+	\todo Check what happens when sequences are trimmed (compare effective lengths?)
    
 	Any set of duplicates is merged (retaining the original reads in an
 	auxilliary structure), and a consensus is called with new quality
@@ -380,32 +382,33 @@ class QualFilter : public Filter
 	of the base caller.
  */
 
-// XXX control flow is messed up
-#if 0
 class RmdupStream : public Stream
 {
 	private:
 		output::Result cur_ ;
 		std::vector< Logdom > quals_[4] ;
-		bool good_ ;
-		// XXX double err_prob_[4][4] ;
+		// XXX double err_prob_[4][4] ; // get this from config or
+		// something?
+
+		static bool is_duplicate( const Result& , const Result& ) ;
+		void add_read( const Result& ) ;
+		void call_consensus() ;
 
 	public:
-		RmdupStream( Input *str ) : str_( str )
+		RmdupStream() {}
+		virtual ~RmdupStream() {}
+
+		virtual void put_header( const Header& h )
 		{
-			assert( str_->get_header().is_sorted_by_coordinate() ) ;
-			good_ = str_->read_result( cur_ ) ;
+			assert( h.is_sorted_by_coordinate() ) ;
+			hdr_ = h ;
+			state_ = need_input ;
 		}
 
-		virtual const output::Header& get_header() { return str_->get_header() ; }
-		virtual const output::Footer& get_footer() { return str_->get_footer() ; }
-		virtual bool read_result( output::Result& ) ;
-
-	private:
-		static bool is_duplicate( const output::Result& lhs, const output::Result& rhs ) ;
-		void add_read( const output::Result& rhs ) ;
+		virtual void put_result( const Result& ) ;
+		virtual void put_footer( const Footer& ) ;
+		virtual Result fetch_result() ;
 } ;
-#endif
 
 //! \brief a stream that concatenates its input streams
 //! The headers and footers are merged sensibly (plain merge with removal of

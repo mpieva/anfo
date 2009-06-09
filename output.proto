@@ -144,7 +144,7 @@ message Result {
 
     // the sequence itself, if so desired (ASCII encoding---do we want
     // something more compact?)
-    optional string sequence = 2 ;
+    required string sequence = 2 ;
 
     // number of bases trimmed at 5' (at 3') end if trimming was done
     optional uint32 trim_left = 11 ;
