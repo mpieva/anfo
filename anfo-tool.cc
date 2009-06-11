@@ -22,6 +22,17 @@ using namespace google::protobuf::io ;
 using namespace std ;
 using namespace output ;
 
+class NotImplemented : public Exception
+{
+	private:
+		const char *method_ ;
+
+	public:
+		NotImplemented( const char* m ) : method_( m ) {}
+		virtual void print_to( ostream& s ) const 
+		{ s << "method not implemented: " << method_ ; }
+} ;
+
 //! \page anfo-sort
 //! \brief reads ANFO files, sorts and merges them.
 //!
@@ -73,6 +84,9 @@ struct by_genome_coordinate {
 //! \brief merges sorted streams into a sorted stream
 //! \todo needs to be parameterized with a comparison function (we
 //!       already need two).
+//! \todo Should be adapted to also combine streams, taking some
+//!       functionality from BestHitStream, requiring sorted input, but
+//!       not requiring unfiltered input.
 class MergeStream : public StreamBundle
 {
 	private:
@@ -143,10 +157,11 @@ class BestHitStream : public StreamBundle
 	private:
 		typedef map< string, pair< size_t, Result > > Buffer ;
 		Buffer buffer_ ;
-		size_t cur_input_, nread_, nwritten_, nstreams_ ;
+		size_t nread_, nwritten_, nstreams_ ;
+		deque< Stream* >::iterator cur_input_ ;
 
 	public:
-		BestHitStream() : cur_input_(0), nread_(0), nwritten_(0), nstreams_(0) {}
+		BestHitStream() : nread_(0), nwritten_(0), nstreams_(0) {}
 		virtual ~BestHitStream() {}
 
 		//! \brief reads a stream's header and adds the stream as input
@@ -164,81 +179,81 @@ class BestHitStream : public StreamBundle
 				merge_sensibly( foot_, s->fetch_footer() ) ;
 				delete s ;
 			}
+			cur_input_ = streams_.begin() ;
 		}
 
 		//! \brief checks if enough inputs are known
-		//! Checks if at least as many inputs are known as requested.
-		//! If that number isn't known, it assumed only one index was
-		//! used and takes the number of slices declared for it.  (This
-		//! is mostly useful in MegaMergeStream to clean up after a grid
-		//! job.)
+		//! Checks if at least as many inputs are known as needed.  It
+		//! assumed only one genome index was used and takes the number
+		//! of slices declared for it.  (This is mostly useful in
+		//! MegaMergeStream to clean up the mess left by a heavily
+		//! sliced grid job.)
 		bool enough_inputs() const
 		{
-			if( hdr_.config().policy_size() == 0 
-					|| hdr_.config().policy(0).use_compact_index_size() == 0 ) return false ;
+			if( hdr_.config().policy_size() == 0 ||
+					hdr_.config().policy(0).use_compact_index_size() == 0 ) return false ;
 			if( !hdr_.config().policy(0).use_compact_index(0).has_number_of_slices() ) return true ;
 			return nstreams_ >= hdr_.config().policy(0).use_compact_index(0).number_of_slices() ;
 		}
 
-		//! \brief returns the merged headers
-		//! Redundant information is removed from the headers (e.g.
-		//! repeated paths), the rest is merged as best as possible.
-		virtual Header fetch_header() { return hdr_ ; }
-		
-		//! \brief reads a footer
-		//! All footers are merged, the exit codes are logically OR'ed,
-		//! and the LSB is set if something wen't wrong internally.
-		virtual Footer fetch_footer() { return foot_ ; }
-
-
-		//! \brief reports on one sequence
+		//! \brief reports final results for one sequence
 		//! Enough information is read until one sequence has been
-		//! described by each input stream.  Everything else is buffered
-		//! if necessary.
-		//! XXX totally broken
-#if 0
-		virtual Result fetch_result()
-		{
-			for( bool cont = true ; cur_input_ || cont ; )
-			{
-				if( !cur_input_ ) cont = false ;
-				Result r ;
-				bool good = streams_[cur_input_]->read_result( r ) ;
-				if( !good ) merge_sensibly( foot_, streams_[cur_input_]->get_footer() ) ;
-
-				if( ++cur_input_ == streams_.size() ) cur_input_ = 0 ;
-				if( good )
-				{
-					cont = true ;
-					pair< size_t, Result > &p = buffer_[ r.seqid() ] ;
-					++nread_ ;
-					++p.first ;
-					if( p.second.has_seqid() ) merge_sensibly( p.second, r ) ;
-					else p.second = r ;
-
-					if( p.first == streams_.size() ) 
-					{
-						++nwritten_ ;
-						res = p.second ;
-						buffer_.erase( r.seqid() ) ;
-
-						if( ((nread_ + nwritten_) & 0xFFFF) == 0 ) 
-							clog << "\033[KRead " << nread_ << ", delivered "
-								<< nwritten_ << ", buffering "
-								<< buffer_.size() << '\r' << flush ;
-
-						return true ;
-					}
-				}
-			}
-
-			if( buffer_.empty() ) return false ;
-			res = buffer_.begin()->second.second ;
-			buffer_.erase( buffer_.begin()->first ) ;
-			return true ;
-		}
-#endif
+		//! reported on by each input stream.  Everything else is buffered
+		//! if necessary.  This works fine as long as the inputs come in
+		//! in roughly the same order and are complete.
+		virtual Result fetch_result() ;
 } ;
+
+
+Result BestHitStream::fetch_result()
+{
+	while( !streams_.empty() ) {
+		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
+
+		Stream *s = *cur_input_ ;
+		assert( s->get_state() == have_output ) ;
+
+		Result r = s->fetch_result() ;
+		if( s->get_state() == end_of_stream )
+		{
+			merge_sensibly( foot_, s->fetch_footer() ) ;
+			delete s ;
+			cur_input_ = streams_.erase( cur_input_ ) ;
+		}
+		else ++cur_input_ ;
+
+		pair< size_t, Result > &p = buffer_[ r.seqid() ] ;
+		++nread_ ;
+		++p.first ;
+		if( p.second.IsInitialized() ) merge_sensibly( p.second, r ) ;
+		else p.second = r ;
+
+		if( p.first == nstreams_ )
+		{
+			++nwritten_ ;
+			Result r1 ;
+			swap( r1, p.second ) ;
+			buffer_.erase( r.seqid() ) ;
+
+			if( buffer_.empty() && streams_.empty() )
+				state_ = end_of_stream ;
+
+			// if( ((nread_ + nwritten_) & 0xFFFF) == 0 ) 
+			clog << "\033[KRead " << nread_ << ", delivered "
+				<< nwritten_ << ", buffering "
+				<< buffer_.size() << '\r' << flush ;
+
+			return r1 ;
+		}
+	}
+
+	Result r1 ;
+	swap( r1, buffer_.begin()->second.second ) ;
+	buffer_.erase( buffer_.begin()->first ) ;
+	if( buffer_.empty() ) state_ = end_of_stream ;
+	return r1 ;
+}
+
 
 //! \brief presents a container as an input stream
 //! The container must be of pointers to \c Result, the stream acts as
@@ -652,6 +667,94 @@ void Compose::update_status()
 	}
 }
 
+class StatStream : public Stream
+{
+	private:
+		const char* fn_ ;
+		string name_ ;
+
+		unsigned total_, mapped_, mapped_u_ ;
+		uint64_t bases_, bases_gc_, bases_m_, bases_gc_m_ ;
+		uint64_t bases_squared_, bases_m_squared_ ; 
+
+		void printout( ostream& ) ;
+
+	public:
+		StatStream( const char* fn )
+			: fn_(fn), total_(0), mapped_(0), mapped_u_(0)
+		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
+		    , bases_squared_(0), bases_m_squared_(0)
+		{ state_ = need_input ; }
+
+		virtual ~StatStream() {}
+
+		void put_header( const Header& ) {}
+		void put_result( const Result& ) ;
+		void put_footer( const Footer& ) ;
+} ;
+
+void StatStream::put_result( const Result& r )
+{
+	unsigned bases = r.sequence().size() ;
+	unsigned gc = count( r.sequence().begin(), r.sequence().end(), 'G' )
+		        + count( r.sequence().begin(), r.sequence().end(), 'C' ) ;
+	++total_ ;
+	bases_ += bases ;
+	bases_gc_ += gc ;
+	bases_squared_ += bases*bases ;
+	// XXX use genome?
+	if( r.has_best_to_genome() )
+	{
+		++mapped_ ;
+		bases_m_ += bases ;
+		bases_m_squared_ += bases*bases ;
+		bases_gc_m_ += gc ;
+		if( !r.has_diff_to_next() || r.diff_to_next() >= 140 )
+		{
+			++mapped_u_ ;
+		}
+	}
+	if( name_.empty() ) name_ = r.seqid() ;
+}
+
+void StatStream::put_footer( const Footer& )
+{
+	if( fn_ && strcmp( fn_, "-" ) )
+	{
+		ofstream s( fn_ ) ;
+		printout( s ) ;
+	}
+	else printout( cout ) ;
+}
+
+static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
+{ return sqrt( (m2 - m1*m1/n) / (n-1) ) ; }
+
+//! \brief prints statistics
+//! The fields are:
+//! -# some read name (as an audit trail)
+//! -# total number of reads
+//! -# number of mapped reads
+//! -# number of uniquely mapped reads
+//! -# GC content in raw data
+//! -# GC content in mapped data
+//! -# average length of raw data
+//! -# standard deviation of raw data
+//! -# average length of mapped data
+//! -# standard deviation of length of mapped data
+void StatStream::printout( ostream& s )
+{
+	s << name_ << '\t'
+	  << total_ << '\t' << mapped_ << '\t' << mapped_u_ << '\t' 	// reads, mapped reads, uniquely mapped reads
+	  << 100*(float)mapped_/(float)total_ << '\t'					// percent hominid
+      << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
+	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
+	  << bases_ / total_ << '\t'									// avg. length
+	  << std_dev( total_, bases_, bases_squared_ ) << '\t'       	// std.dev. length
+	  << bases_m_ / mapped_ << '\t'  								// avg. mapped length
+	  << std_dev( mapped_, bases_m_, bases_m_squared_ ) << endl ;   // std.dev. mapped length
+} 
+
 } // namespace
 
 //! \page anfo_stream stream-like operations on ANFO files
@@ -681,17 +784,6 @@ template< typename S > struct FilterParams {
 
 typedef std::vector< FilterParams< Stream > > FilterStack ;
 
-class NotImplemented : public Exception
-{
-	private:
-		const char *method_ ;
-
-	public:
-		NotImplemented( const char* m ) : method_( m ) {}
-		virtual void print_to( ostream& s ) const 
-		{ s << "method not implemented: " << method_ ; }
-} ;
-
 Stream* mk_sort_by_pos( float, float, const char* genome, const char* arg )
 { return new SortingStream( (arg ? atoi( arg ) : 1024) * 1024 * 1024 ) ; } // XXX use genome 
 
@@ -704,14 +796,17 @@ Stream* mk_filter_by_length( float, float, const char*, const char* arg )
 Stream* mk_filter_by_score( float s, float i, const char* g, const char* )
 { return new ScoreFilter( s, i, g ) ; }
 
-Stream* mk_filter_by_hit( float, float, const char*, const char* arg )
-{ return new HitFilter( arg ) ; }
+Stream* mk_filter_by_hit( float, float, const char* genome, const char* arg )
+{ return new HitFilter( genome, arg ) ; }
 
 Stream* mk_filter_qual( float, float, const char*, const char* arg )
 { return new QualFilter( atoi( arg ) ) ; }
 
 Stream* mk_filter_multi( float, float, const char*, const char* arg )
 { return new MultiFilter( atoi( arg ) ) ; }
+
+Stream* mk_subsample( float, float, const char*, const char* arg )
+{ return new Subsample( atof( arg ) ) ; }
 
 Stream* mk_edit_header( float, float, const char*, const char* arg )
 { return new RepairHeaderStream( arg ) ; }
@@ -721,6 +816,9 @@ Stream* mk_rmdup( float, float, const char*, const char* )
 
 StreamBundle* mk_merge( float, float, const char*, const char* )
 { return new MergeStream() ; } // XXX use genome?
+
+StreamBundle* mk_join( float, float, const char*, const char* )
+{ return new BestHitStream() ; } // XXX use genome?
 
 StreamBundle* mk_mega_merge( float, float, const char*, const char* )
 { throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // new MegaMergeStream() ; } // XXX use genome?
@@ -746,32 +844,34 @@ Stream* mk_output_table( float, float, const char*, const char* fn )
 Stream* mk_output_glz  ( float, float, const char*, const char* arg )
 { throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX
 
+Stream* mk_stats       ( float, float, const char*, const char* arg )
+{ return new StatStream( arg ) ; }
 
 int main_( int argc, const char **argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
-		opt_filter_score, opt_filter_hit, opt_filter_qual, opt_filter_multi, opt_edit_header, opt_merge,
+		opt_filter_score, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_sam,
-		opt_output_fasta, opt_output_table, opt_output_glz, opt_version, opt_MAX } ;
+		opt_output_fasta, opt_output_table, opt_output_glz, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
-		mk_filter_by_score, mk_filter_by_hit, mk_filter_qual, mk_filter_multi, mk_edit_header, 0,
+		mk_filter_by_score, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
 		0, 0, mk_rmdup, 0, 0,
-		0, 0, 0, 0 } ;
+		0, 0, 0, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, mk_merge,
+		0, 0, 0, 0, 0, 0, mk_merge, mk_join,
 		mk_mega_merge, mk_concat, 0, 0, 0,
-		0, 0, 0, 0 } ;
+		0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_sam,
-		mk_output_fasta, mk_output_table, mk_output_glz, 0 } ;
+		mk_output_fasta, mk_output_table, mk_output_glz, mk_stats, 0 } ;
 
 
 	float param_slope = 0, param_intercept = 0 ;
@@ -786,19 +886,22 @@ int main_( int argc, const char **argv )
 		{ "sort-name",     'S', POPT_ARG_NONE,   0, opt_sort_name,     "sort by read name", 0 },
 		{ "filter-length", 'l', POPT_ARG_INT,    0, opt_filter_length, "filter for length of at least L", "L" },
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
-		{ "filter-hit",    'h', POPT_ARG_NONE,   0, opt_filter_hit,    "filter for having a hit", 0 },
+		{ "filter-hit",    'h', POPT_ARG_OSTR,   0, opt_filter_hit,    "filter for hitting SEQ/anything in G", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
+		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
 		{ "edit-header",    0 , POPT_ARG_OSTR,   0, opt_edit_header,   "invoke editor PRG on the stream's header", "PRG" },
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
-		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge streams to retain best hits", 0 },
+		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
+		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
 		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid", 0 },
-		{ "rmdup",         'd', POPT_ARG_NONE,   0, opt_rmdup,         "remove dups", 0 },
+		{ "rmdup",         'd', POPT_ARG_NONE,   0, opt_rmdup,         "remove PCR duplicates", 0 },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alns in sam format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write a table with simple stats to FILE", "FILE" },
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_output_glz,    "not-quite-assemble in glz format into FILE", "FILE" },
+		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
 		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length intercept for filters to L", "L" },

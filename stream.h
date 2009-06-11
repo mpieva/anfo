@@ -293,13 +293,24 @@ class HitFilter : public Filter
 {
 	private:
 		const char* g_ ;
+		const char* s_ ;
 
 	public:
-		HitFilter( const char* g ) : g_(g) {}
+		HitFilter( const char* g, const char* s ) : g_(g), s_(s) {}
 		virtual ~HitFilter() {}
 		virtual bool xform( Result& ) ;
 } ;
 
+class Subsample : public Filter
+{
+	private:
+		const float f_ ;
+
+	public:
+		Subsample( float f ) : f_(f) {}
+		virtual ~Subsample() {}
+		virtual bool xform( Result& ) ;
+} ;
 //! \brief filters for minimum multiplicity
 //! Only results that stem from duplicate removal with a minimum
 //! multiplicity are retained.  Intended for the analysis of libraries

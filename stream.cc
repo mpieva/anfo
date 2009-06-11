@@ -314,9 +314,18 @@ bool LengthFilter::xform( Result& r ) {
 
 bool HitFilter::xform( Result& r ) 
 {
-	if( g_ && r.has_best_to_genome() && r.best_to_genome().genome_name() == g_ ) return true ; // XXX which genome?
-	if( !g_ && r.has_best_hit() ) return true ;
+	if( g_ && r.has_best_to_genome() && r.best_to_genome().genome_name() == g_ )
+		return !s_ || r.best_to_genome().sequence() == s_ ;
+
+	if( !g_ && r.has_best_hit() )
+		return !s_ || r.best_hit().sequence() == s_ ;
+
 	return false ;
+}
+
+bool Subsample::xform( Result& ) 
+{
+	return f_ >= drand48() ;
 }
 
 //! \todo configure which genome we're interested in
