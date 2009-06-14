@@ -57,11 +57,19 @@ install_doc: doc/html/index.html
 	$(INSTALL_DATA) doc/html/* @htmldir@/html
 
 
-anfo-combine.o: output.pb.h config.pb.h
-anfo-common.o: output.pb.h config.pb.h
+align.o: config.pb.h
+anfo_common.o: output.pb.h config.pb.h
+index.o: config.pb.h
+output_streams.o: config.pb.h output.pb.h
+stream.o: config.pb.h output.pb.h
+
+anfo-control.o: output.pb.h config.pb.h
 anfo-enet.o: output.pb.h config.pb.h
+anfo-sge.o: config.pb.h output.pb.h
 anfo-standalone.o: config.pb.h output.pb.h
-dnaindex.cc: config.pb.h
+anfo-tool.o: output.pb.h config.pb.h
+
+dnaindex.o: config.pb.h
 dump-params.o: output.pb.h config.pb.h
 fa2dna.o: config.pb.h
 file-info.o: config.pb.h output.pb.h

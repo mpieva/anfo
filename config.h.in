@@ -34,20 +34,17 @@
 /* Define to 1 if you have the `bz2' library (-lbz2). */
 #undef HAVE_LIBBZ2
 
+/* Define to 1 if you have the `enet' library (-lenet). */
+#undef HAVE_LIBENET
+
 /* Define to 1 if you have the `Judy' library (-lJudy). */
 #undef HAVE_LIBJUDY
-
-/* Define to 1 if you have the `m' library (-lm). */
-#undef HAVE_LIBM
 
 /* Define to 1 if you have the `popt' library (-lpopt). */
 #undef HAVE_LIBPOPT
 
 /* Define to 1 if you have the `protobuf' library (-lprotobuf). */
 #undef HAVE_LIBPROTOBUF
-
-/* Define to 1 if you have the `pthread' library (-lpthread). */
-#undef HAVE_LIBPTHREAD
 
 /* Define to 1 if you have the `z' library (-lz). */
 #undef HAVE_LIBZ

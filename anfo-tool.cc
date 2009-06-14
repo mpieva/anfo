@@ -454,36 +454,50 @@ void SortingStream::put_footer( const Footer& f )
 }
 
 
-#if 0
-int main_( int argc, const char **argv )
+class MegaMergeStream : public ConcatStream
 {
-	{
-		streams::Stream* s = new streams::AnfoReader( *arg ) ;
-		Header h = s->get_header() ;
-		if( h.has_sge_slicing_stride() ) {
-			BestHitStream* &bhs = stream_per_slice[ h.sge_slicing_index(0) ] ;
-			if( !bhs ) bhs = new BestHitStream ;
-			bhs->add_stream( s ) ;
+	private:
+		map< int, BestHitStream* > stream_per_slice_ ;
 
-			// if a BestHitStream is ready, add it to the queue of
-			// mergeable streams
-			if( bhs->enough_inputs() ) {
-				clog << "\033[KGot everything for slice " << h.sge_slicing_index(0) << endl ;
-				enqueue_stream( bhs ) ;
-				stream_per_slice.erase( h.sge_slicing_index(0) ) ;
-			}
+	public:
+		MegaMergeStream() {}
+		virtual ~MegaMergeStream() {}
+
+		virtual void add_stream( Stream* ) ;
+		virtual Header fetch_header() ;
+} ;
+
+void MegaMergeStream::add_stream( Stream* s ) 
+{
+	Header h = s->fetch_header() ;
+	if( h.has_sge_slicing_stride() )
+	{
+		BestHitStream* &bhs = stream_per_slice_[ h.sge_slicing_index(0) ] ;
+		if( !bhs ) bhs = new BestHitStream ;
+		bhs->add_stream( s ) ;
+
+		if( bhs->enough_inputs() ) {
+			clog << "\033[KGot everything for slice " << h.sge_slicing_index(0) << endl ;
+			stream_per_slice_.erase( h.sge_slicing_index(0) ) ;
+			ConcatStream::add_stream( bhs ) ;
 		}
-		// if no slicing was done, add to queue of mergeable streams
-		else enqueue_stream( s ) ;
 	}
-	if( !stream_per_slice.empty() ) 
+	else ConcatStream::add_stream( s ) ;
+}
+
+Header MegaMergeStream::fetch_header()
+{
+	if( !stream_per_slice_.empty() ) 
 		cerr << "\033[KWARNING: input appears to be incomplete" << endl ;
 
-	for( map< int, BestHitStream* >::iterator l = stream_per_slice.begin(), r = stream_per_slice.end() ;
-			l != r ; ++l ) enqueue_stream( l->second ) ;
+	for( map< int, BestHitStream* >::iterator
+			l = stream_per_slice_.begin(),
+			r = stream_per_slice_.end() ; l != r ; ++l )
+		ConcatStream::add_stream( l->second ) ;
 
+	return ConcatStream::fetch_header() ;
 }
-#endif
+
 
 class RepairHeaderStream : public Stream
 {
@@ -821,7 +835,7 @@ StreamBundle* mk_join( float, float, const char*, const char* )
 { return new BestHitStream() ; } // XXX use genome?
 
 StreamBundle* mk_mega_merge( float, float, const char*, const char* )
-{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // new MegaMergeStream() ; } // XXX use genome?
+{ return new MegaMergeStream() ; }
 
 StreamBundle* mk_concat( float, float, const char*, const char* )
 { return new ConcatStream() ; }
@@ -890,7 +904,7 @@ int main_( int argc, const char **argv )
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
-		{ "edit-header",    0 , POPT_ARG_OSTR,   0, opt_edit_header,   "invoke editor PRG on the stream's header", "PRG" },
+		{ "edit-header",    0 , POPT_ARG_NONE,   0, opt_edit_header,   "invoke editor on the stream's header", 0 },
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
