@@ -4,7 +4,10 @@
 #include <cstring>
 #include <iostream>
 
+#include <sys/ioctl.h>
+
 volatile int exit_with = 0 ;
+Console console ;
 
 namespace {
 	std::string program_name ;
@@ -73,3 +76,45 @@ int mktempfile( std::string* name )
 	if( name ) *name = n1 ;
 	return fd ;
 }
+
+void Console::error( const std::string& s ) 
+{
+	if( fd_ < 0 ) { std::cerr << s << std::endl ; }
+	if( s.empty() ) return ;
+	write( fd_, "\r\e[K", 4 ) ;
+	write( fd_, s.data(), s.size() ) ;
+	if( s[ s.size()-1 ] != '\n' ) write( fd_, "\n", 1 ) ;
+	update() ;
+}
+
+void Console::output( const std::string& s ) 
+{
+	if( fd_ < 0 ) { std::cout << s << std::endl ; }
+	if( s.empty() ) return ;
+	write( fd_, "\r\e[K", 4 ) ;
+	write( fd_, s.data(), s.size() ) ;
+	if( s[ s.size()-1 ] != '\n' ) write( fd_, "\n", 1 ) ;
+	update() ;
+}
+
+void Console::update()
+{
+	if( fd_ < 0 ) return ;
+	int width = 79 ;
+	struct winsize ws;
+    if( 0 == ioctl( fd_, TIOCGWINSZ, &ws ) ) width = ws.ws_col-1 ;
+
+	std::string line = "\r\e[K" ;
+	for( std::map<int, std::string>::const_iterator ch = chans_.begin() ;
+		width > 0 && ch != chans_.end() ; ++ch )
+	{
+		line.push_back( '[' ) ;
+		line.append( ch->second.substr( 0, width-2 ) ) ;
+		line.push_back( ']' ) ;
+		line.push_back( ' ' ) ;
+		width -= ch->second.size()+3 ;
+	}
+	write( fd_, line.data(), line.size() - (line[line.size()-1] == ' ') ) ;
+}
+
+

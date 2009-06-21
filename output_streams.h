@@ -29,7 +29,7 @@ class TextWriter : public Stream
 	public:
 		TextWriter( int fd ) : fos_( fd ) {}
 		TextWriter( const char* fn ) 
-			: fos_( throw_errno_if_minus1( creat( fn, 0777 ), "creating", fn ) )
+			: fos_( throw_errno_if_minus1( creat( fn, 0666 ), "creating", fn ) )
 		{ fos_.SetCloseOnDelete( true ) ; }
 		virtual ~TextWriter() {}
 

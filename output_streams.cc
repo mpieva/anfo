@@ -5,6 +5,7 @@
 
 #include <google/protobuf/text_format.h>
 #include <cmath>
+#include <sstream>
 
 namespace {
 
@@ -203,14 +204,17 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
     return goodness ;
 }
 
-const char *SamWriter::descr[] = { 0, "had no hit", "had multiple hits", "missed the sequence id"
+const char *SamWriter::descr[] = { "were converted", "had no hit", "had multiple hits", "missed the sequence id"
 	                             , "missed the sequence", "had a bad CIGAR" } ;
 
 void SamWriter::put_footer( const Footer& f )
 {
-	for( int b = 1 ; b != bad_stuff_max ; ++b )
-		if (discarded[b])
-			std::clog << "SamWriter: " << discarded[b] << " reads " << descr[b] << std::endl;
+	for( int b = 0 ; b != bad_stuff_max ; ++b )
+		if (discarded[b]) {
+			std::stringstream s ;
+			s << "SamWriter: " << discarded[b] << " reads " << descr[b] ;
+			console.output( s.str() ) ;
+		}
 	state_ = end_of_stream ;
 }
 

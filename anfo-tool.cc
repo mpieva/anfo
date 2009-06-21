@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "compress_stream.h"
+#include "ducttape.h"
 #include "output_streams.h"
 #include "stream.h"
 #include "util.h"
@@ -159,6 +160,7 @@ class BestHitStream : public StreamBundle
 		Buffer buffer_ ;
 		size_t nread_, nwritten_, nstreams_ ;
 		deque< Stream* >::iterator cur_input_ ;
+		Chan progress_ ;
 
 	public:
 		BestHitStream() : nread_(0), nwritten_(0), nstreams_(0) {}
@@ -238,11 +240,14 @@ Result BestHitStream::fetch_result()
 			if( buffer_.empty() && streams_.empty() )
 				state_ = end_of_stream ;
 
-			// if( ((nread_ + nwritten_) & 0xFFFF) == 0 ) 
-			clog << "\033[KRead " << nread_ << ", delivered "
-				<< nwritten_ << ", buffering "
-				<< buffer_.size() << '\r' << flush ;
-
+			if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
+			{
+				stringstream s ;
+				s << "BestHitStream: " << nread_ << "in "
+				<< nwritten_ << "out "
+				<< buffer_.size() << "buf" ;
+				progress_( s.str() ) ;
+			}
 			return r1 ;
 		}
 	}
@@ -319,13 +324,17 @@ class SortingStream : public Stream
 		int64_t total_scratch_size_ ;
 
 		unsigned max_que_size_, max_arr_size_ ;
-
+		static unsigned ninstances_ ;
 
 		//! \brief quicksort the scratch area
 		//! \internal
 		void sort_scratch() {
 			if( scratch_space_.size() > 1 )
-				clog << "\033[KSorting " << scratch_space_.size() << " results in memory" << endl ;
+			{
+				std::stringstream s ;
+				s << "SortingStream: qsort " << scratch_space_.size() << " results" ; 
+				console.output( s.str() ) ;
+			}
 			sort( scratch_space_.begin(), scratch_space_.end(), streams::by_genome_coordinate() ) ;
 		}
 
@@ -334,15 +343,15 @@ class SortingStream : public Stream
 
 	public:
 		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256)
-		// SortingStream( unsigned as = 32*1024*1024, unsigned qs = 32 )
 			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as )
-		{ foot_.set_exit_code( 0 ) ; }
+		{ foot_.set_exit_code( 0 ) ; ++ninstances_ ; }
 
 		virtual ~SortingStream()
 		{
 			for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 			for( MergeableQueues::iterator i = mergeable_queues_.begin(), e = mergeable_queues_.end() ; i != e ; ++i )
 				for_each( i->second.begin(), i->second.end(), delete_ptr<Stream>() ) ;
+			--ninstances_ ;
 		}
 
 		virtual void put_header( const Header& h ) { hdr_ = h ; hdr_.set_is_sorted_by_coordinate(true) ; state_ = need_input ; }
@@ -358,6 +367,7 @@ class SortingStream : public Stream
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_.fetch_footer() ) ; return foot_ ; }
 } ;
 
+unsigned SortingStream::ninstances_ = 0 ;
 
 void SortingStream::flush_scratch()
 {
@@ -365,12 +375,11 @@ void SortingStream::flush_scratch()
 	string tempname ;
 	int fd = mktempfile( &tempname ) ;
 	{
-		// scratch_header_.set_is_sorted_by_coordinate( true ) ;
 		ContainerStream< deque< Result* >::const_iterator >
 			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
 		AnfoWriter out( fd ) ;
 		transfer( sa, out ) ;
-		clog << "\033[KWriting to tempfile " << tempname << endl ;
+		console.output( "Writing to tempfile " + tempname ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
 	enqueue_stream( new AnfoReader( fd, tempname.c_str() ), 1 ) ;
@@ -404,7 +413,9 @@ void SortingStream::enqueue_stream( streams::Stream* s, int level )
 		if( total_inputs > 2 ) {
 			string fname ;
 			int fd = mktempfile( &fname ) ;
-			clog << "\033[KMerging bins 0.." << max_bin << " to tempfile " << fname << endl ;
+			std::stringstream s ;
+			s << "Merging bins 0.." << max_bin << " to tempfile " << fname ;
+			console.output( s.str() ) ;
 			{
 				streams::MergeStream ms ;
 				for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
@@ -430,13 +441,20 @@ void SortingStream::put_footer( const Footer& f )
 {
 	foot_ = f ;
 
-	// if anything's buffered, sort it and include it in the merge
-	if( scratch_space_.begin() != scratch_space_.end() ) {
-		clog << "\033[Kfinal sort" << endl ;
-		sort_scratch() ;
-		clog << "\033[Kdone sorting" << endl ;
-		final_stream_.add_stream( new ContainerStream< deque< Result* >::const_iterator >(
-					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
+	// We have to be careful about buffering; if more than one
+	// SortingStream is active, we could run out of RAM.  Therefore, if
+	// we're alone, we sort and add a a stream.  Else we flush to
+	// temporary storage.
+
+	if( scratch_space_.begin() != scratch_space_.end() )
+	{
+		if( ninstances_ > 1 ) flush_scratch() ; 
+		else {
+			console.output( "final sort" ) ;
+			sort_scratch() ;
+			final_stream_.add_stream( new ContainerStream< deque< Result* >::const_iterator >(
+						hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
+		}
 	}
 
 	// add any streams that have piled up
@@ -446,11 +464,6 @@ void SortingStream::put_footer( const Footer& f )
 	mergeable_queues_.clear() ;
 	
 	state_ = final_stream_.get_state() ;
-
-	// sanity check if we got a complete header (not sure if this can
-	// possibly go wrong any more; probably only gets triggered when
-	// there was no input at all)
-	// if( !hdr_.has_version() ) throw "SortingStream: insufficient input, cannot produce output" ;
 }
 
 
@@ -477,7 +490,9 @@ void MegaMergeStream::add_stream( Stream* s )
 		bhs->add_stream( s ) ;
 
 		if( bhs->enough_inputs() ) {
-			clog << "\033[KGot everything for slice " << h.sge_slicing_index(0) << endl ;
+			std::stringstream s ;
+			s << "MegaMergeStream: got everything for slice " << h.sge_slicing_index(0) ;
+			console.output( s.str() ) ;
 			stream_per_slice_.erase( h.sge_slicing_index(0) ) ;
 			ConcatStream::add_stream( bhs ) ;
 		}
@@ -488,7 +503,7 @@ void MegaMergeStream::add_stream( Stream* s )
 Header MegaMergeStream::fetch_header()
 {
 	if( !stream_per_slice_.empty() ) 
-		cerr << "\033[KWARNING: input appears to be incomplete" << endl ;
+		console.error( "MegaMergeStream: input appears to be incomplete" ) ;
 
 	for( map< int, BestHitStream* >::iterator
 			l = stream_per_slice_.begin(),
@@ -742,7 +757,7 @@ void StatStream::put_footer( const Footer& )
 }
 
 static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
-{ return sqrt( (m2 - m1*m1/n) / (n-1) ) ; }
+{ return sqrt( (m2 - m1*m1 / (float)n) / (n-1) ) ; }
 
 //! \brief prints statistics
 //! The fields are:
@@ -763,9 +778,9 @@ void StatStream::printout( ostream& s )
 	  << 100*(float)mapped_/(float)total_ << '\t'					// percent hominid
       << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
 	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
-	  << bases_ / total_ << '\t'									// avg. length
+	  << bases_ / (float)total_ << '\t'								// avg. length
 	  << std_dev( total_, bases_, bases_squared_ ) << '\t'       	// std.dev. length
-	  << bases_m_ / mapped_ << '\t'  								// avg. mapped length
+	  << bases_m_ / (float)mapped_ << '\t'  						// avg. mapped length
 	  << std_dev( mapped_, bases_m_, bases_m_squared_ ) << endl ;   // std.dev. mapped length
 } 
 
@@ -855,8 +870,8 @@ Stream* mk_output_fasta( float, float, const char*, const char* fn )
 Stream* mk_output_table( float, float, const char*, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new TableWriter( cout.rdbuf() ) : new TableWriter( fn ) ; }
 
-Stream* mk_output_glz  ( float, float, const char*, const char* arg )
-{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX
+Stream* mk_output_glz  ( float, float, const char* g, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new DuctTaper( 1, g ) : new DuctTaper( fn, g ) ; }
 
 Stream* mk_stats       ( float, float, const char*, const char* arg )
 { return new StatStream( arg ) ; }
@@ -866,25 +881,25 @@ int main_( int argc, const char **argv )
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
-		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_sam,
+		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam,
 		opt_output_fasta, opt_output_table, opt_output_glz, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
-		0, 0, mk_rmdup, 0, 0,
+		0, 0, mk_rmdup, 0, 0, 0,
 		0, 0, 0, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, mk_merge, mk_join,
-		mk_mega_merge, mk_concat, 0, 0, 0,
+		mk_mega_merge, mk_concat, 0, 0, 0, 0,
 		0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, mk_output, mk_output_sam,
+		0, 0, 0, mk_output, mk_output_text, mk_output_sam,
 		mk_output_fasta, mk_output_table, mk_output_glz, mk_stats, 0 } ;
 
 
@@ -896,31 +911,32 @@ int main_( int argc, const char **argv )
 	int POPT_ARG_OINT = POPT_ARG_INT | POPT_ARGFLAG_OPTIONAL ;
 
 	struct poptOption options[] = {
-		{ "sort-pos",      's', POPT_ARG_OINT,   0, opt_sort_pos,      "sort by alignment position", 0 },
-		{ "sort-name",     'S', POPT_ARG_NONE,   0, opt_sort_name,     "sort by read name", 0 },
+		{ "sort-pos",      's', POPT_ARG_OINT,   0, opt_sort_pos,      "sort by alignment position [using <n MiB memory]", "n" },
+		{ "sort-name",     'S', POPT_ARG_OINT,   0, opt_sort_name,     "sort by read name [using <n MiB memory]", "n" },
 		{ "filter-length", 'l', POPT_ARG_INT,    0, opt_filter_length, "filter for length of at least L", "L" },
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
-		{ "filter-hit",    'h', POPT_ARG_OSTR,   0, opt_filter_hit,    "filter for hitting SEQ/anything in G", "SEQ" },
+		{ "filter-hit",    'h', POPT_ARG_OSTR,   0, opt_filter_hit,    "filter for hitting (in G) SEQ/anything", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
-		{ "edit-header",    0 , POPT_ARG_NONE,   0, opt_edit_header,   "invoke editor on the stream's header", 0 },
+		{ "edit-header",    0 , POPT_ARG_OSTR,   0, opt_edit_header,   "invoke editor ED on the stream's header", "ED" },
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
-		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid", 0 },
+		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid jobs", 0 },
 		{ "rmdup",         'd', POPT_ARG_NONE,   0, opt_rmdup,         "remove PCR duplicates", 0 },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
-		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alns in sam format to FILE", "FILE" },
+		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
+		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
-		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write a table with simple stats to FILE", "FILE" },
+		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_output_glz,    "not-quite-assemble in glz format into FILE", "FILE" },
-		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
+		{ "stats",          0,  POPT_ARG_OSTR,   0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
-		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope for subsequent filters to S", "S" },
-		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length intercept for filters to L", "L" },
-		{ "set-genome",     0 , POPT_ARG_STRING, &param_genome,     0, "set interesting genome for most operations to G", "G" },
-		{ "clear-genome",   0 , POPT_ARG_VAL,    &param_genome,     0, "clear interesting genome", 0 },
+		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope parameter to S", "S" },
+		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length discount parameter to L", "L" },
+		{ "set-genome",     0 , POPT_ARG_STRING, &param_genome,     0, "set interesting genome parameter to G", "G" },
+		{ "clear-genome",   0 , POPT_ARG_VAL,    &param_genome,     0, "clear interesting genome parameter", 0 },
 
 		{ "quiet",         'q', POPT_ARG_VAL,    &param_noise,      0, "suppress most output", 0 },
 		{ "verbose",       'v', POPT_ARG_VAL,    &param_noise,      2, "produce more output", 0 },

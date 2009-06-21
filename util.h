@@ -7,6 +7,7 @@
 
 #include <cerrno>
 #include <iosfwd>
+#include <map>
 #include <sstream>
 #include <string>
 
@@ -181,5 +182,42 @@ enum PacketTag { packet_config, packet_read, packet_result, packet_quit } ;
 //! \param name contains the file name on return
 //! \return the file descriptor
 int mktempfile( std::string* name = 0 ) ;
+
+//! \brief here we send progress notification and log information
+//! Output goes to the controlling terminal (/dev/tty) if possible,
+//! progress notifications are displayed in the last line and everything
+//! is updating sensibly.  Might grow into a logging system, too.
+class Console 
+{
+	private:
+		int fd_ ;
+		int next_ ;
+		std::map< int, std::string > chans_ ;
+
+	public:
+		Console() : fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
+		~Console() { if( fd_ >= 0 ) close( fd_ ) ; }
+
+		int alloc_chan() { return next_ ; }
+		void free_chan( int c ) { chans_.erase( c ) ; update() ; }
+		void progress( int c, const std::string& s ) { chans_[c] = s ; update() ; }
+		void error( const std::string& ) ;
+		void output( const std::string& ) ;
+		void update() ; 
+} ;
+
+extern Console console ;
+
+//! \brief a channel for progress notification
+class Chan 
+{
+	private:
+		int n_ ;
+
+	public:
+		Chan() : n_( console.alloc_chan() ) {}
+		~Chan() { console.free_chan( n_ ) ; }
+		void operator()( const std::string& s ) { console.progress( n_, s ) ; }
+} ;
 
 #endif

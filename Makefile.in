@@ -44,7 +44,7 @@ endif
 all: tags $(TARGETS)
 dbs: $(DATABASES)
 
-OBJECTS := align.o anfo_common.o config.pb.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
+OBJECTS := align.o anfo_common.o config.pb.o ducttape.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
 
 install: $(PROGS) $(if $(DOXYGEN),install_doc)
 	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
@@ -59,6 +59,7 @@ install_doc: doc/html/index.html
 
 align.o: config.pb.h
 anfo_common.o: output.pb.h config.pb.h
+ducttape.o: output.pb.h config.pb.h
 index.o: config.pb.h
 output_streams.o: config.pb.h output.pb.h
 stream.o: config.pb.h output.pb.h

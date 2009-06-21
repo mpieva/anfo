@@ -52,7 +52,7 @@ void AnfoReader::initialize()
 	CodedInputStream cis( zis_.get() ) ;
 
 	if( !cis.ReadString( &magic, 4 ) || magic != "ANFO" ) {
-		if( !quiet_ ) clog << "\033[K" << name_ << ": not an ANFO file" << endl ;
+		if( !quiet_ ) console.error( "AnfoReader: " + name_ + "is not an ANFO file" ) ;
 	} else {
 		uint32_t tag ;
 		if( cis.ReadVarint32( &tag ) && tag == 10 && cis.ReadVarint32( &tag ) ) {
@@ -65,7 +65,7 @@ void AnfoReader::initialize()
 				return ;
 			}
 		}
-		if( !quiet_ ) clog << "\033[K" << name_ << ": deserialization error in header" << endl ;
+		if( !quiet_ ) console.error( "AnfoReader: deserialization error in header of " + name_ ) ;
 	}
 	foot_.set_exit_code(1) ;
 }
@@ -84,7 +84,7 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 	state_ = invalid ;
 	uint32_t tag = 0 ;
 	if( cis.ExpectAtEnd() ) {
-		if( !quiet_ ) clog << "\033[K" << name_ << ": unexpected end of stream" << endl ;
+		if( !quiet_ ) console.error( "AnfoReader: " + name_ + " ended unexpectedly" ) ;
 	}
 	else if( (tag = cis.ReadTag()) )
 	{
@@ -105,7 +105,7 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 				return ; 
 			}
 
-			if( !quiet_ ) clog << "\033[K" << name_ << ": deserialization error" << endl ;
+			if( !quiet_ ) console.error( "AnfoReader: deserialization error in " + name_ ) ;
 		}
 	}
 }
@@ -124,7 +124,7 @@ AnfoWriter::AnfoWriter( int fd, bool expensive )
 }
 
 AnfoWriter::AnfoWriter( const char* fname, bool expensive )
-	: fos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0777 ), "opening", fname ) ) )
+	: fos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) )
 	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
 	, o_( zos_.get() )
 {
@@ -314,11 +314,11 @@ bool LengthFilter::xform( Result& r ) {
 
 bool HitFilter::xform( Result& r ) 
 {
-	if( g_ && r.has_best_to_genome() && r.best_to_genome().genome_name() == g_ )
-		return !s_ || r.best_to_genome().sequence() == s_ ;
+	if( g_ && *g_ && r.has_best_to_genome() && r.best_to_genome().genome_name() == g_ )
+		return !s_ || !*s_ || r.best_to_genome().sequence() == s_ ;
 
-	if( !g_ && r.has_best_hit() )
-		return !s_ || r.best_hit().sequence() == s_ ;
+	if( !(g_ && *g_) && r.has_best_hit() )
+		return !s_ || !*s_ || r.best_hit().sequence() == s_ ;
 
 	return false ;
 }
@@ -478,14 +478,6 @@ void RmdupStream::call_consensus()
 
 		int qscore = (num/denom).to_phred() ;
 		if( qscore > 127 ) qscore = 127 ;
-
-#if 0
-		// debug code
-		for( size_t j = 0 ; j != 4 ; ++j )
-			std::cerr << ' ' << (j==m ? '*' : ' ') << ' ' << quals_[j].at( i ).to_float() << std::endl ;
-		std::cerr << num.to_float() << '/' << denom.to_float() 
-			<< " == " << (num/denom).to_phred() << std::endl ;
-#endif
 
 		cur_.mutable_sequence()->push_back( m["ACTG"] ) ;
 		cur_.mutable_quality()->push_back( qscore ) ;
