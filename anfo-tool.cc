@@ -246,7 +246,7 @@ Result BestHitStream::fetch_result()
 				s << "BestHitStream: " << nread_ << "in "
 				<< nwritten_ << "out "
 				<< buffer_.size() << "buf" ;
-				progress_( s.str() ) ;
+				progress_( Console::info, s.str() ) ;
 			}
 			return r1 ;
 		}
@@ -332,8 +332,8 @@ class SortingStream : public Stream
 			if( scratch_space_.size() > 1 )
 			{
 				std::stringstream s ;
-				s << "SortingStream: qsort " << scratch_space_.size() << " results" ; 
-				console.output( s.str() ) ;
+				s << "SortingStream: qsorting " << scratch_space_.size() << " results" ; 
+				console.output( Console::notice, s.str() ) ;
 			}
 			sort( scratch_space_.begin(), scratch_space_.end(), streams::by_genome_coordinate() ) ;
 		}
@@ -379,7 +379,7 @@ void SortingStream::flush_scratch()
 			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
 		AnfoWriter out( fd ) ;
 		transfer( sa, out ) ;
-		console.output( "Writing to tempfile " + tempname ) ;
+		console.output( Console::notice, "SortingStream: Writing to tempfile " + tempname ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
 	enqueue_stream( new AnfoReader( fd, tempname.c_str() ), 1 ) ;
@@ -414,8 +414,8 @@ void SortingStream::enqueue_stream( streams::Stream* s, int level )
 			string fname ;
 			int fd = mktempfile( &fname ) ;
 			std::stringstream s ;
-			s << "Merging bins 0.." << max_bin << " to tempfile " << fname ;
-			console.output( s.str() ) ;
+			s << "SortingStream: Merging bins 0.." << max_bin << " to tempfile " << fname ;
+			console.output( Console::notice, s.str() ) ;
 			{
 				streams::MergeStream ms ;
 				for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
@@ -450,7 +450,7 @@ void SortingStream::put_footer( const Footer& f )
 	{
 		if( ninstances_ > 1 ) flush_scratch() ; 
 		else {
-			console.output( "final sort" ) ;
+			console.output( Console::notice, "SortingStream: final sort" ) ;
 			sort_scratch() ;
 			final_stream_.add_stream( new ContainerStream< deque< Result* >::const_iterator >(
 						hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
@@ -492,7 +492,7 @@ void MegaMergeStream::add_stream( Stream* s )
 		if( bhs->enough_inputs() ) {
 			std::stringstream s ;
 			s << "MegaMergeStream: got everything for slice " << h.sge_slicing_index(0) ;
-			console.output( s.str() ) ;
+			console.output( Console::info, s.str() ) ;
 			stream_per_slice_.erase( h.sge_slicing_index(0) ) ;
 			ConcatStream::add_stream( bhs ) ;
 		}
@@ -503,7 +503,7 @@ void MegaMergeStream::add_stream( Stream* s )
 Header MegaMergeStream::fetch_header()
 {
 	if( !stream_per_slice_.empty() ) 
-		console.error( "MegaMergeStream: input appears to be incomplete" ) ;
+		console.output( Console::warning, "MegaMergeStream: input appears to be incomplete" ) ;
 
 	for( map< int, BestHitStream* >::iterator
 			l = stream_per_slice_.begin(),
@@ -876,6 +876,15 @@ Stream* mk_output_glz  ( float, float, const char* g, const char* fn )
 Stream* mk_stats       ( float, float, const char*, const char* arg )
 { return new StatStream( arg ) ; }
 
+const char *poptGetOptArg1( poptContext con )
+{
+	const char *p = poptGetOptArg( con ) ;
+	if( !p || *p != '-' || !p[1] ) return p ;
+
+	console.output( Console::warning, string("poptGetOptArg: ") + p + " not treated as parameter" ) ;
+	return 0 ;
+}
+
 int main_( int argc, const char **argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
@@ -905,7 +914,6 @@ int main_( int argc, const char **argv )
 
 	float param_slope = 0, param_intercept = 0 ;
 	const char *param_genome = 0 ;
-	int param_noise = 1 ;
 
 	int POPT_ARG_OSTR = POPT_ARG_STRING | POPT_ARGFLAG_OPTIONAL ;
 	int POPT_ARG_OINT = POPT_ARG_INT | POPT_ARGFLAG_OPTIONAL ;
@@ -938,8 +946,9 @@ int main_( int argc, const char **argv )
 		{ "set-genome",     0 , POPT_ARG_STRING, &param_genome,     0, "set interesting genome parameter to G", "G" },
 		{ "clear-genome",   0 , POPT_ARG_VAL,    &param_genome,     0, "clear interesting genome parameter", 0 },
 
-		{ "quiet",         'q', POPT_ARG_VAL,    &param_noise,      0, "suppress most output", 0 },
-		{ "verbose",       'v', POPT_ARG_VAL,    &param_noise,      2, "produce more output", 0 },
+		{ "quiet",         'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
+		{ "verbose",       'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
+		{ "debug",          0 , POPT_ARG_VAL,    &console.loglevel, Console::debug, "produce debugging output", 0 },
 		{ "version",       'V', POPT_ARG_NONE,   0, opt_version,       "print version number and exit", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
@@ -968,7 +977,7 @@ int main_( int argc, const char **argv )
 		{
 			FilterParams< Stream > fp = {
 				param_slope, param_intercept, param_genome, 
-				poptGetOptArg( pc ), filter_makers[rc]
+				poptGetOptArg1( pc ), filter_makers[rc]
 			} ;
 			filters_current->push_back( fp ) ;
 		}
@@ -979,7 +988,7 @@ int main_( int argc, const char **argv )
 				throw "merge-like commands cannot not follow merge- or output-like commands" ;
 
 			merging_stream.reset( (merge_makers[rc])(
-						param_slope, param_intercept, param_genome, poptGetOptArg( pc ) ) ) ;
+						param_slope, param_intercept, param_genome, poptGetOptArg1( pc ) ) ) ;
 
 			// from now on we build output filters
 			filters_current = &filters_terminal.back() ;
@@ -993,7 +1002,7 @@ int main_( int argc, const char **argv )
 			// create filter
 			FilterParams< Stream > fp = {
 				param_slope, param_intercept, param_genome,
-				poptGetOptArg( pc ), output_makers[rc]
+				poptGetOptArg1( pc ), output_makers[rc]
 			} ;
 			filters_current->push_back( fp ) ;
 

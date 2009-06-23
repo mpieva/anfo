@@ -189,21 +189,30 @@ int mktempfile( std::string* name = 0 ) ;
 //! is updating sensibly.  Might grow into a logging system, too.
 class Console 
 {
+	public: 
+		enum Loglevel { debug, info, notice, warning, error, critical } ;
+		Loglevel loglevel ;
+
 	private:
 		int fd_ ;
 		int next_ ;
 		std::map< int, std::string > chans_ ;
 
 	public:
-		Console() : fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
-		~Console() { if( fd_ >= 0 ) close( fd_ ) ; }
+		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
+		~Console() { if( fd_ >= 0 ) { write( fd_, "\n", 1 ) ; close( fd_ ) ; } }
 
 		int alloc_chan() { return next_ ; }
 		void free_chan( int c ) { chans_.erase( c ) ; update() ; }
-		void progress( int c, const std::string& s ) { chans_[c] = s ; update() ; }
-		void error( const std::string& ) ;
-		void output( const std::string& ) ;
 		void update() ; 
+
+		void progress( int c, Loglevel l, const std::string& s )
+		{ if( l >= loglevel ) { chans_[c] = s ; update() ; } }
+
+		void output( Loglevel, const std::string& ) ;
+
+		void set_quiet() { loglevel = error ; }
+		void more_verbose() { loglevel = loglevel > debug ? Loglevel(loglevel-1) : debug ; }
 } ;
 
 extern Console console ;
@@ -217,7 +226,7 @@ class Chan
 	public:
 		Chan() : n_( console.alloc_chan() ) {}
 		~Chan() { console.free_chan( n_ ) ; }
-		void operator()( const std::string& s ) { console.progress( n_, s ) ; }
+		void operator()( Console::Loglevel l, const std::string& s ) { console.progress( n_, l, s ) ; }
 } ;
 
 #endif

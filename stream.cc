@@ -52,7 +52,7 @@ void AnfoReader::initialize()
 	CodedInputStream cis( zis_.get() ) ;
 
 	if( !cis.ReadString( &magic, 4 ) || magic != "ANFO" ) {
-		if( !quiet_ ) console.error( "AnfoReader: " + name_ + "is not an ANFO file" ) ;
+		if( !quiet_ ) console.output( Console::error, "AnfoReader: " + name_ + "is not an ANFO file" ) ;
 	} else {
 		uint32_t tag ;
 		if( cis.ReadVarint32( &tag ) && tag == 10 && cis.ReadVarint32( &tag ) ) {
@@ -65,7 +65,7 @@ void AnfoReader::initialize()
 				return ;
 			}
 		}
-		if( !quiet_ ) console.error( "AnfoReader: deserialization error in header of " + name_ ) ;
+		if( !quiet_ ) console.output( Console::error, "AnfoReader: deserialization error in header of " + name_ ) ;
 	}
 	foot_.set_exit_code(1) ;
 }
@@ -84,7 +84,7 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 	state_ = invalid ;
 	uint32_t tag = 0 ;
 	if( cis.ExpectAtEnd() ) {
-		if( !quiet_ ) console.error( "AnfoReader: " + name_ + " ended unexpectedly" ) ;
+		if( !quiet_ ) console.output( Console::error, "AnfoReader: " + name_ + " ended unexpectedly" ) ;
 	}
 	else if( (tag = cis.ReadTag()) )
 	{
@@ -105,7 +105,7 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 				return ; 
 			}
 
-			if( !quiet_ ) console.error( "AnfoReader: deserialization error in " + name_ ) ;
+			if( !quiet_ ) console.output( Console::error, "AnfoReader: deserialization error in " + name_ ) ;
 		}
 	}
 }

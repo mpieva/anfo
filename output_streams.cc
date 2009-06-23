@@ -213,7 +213,7 @@ void SamWriter::put_footer( const Footer& f )
 		if (discarded[b]) {
 			std::stringstream s ;
 			s << "SamWriter: " << discarded[b] << " reads " << descr[b] ;
-			console.output( s.str() ) ;
+			console.output( Console::notice, s.str() ) ;
 		}
 	state_ = end_of_stream ;
 }

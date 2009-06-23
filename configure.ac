@@ -48,7 +48,6 @@ AC_COMPUTE_INT( SIZEOF_INT_P, sizeof( int* ) )
 AC_SUBST( SIZEOF_INT_P )
 
 # Checks for library functions.
-AC_FUNC_ALLOCA
 AC_REPLACE_FNMATCH
 AC_FUNC_MALLOC
 AC_FUNC_MMAP

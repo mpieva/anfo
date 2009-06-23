@@ -77,21 +77,18 @@ int mktempfile( std::string* name )
 	return fd ;
 }
 
-void Console::error( const std::string& s ) 
-{
-	if( fd_ < 0 ) { std::cerr << s << std::endl ; }
-	if( s.empty() ) return ;
-	write( fd_, "\r\e[K", 4 ) ;
-	write( fd_, s.data(), s.size() ) ;
-	if( s[ s.size()-1 ] != '\n' ) write( fd_, "\n", 1 ) ;
-	update() ;
-}
+namespace {
+	const char *describe[] = { "[debug] ", "[info] ", "[notice] ",
+		"[warning] ", "[error] ", "[critical] " } ;
+} ;
 
-void Console::output( const std::string& s ) 
+void Console::output( Loglevel l, const std::string& s ) 
 {
-	if( fd_ < 0 ) { std::cout << s << std::endl ; }
+	if( l < loglevel ) return ;
+	if( fd_ < 0 ) { std::clog << s << std::endl ; }
 	if( s.empty() ) return ;
 	write( fd_, "\r\e[K", 4 ) ;
+	write( fd_, describe[l], strlen( describe[l] ) ) ;
 	write( fd_, s.data(), s.size() ) ;
 	if( s[ s.size()-1 ] != '\n' ) write( fd_, "\n", 1 ) ;
 	update() ;
