@@ -8,6 +8,9 @@ message Header {
     // program version string
     required string version = 1 ;
 
+    // file format version, in case incompatible changes are introduced
+    optional uint32 file_version = 8 [ default = 1 ] ;
+
     // copy of the config block used in the run
     required .config.Config config = 2 ;
 
@@ -27,15 +30,22 @@ message Header {
     optional uint32 sge_task_id = 7 ;
 
     // indicates whether an output file is sorted by read name
-    // (needed to merge files?)
+    // (useful to merge files?)
     optional bool is_sorted_by_name = 15 [default=false] ;
 
-    // indicates whether an output file is sorted by genome coordinate
-    // (that is genome name, then sequence name, then earliest matching
-    // position; useful for consensus calling?)
-    optional bool is_sorted_by_coordinate = 14 [default=false] ;
+    // indicates whether an output file is sorted by genome coordinate,
+    // and if so, which genome was used (that is target sequence name,
+    // then earliest matching position, then alignment length; needed
+    // for consensus calling and merging)
+    optional string is_sorted_by_coordinate = 13 ;
+
+    // old way to encode sorting, don't use
+    optional bool was_sorted_by_coordinate = 14 [default=false] ;
 }
 
+// XXX: a few easily accessible statistics could be included here,
+// assuming the footer is somehow easily found.  Requires a bit more
+// infrastructure, though.
 message Footer {
 	required uint32 exit_code = 1 ;
 }
@@ -52,9 +62,11 @@ message Footer {
 // - if best is on sex chromosomes, score of best hit on same genome
 //   outside sex chromosomes
 
-message Hit {
+// deprecated, don't touch
+message OldHit {
     // file name of the genome (can be used to locate the reference
-    // sequence)
+    // sequence) -- XXX: locating the stupid genome shouldn't be dealt
+    // with here, config files would serve fine for that
     optional string genome_file = 1 ;
 
     // globally unique name of the genome (used when sorting hits be
@@ -85,9 +97,7 @@ message Hit {
     // 1..63nt, 193..255 a deletion of 1..63nt.  A NUL byte is a marker
     // for the place where the alignment started, bytes 128 and 192 are
     // reserved.
-    // This is now actually required, it's declared optional to support
-    // old files.
-    optional bytes cigar = 7 ;
+    required bytes cigar = 7 ;
 
     // taxids if known: most specific, species and order
     // An absent taxid means it's not known.
@@ -124,14 +134,8 @@ enum Reason {
     repeats_only = 5 ;
 }
 
-message Read {
-    required string seqid = 1 ;
-    optional string description = 13 ;
-    optional string sequence = 2 ;
-    optional bytes quality = 14 ;
-}
-
-message Result {
+// deprecated, don't use if possible
+message OldResult {
     // sequence identifier, can be left out iff it is implicit, e.g.
     // from being contained in a database where the id is the key
     optional string seqid = 1 ;
@@ -167,7 +171,7 @@ message Result {
     // Best hit globally, if any.  Difference in bit score to the next
     // best one with different species, with different order, iff such
     // hits exist.
-    optional Hit best_hit = 3 ;
+    optional OldHit best_hit = 3 ;
     optional sint32 diff_to_next_species = 4 ;
     optional sint32 diff_to_next_order = 5 ;
 
@@ -176,7 +180,7 @@ message Result {
     // different chromosome, to next on different class of chromosomes,
     // if they exist.  Classes for this purpose are sex chromosomes,
     // autosomes and organelles.
-    optional Hit best_to_genome = 6 ;
+    optional OldHit best_to_genome = 6 ;
     optional sint32 diff_to_next = 7 ;
     optional sint32 diff_to_next_chromosome = 8 ;
     optional sint32 diff_to_next_chromosome_class = 9 ;
@@ -186,11 +190,136 @@ message Result {
     repeated Read member = 23 ;
 }
 
+message Read {
+    // sequence identifier
+    required string seqid = 1 ;
+
+    // optional description (taken e.g. from FASTA/FASTQ file)
+    optional string description = 13 ;
+
+    // the sequence itself, if so desired (ASCII encoding---do we want
+    // something more compact?)
+    required string sequence = 2 ;
+
+    // quality scores (Phred scale, raw, without silly offsets)
+    optional bytes quality = 14 ;
+
+    // number of bases trimmed at 5' (at 3') end if trimming was done
+    optional uint32 trim_left = 11 ;
+    optional uint32 trim_right = 12 ;
+}
+
+message Result {
+    // raw sequence or consensus
+    required Read read = 1 ;
+
+    // if this result is the consensus of multiple reads, those reads
+    // can go here
+    repeated Read member = 2 ;
+
+    // alignments, if any
+    repeated Hit hit = 3 ;
+
+    // statistics/debug info, if any
+    optional AlnStats aln_stats = 4 ;
+
+    // difference to subsequent hits, if that ever comes to pass...
+    // This is again Phred-scaled, so could be interpreted as some sort
+    // of mapping quality.
+    optional sint32 diff_to_next_species = 5 ;
+    optional sint32 diff_to_next_order = 6 ;
+}
+
+// We store multiple best hits, one per genome (where something like the
+// nr database can also count as a 'genome').  Occasionally, we operate
+// on the globally 'best' hit, which is simply the best one of the
+// available ones.
+message Hit {
+    // globally unique name of the genome (used when sorting hits be
+    // coordinate, can be used to locate the reference sequence if
+    // present; if empty, the sequence name should be globally unique)
+    required string genome_name = 1 ;
+
+    // name of the subject sequence (== chromosome or similar)
+    required string sequence = 2 ;
+
+    // minimum position where any nucleotide aligns, zero-based
+    // This is the position of the 5'-most base if on the forward
+    // strand, the position of the 3'-most based if on the reverse strand
+    required uint32 start_pos = 3 ;
+
+    // length of alignment on reference sequence, negative if on the
+    // reverse strand
+    required sint32 aln_length = 4 ;
+
+    // Score 
+    // This is actually a penalty, and it represents the Phred-scaled
+	// probability of this alignment being right.  Signed because we may
+	// want to allow negative scores, too.
+    required sint32 score = 5 ;
+
+    // E-value (because it's customary to have one)
+    optional float evalue = 6 ;
+
+    // Alignment as (binary near-equivalent of) a CIGAR line
+	// The low three bits encode the operation as an enum, the rest
+	// encodes the length.  This way, no real length restriction exists.
+	// A match of length 0 encodes for the seed center.
+	enum Operation {
+		Match = 0 ;
+		Insert = 1 ;
+		Delete = 2 ;
+		Mismatch = 3 ;
+	} ;
+
+    repeated uint32 cigar = 7 [packed=true] ;
+
+    // Difference in bit score to next best hit, to next best on
+    // different chromosome, to next on different class of chromosomes,
+    // if they exist.  Classes for this purpose are sex chromosomes,
+    // autosomes and organelles.
+    optional sint32 diff_to_next = 8 ;
+    optional sint32 diff_to_next_chromosome = 9 ;
+    optional sint32 diff_to_next_chromosome_class = 10 ;
+
+    // taxids if known: most specific, species and order
+    // An absent taxid means it's not known.
+    optional int32 taxid = 15 ;
+    optional int32 taxid_species = 14 ;
+    optional int32 taxid_order = 13 ;
+
+    // ---------------------------------------------
+
+    // file name of the genome (can be used to locate the reference
+    // sequence) -- XXX: locating the stupid genome shouldn't be dealt
+    // with here, config files would serve fine for that
+    optional string genome_file = 19 ;
+}
+
+// statistics about alignment, collected for debugging purposes
+message AlnStats {
+    // Reason we arrived at this result
+    optional Reason reason = 1 [ default = aligned ] ;
+
+    // Some statistics about the seeding process
+    optional uint32 num_raw_seeds = 2 ;
+    optional uint32 num_grown_seeds = 3 ;
+    optional uint32 num_clumps = 4 ;
+    optional uint32 num_useless = 5 ;
+
+    // Some statistics about the alignment process
+    optional uint32 open_nodes_after_alignment = 6 ;
+    optional uint32 closed_nodes_after_alignment = 7 ;
+    optional uint32 tracked_closed_nodes_after_alignment = 8 ;
+}
+
 // An output file is a magic number ("ANFO") followed by an Output
 // message.  We read and write it one field at a time, though.
+// XXX A chunked format using FastLZ and an index might be better.
 message Output {
     required Header header = 1 ;
-    repeated Result result = 2 ;
+    repeated OldResult oldresult = 2 ; // for hysteric raisins
     required Footer footer = 3 ;
+    repeated Result result = 4 ;
 }
 

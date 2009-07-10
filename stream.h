@@ -48,11 +48,9 @@ namespace streams {
 template< typename Msg >
 void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int tag, const Msg& m )
 {
-	if(
-			!os.WriteTag( (tag << 3) | 2 ) ||
-			!os.WriteVarint32( m.ByteSize() ) ||
-			!m.SerializeToCodedStream( &os )
-	  )
+	os.WriteTag( (tag << 3) | 2 ) ;
+	os.WriteVarint32( m.ByteSize() ) ;
+	if( !m.SerializeToCodedStream( &os ) )
 		throw "error while serializing" ;
 }
 
@@ -73,8 +71,40 @@ void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 
+//! \brief checks if a genome was hit
+//! If an empty genome is asked for, checks for any hit.
+bool has_hit_to( const output::Result&, const std::string& ) ;
+
+//! \brief returns the hit to some genome
+//! If an empty genome is asked for, returns the best hit.  Behaviour is
+//! undefined if no suitable hit exists.
+const output::Hit& hit_to( const output::Result&, const std::string& ) ;
+
+//! \brief returns the mutable hit to some genome
+//! If an empty genome is asked for, returns the best hit.  If no
+//! suitable hit exists, a new one is created.
+output::Hit* mutable_hit_to( output::Result*, const std::string& ) ;
+
 //! \brief computes (trimmed) query length from CIGAR line
-unsigned len_from_bin_cigar( const std::string& cigar ) ;
+template< typename C > unsigned len_from_bin_cigar( const C& cig )
+{
+	unsigned l = 0 ;
+	for( typename C::const_iterator i = cig.begin(), e = cig.end() ; i != e ; ++i )
+	{
+		switch( *i & 7 )
+		{
+			case output::Hit::Match:
+			case output::Hit::Mismatch:
+			case output::Hit::Insert:
+				l += *i >> 3 ;
+				break ;
+
+			case output::Hit::Delete:
+				break ;
+		}
+	}
+	return l ;
+}
 
 //! @}
 
@@ -89,14 +119,13 @@ struct MissingMethod : public Exception {
 //! single footer.  The header will be cached internally, so it can be
 //! asked for repeatedly.  Results are forgotten once read, the footer
 //! is only available after all results have been read, and then it is
-//! stored and can be read repeatedly.  It is undefined behaviour to
-//! request the footer without first consuming all results.
+//! stored and can be read repeatedly.
 //!
-//! XXX
-//!
-//! Trying a unified design: this class is both an input stream, an
-//! output stream and a stream transducer.  Concrete implementations
-//! decide what sets of methods to actually implement.  
+//! This class is both an input stream, an output stream and a stream
+//! transducer.  Concrete implementations decide what sets of methods to
+//! actually implement.  Streams behave as state machine, cycling
+//! between need_input, have_output and end_of_stream.  It's undefined
+//! behaviour to call methods in states where they don't make sense.
 
 class Stream
 {
@@ -234,20 +263,22 @@ class AnfoWriter : public Stream
 
 
 		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; state_ = need_input ; } 
-		virtual void put_result( const Result& r ) { write_delimited_message( o_, 2, r ) ; }
+		virtual void put_result( const Result& r ) { write_delimited_message( o_, 4, r ) ; }
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; state_ = end_of_stream ; }
 } ;
 
 //! \brief filters that drop or modify isolated records
 //! Think "mapMaybe".
+//! \todo Maybe the fact that some filtering was done should be recorded
+//! in a header, maybe some stats could be put into the footer.
 
 class Filter : public Stream
 {
 	public:
 		virtual bool xform( Result& ) = 0 ;
 
-		virtual void put_header( const Header& hdr ) { hdr_ = hdr ; state_ = need_input ; }// XXX leave some traces? 
-		virtual void put_footer( const Footer& foot ) { foot_ = foot ; state_ = end_of_stream ; }// XXX leave some traces? 
+		virtual void put_header( const Header& hdr ) { hdr_ = hdr ; state_ = need_input ; }
+		virtual void put_footer( const Footer& foot ) { foot_ = foot ; state_ = end_of_stream ; }
 
 		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
 		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
@@ -350,8 +381,6 @@ class QualFilter : public Filter
     \todo Refine the definition of 'duplicate'.  It appears sensible to
 		  forbid alignments that hang off of a contig, though maybe the
 		  requirement for the same length will catch most of them.
-	\todo Include a score cutoff so only good alignments are taken into account.
-	\todo Supply the genome the coordinates of which we want to look at.
 	\todo Check what happens when sequences are trimmed (compare effective lengths?)
    
 	Any set of duplicates is merged (retaining the original reads in an
@@ -398,20 +427,25 @@ class RmdupStream : public Stream
 	private:
 		output::Result cur_ ;
 		std::vector< Logdom > quals_[4] ;
+		double slope_ ;
+		double intercept_ ;
+		std::string g_ ;
+
 		// XXX double err_prob_[4][4] ; // get this from config or
 		// something?
 
-		static bool is_duplicate( const Result& , const Result& ) ;
+		bool is_duplicate( const Result& , const Result& ) ;
 		void add_read( const Result& ) ;
 		void call_consensus() ;
 
 	public:
-		RmdupStream() {}
+		RmdupStream( double s, double i ) : slope_(s), intercept_(i) {}
 		virtual ~RmdupStream() {}
 
 		virtual void put_header( const Header& h )
 		{
-			assert( h.is_sorted_by_coordinate() ) ;
+			assert( h.has_is_sorted_by_coordinate() ) ;
+			g_ = h.is_sorted_by_coordinate() ;
 			hdr_ = h ;
 			state_ = need_input ;
 		}

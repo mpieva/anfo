@@ -5,10 +5,10 @@
 
 subst_mat simple_adna::ds_mat ;
 subst_mat simple_adna::ss_mat ;
-uint32_t simple_adna::overhang_ext_penalty ;
-uint32_t simple_adna::overhang_enter_penalty ;
-uint32_t simple_adna::gap_open_penalty ;
-uint32_t simple_adna::gap_ext_penalty ;
+Logdom simple_adna::overhang_ext_penalty ;
+Logdom simple_adna::overhang_enter_penalty ;
+Logdom simple_adna::gap_open_penalty ;
+Logdom simple_adna::gap_ext_penalty ;
 
 namespace {
 	void print_subst_mat( std::ostream& s, const subst_mat mat )
@@ -23,7 +23,7 @@ namespace {
 			s << "\n   " << from_ambicode( ref ) << "   " ;
 			for( Ambicode qry = 1 ; qry != 16 ; ++qry )
 			{
-				s << std::setw(2) << to_log_dom( mat[ref][qry] ) << "  " ;
+				s << std::setw(2) << mat[ref][qry].to_phred() << "  " ;
 			}
 		}
 		s << '\n' ;
@@ -72,19 +72,19 @@ namespace {
 //!            internal parameters
 void simple_adna::configure( const config::Aligner& conf, std::ostream *out ) 
 {
-	gap_ext_penalty = to_log_dom( conf.gap_extension_rate() ) ;
-	gap_open_penalty = conf.has_gap_open_rate() ? to_log_dom( conf.gap_open_rate() ) : gap_ext_penalty ;
+	gap_ext_penalty = Logdom::from_float( conf.gap_extension_rate() ) ;
+	gap_open_penalty = conf.has_gap_open_rate() ? Logdom::from_float( conf.gap_open_rate() ) : gap_ext_penalty ;
 
 	if( conf.has_mean_overhang_length() )
 	{
 		double p_comp = 1 - 1 / (2*conf.mean_overhang_length() + 1) ;
-		overhang_enter_penalty = 0 ;
-		overhang_ext_penalty = to_log_dom( p_comp ) ;
+		overhang_enter_penalty = Logdom::from_float( 1 ) ;
+		overhang_ext_penalty = Logdom::from_float( p_comp ) ;
 	}
 	else
 	{
-		overhang_enter_penalty = ~0U ;
-		overhang_ext_penalty = ~0U ;
+		overhang_enter_penalty = Logdom::from_float( -INFINITY ) ;
+		overhang_ext_penalty = Logdom::from_float( 1 ) ;
 	}
 
 	double tv = conf.rate_of_transversions() ;
@@ -131,8 +131,8 @@ void simple_adna::configure( const config::Aligner& conf, std::ostream *out )
 				}
 			}
 
-			ds_mat[ref][qry] = p_ds / npairs ;
-			ss_mat[ref][qry] = p_ss / npairs ;
+			ds_mat[ref][qry] = Logdom::from_float( p_ds / npairs ) ;
+			ss_mat[ref][qry] = Logdom::from_float( p_ss / npairs ) ;
 		}
 	}
 	
@@ -145,12 +145,12 @@ void simple_adna::configure( const config::Aligner& conf, std::ostream *out )
 		if( conf.has_rate_of_ss_deamination() ) {
 			*out << "\n\n" ; print_subst_mat( *out, ss_mat ) ;
 		} else *out << " N/A\n" ;
-		*out << "\n  \e[4mGap Open Penalty\e[0m: " << gap_open_penalty
-			 << "\n  \e[4mGap Extension Penalty\e[0m: " << gap_ext_penalty
+		*out << "\n  \e[4mGap Open Penalty\e[0m: " << gap_open_penalty.to_phred()
+			 << "\n  \e[4mGap Extension Penalty\e[0m: " << gap_ext_penalty.to_phred()
 			 << "\n\n  \e[4mOverhang Penalty\e[0m: " ;
-		if( overhang_enter_penalty == ~0U ) *out << "N/A" ; else *out << overhang_enter_penalty ;
+		if( !overhang_enter_penalty.is_finite() ) *out << "N/A" ; else *out << overhang_enter_penalty.to_phred() ;
 		*out << "\n  \e[4mOverhang Extension Penalty\e[0m: " ;
-		if( overhang_ext_penalty == ~0U ) *out << "N/A" ; else *out << overhang_ext_penalty ;
+		if( !overhang_ext_penalty.is_finite() ) *out << "N/A" ; else *out << overhang_ext_penalty.to_phred() ;
 		*out << '\n' << std::endl ;
 	}
 }

@@ -120,6 +120,8 @@ FixedIndex::~FixedIndex()
 //! \param v receiver for the resulting seeds
 //! \param cutoff discard oligos more frequent than this
 //! \param offs offset value to be placed in the seeds
+//! \param num_useless filled in with the number of seeds ignored due to
+//!                    being too frequent
 //! \return number of seeds found, including repetitive ones
 unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs, int *num_useless ) const 
 {
@@ -145,6 +147,19 @@ unsigned FixedIndex::lookup1( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t
 //! The oligo itself will first be looked for, then all its
 //! one-substituion variants are generated (by successively xor'ing
 //! every position with 01, 10 and 11) and looked up, too.
+//!
+//! \todo The way this is implemented, the sorting of seeds is
+//!       completely overwhelmed, negating the performance gain from
+//!       seeding at all.  Needs to be fixed by a better data structure.
+//!
+//! \param o oligo to be looked up.
+//! \param v receiver for the resulting seeds
+//! \param cutoff discard oligos more frequent than this
+//! \param offs offset value to be placed in the seeds
+//! \param num_useless filled in with the number of seeds ignored due to
+//!                    being too frequent
+//! \return number of seeds found, including repetitive ones
+
 unsigned FixedIndex::lookup1m( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_t offs, int *num_useless ) const 
 {
 	unsigned total = lookup1( o, v, cutoff, offs, num_useless ) ;
@@ -162,17 +177,17 @@ unsigned FixedIndex::lookup1m( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_
 } 
 
 //! \brief looks up a whole sequence
-//! The sequence is split into words as
-//! appropriate for the index, then each one of them is looked
-//! up.  This method can be implemented for any kind of index, whether
-//! based on fixed words or not
+//! The sequence is split into words as appropriate for the index, then
+//! each one of them is looked up.  This method can be implemented for
+//! any kind of index, whether based on fixed words or not.
 //!
 //! \param dna sequence to search
 //! \param v receiver for resulting seeds
+//! \param near_perfect set to one to search for seeds with one mismatch
+//! \param num_useless is filled in with the number of seeds thrown away
+//!                    due to being too frequent
 //! \param cutoff disregard oligos more frequent than this
 //! \return number of seeds found
-//!
-//! \todo move cutoff parameter somewhere else to improve modularity
 
 unsigned FixedIndex::lookupS( const QSequence& dna, std::vector<Seed>& v,
 		bool near_perfect, int *num_useless, uint32_t cutoff ) const

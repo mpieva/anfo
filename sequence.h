@@ -286,11 +286,11 @@ class QSequence
 			uint8_t ambicode ;
 			uint8_t qscore ;
 			uint8_t qscores[4] ;
-			float   qualities[4] ;
+			// float   qualities[4] ;
 
 			Base() : ambicode(0), qscore(0)
 			{
-				qualities[0] = qualities[1] = qualities[2] = qualities[3] = 0 ; 
+				// qualities[0] = qualities[1] = qualities[2] = qualities[3] = 0 ; 
 				qscores[0] = qscores[1] = qscores[2] = qscores[3] = 0 ;
 			}
 			Base( uint8_t a, int q_score ) ;

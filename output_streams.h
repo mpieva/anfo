@@ -58,6 +58,7 @@ class SamWriter : public Stream
 
 		std::auto_ptr< std::filebuf > buf_ ;
 		std::ostream out_ ;
+		std::string g_ ;
 		int discarded[bad_stuff_max] ;
 
 		enum bam_flags {
@@ -77,13 +78,13 @@ class SamWriter : public Stream
 		bad_stuff protoHit_2_bam_Hit( const output::Result& ) ;
 
 	public:
-		SamWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		SamWriter( const char* fn, const char* g ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g)
 		{
 			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
 			memset( discarded, 0, sizeof(discarded) ) ;
 		}
 
-		SamWriter( std::streambuf *s ) : buf_(), out_( s ) 
+		SamWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) 
 		{
 			memset( discarded, 0, sizeof(discarded) ) ;
 		}
@@ -93,7 +94,7 @@ class SamWriter : public Stream
 		virtual void put_header( const Header& h ) 
 		{
 			out_ << "@HD\tVN:1.0" ;
-			if( h.is_sorted_by_coordinate() ) out_ << "\tSO:coordinate" ;
+			if( h.has_is_sorted_by_coordinate() && h.is_sorted_by_coordinate() == g_ ) out_ << "\tSO:coordinate" ;
 			else if( h.is_sorted_by_name() ) out_ << "\tSO:queryname" ;
 			out_ << "\n@PG\tID:ANFO\tVN:" << h.version() << '\n' ;
 			state_ = need_input ;
@@ -119,14 +120,15 @@ class FastaWriter : public Stream
 		std::auto_ptr< std::filebuf > buf_ ;
 		std::ostream out_ ;
 		Genomes genomes_ ;
+		const char* g_ ;
 
 	public:
-		FastaWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		FastaWriter( const char* fn, const char* g ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g)
 		{
 			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
 		}
 
-		FastaWriter( std::streambuf *s ) : buf_(), out_( s ) { }
+		FastaWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
 		virtual ~FastaWriter() {}
 
 		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
@@ -139,14 +141,15 @@ class TableWriter : public Stream
 	private:
 		std::auto_ptr< std::filebuf > buf_ ;
 		std::ostream out_ ;
+		const char *g_ ;
 
 	public:
-		TableWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		TableWriter( const char* fn, const char* g ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g)
 		{
 			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
 		}
 
-		TableWriter( std::streambuf *s ) : buf_(), out_( s ) { }
+		TableWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
 		virtual ~TableWriter() {}
 
 		virtual void put_header( const Header& h ) { state_ = need_input ; }

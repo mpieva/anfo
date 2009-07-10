@@ -4,22 +4,27 @@
 #include "output.pb.h"
 
 #include <google/protobuf/text_format.h>
+#include <google/protobuf/io/printer.h>
 #include <cmath>
+#include <iterator>
 #include <sstream>
 
 namespace {
 
-void add_alignment(
+void show_alignment(
 		std::string::const_iterator qry,
-		output::Hit &h,
+		const output::Hit &h,
 		const config::Config &conf,
 		Genomes &genomes,
-		bool for_fastq ) 
+		bool for_fastq,
+		std::string& r,
+		std::string& q,
+		std::string& c ) 
 {
 	CompactGenome &g = genomes[ h.genome_file() ] ;
 	if( !g.get_base() ) 
 	{
-		// if creating FASTQ, we need the genome, else we'll make do
+		// if creating FASTQ, we need the genome, else we can make do
 		// without it
 		try { CompactGenome( h.genome_file(), conf, MADV_RANDOM ).swap( g ) ; }
 		catch(...) { if( for_fastq ) throw ; }
@@ -27,54 +32,68 @@ void add_alignment(
 
 	if( g.get_base() ) 
 	{
-		std::string &r = *h.mutable_ref(), &q = *h.mutable_qry(), &c = *h.mutable_con() ;
 		r.clear() ; q.clear() ; c.clear() ;
 		DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ; 
 		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 
-		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
+		for( int i = 0 ; i != h.cigar_size() ; ++i )
 		{
-			if( (uint8_t)h.cigar()[i] == 0 && !for_fastq ) {
-				r.push_back('~') ;
-				q.push_back('~') ;
-				c.push_back('~') ;
-			}
-			else if( (uint8_t)h.cigar()[i] < 128 ) for( size_t j = 0 ; j != (uint8_t)h.cigar()[i] ; ++j ) {
-				r.push_back( from_ambicode( *ref ) ) ;
-				q.push_back( *qry ) ;
-				c.push_back( from_ambicode( *ref ) == *qry ? '*' : ' ' ) ;
-				++ref; ++qry ;
-			}
-			else if( (uint8_t)h.cigar()[i] < 192 ) for( size_t j = 128 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
-				r.push_back( '-' ) ;
-				q.push_back( *qry ) ;
-				c.push_back( ' ' ) ;
-			}
-			else for( size_t j = 192 ; j != (uint8_t)h.cigar()[i] ; ++j, ++ref ) {
-				r.push_back( from_ambicode( *ref ) ) ;
-				q.push_back( '-' ) ;
-				c.push_back( ' ' ) ;
+			unsigned l = h.cigar(i) >> 3 ;
+			switch( h.cigar(i) & 7 )
+			{
+				case output::Hit::Match:
+					if( !l && !for_fastq ) {
+						r.push_back('~') ;
+						q.push_back('~') ;
+						c.push_back('~') ;
+					}
+
+				case output::Hit::Mismatch:
+					for( size_t j = 0 ; j != l ; ++j, ++ref, ++qry ) {
+						r.push_back( from_ambicode( *ref ) ) ;
+						q.push_back( *qry ) ;
+						c.push_back( from_ambicode( *ref ) == *qry ? '*' : ' ' ) ;
+					}
+					break ;
+
+				case output::Hit::Insert:
+					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
+						r.push_back( '-' ) ;
+						q.push_back( *qry ) ;
+						c.push_back( ' ' ) ;
+					}
+					break ;
+
+				case output::Hit::Delete:
+					for( size_t j = 0 ; j != l ; ++j, ++ref ) {
+						r.push_back( from_ambicode( *ref ) ) ;
+						q.push_back( '-' ) ;
+						c.push_back( ' ' ) ;
+					}
+					break ;
 			}
 		}
 	}
 	else
 	{
-		std::string &q = *h.mutable_qry() ;
-		q.clear() ;
+		r.clear() ; q.clear() ; c.clear() ;
 
-		for( size_t i = 0 ; i != h.cigar().size() ; ++i )
+		for( int i = 0 ; i != h.cigar().size() ; ++i )
 		{
-			if( (uint8_t)h.cigar()[i] == 0 && !for_fastq ) {
-				q.push_back('~') ;
-			}
-			else if( (uint8_t)h.cigar()[i] < 128 ) for( size_t j = 0 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
-				q.push_back( *qry ) ;
-			}
-			else if( (uint8_t)h.cigar()[i] < 192 ) for( size_t j = 128 ; j != (uint8_t)h.cigar()[i] ; ++j, ++qry ) {
-				q.push_back( *qry ) ;
-			}
-			else for( size_t j = 192 ; j != (uint8_t)h.cigar()[i] ; ++j ) {
-				q.push_back( '-' ) ;
+			unsigned l = h.cigar(i) >> 3 ;
+			switch( h.cigar(i) & 7 )
+			{
+				case output::Hit::Match:
+					if( !l && !for_fastq ) q.push_back('~') ;
+
+				case output::Hit::Mismatch:
+				case output::Hit::Insert:
+					for( size_t j = 0 ; j != l ; ++j, ++qry ) q.push_back( *qry ) ;
+					break ;
+
+				case output::Hit::Delete:
+					for( size_t j = 0 ; j != l ; ++j ) q.push_back( '-' ) ;
+					break ;
 			}
 		}
 	}
@@ -101,13 +120,16 @@ void TextWriter::print_msg( const google::protobuf::Message& m )
 
 void TextWriter::put_result( const Result& r )
 {
-	if( r.has_best_to_genome() && r.best_to_genome().has_cigar() )
+	google::protobuf::TextFormat::Print( r, &fos_ ) ;
+	google::protobuf::io::Printer p( &fos_, '`' ) ;
+	for( int i = 0 ; i != r.hit_size() ; ++i )
 	{
-		Result r_ = r ;
-		add_alignment( r_.sequence().begin(), *r_.mutable_best_to_genome(), hdr_.config(), genomes_, false ) ;
-		print_msg( r_ ) ;
+		std::map< std::string, std::string > vars ;
+		show_alignment( r.read().sequence().begin(), r.hit(i), hdr_.config(), genomes_,
+				false, vars["ref"], vars["qry"], vars["con"] ) ;
+		p.Print( vars, "\nREF: `ref`\nQRY: `qry`\nCON: `con`\n" ) ;
 	}
-	else print_msg( r ) ;
+	p.Print( "\n\n" ) ;
 }
 
 //! \page anfo_to_sam Conversion to SAM
@@ -149,32 +171,41 @@ void TextWriter::put_result( const Result& r )
 //! \todo calculate other SAM/BAM flags
 
 template <typename Iter> 
-std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end ) {
+std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end )
+{
+	unsigned len = 0, op = Hit::Match ;
+
 	for( ; begin != end ; ++begin )
 	{
-		if( (uint8_t)(*begin) == 0 ) continue;
-		else if( (uint8_t)(*begin) < 128 ) s << (unsigned)(uint8_t)(*begin)       << 'M' ;
-		else if( (uint8_t)(*begin) < 192 ) s << (unsigned)(uint8_t)(*begin) - 128 << 'I' ;
-		else                               s << (unsigned)(uint8_t)(*begin) - 192 << 'D' ;
+		unsigned o = *begin & 7, l = *begin >> 3  ;
+		if( o == Hit::Mismatch ) o = Hit::Match ;
+		if( o == op ) len += l ;
+		else {
+			if( len ) s << len << "MID"[op] ;
+			op = o ;
+			len = l ;
+		}
 	}
+	if( len ) s << len << "MID"[op] ;
     return s ;
 }
 
+template <typename Iter> std::reverse_iterator<Iter> mk_rev_iter( Iter i )
+{ return std::reverse_iterator<Iter>( i ) ; }
+
 SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result )
 {
+    if (!has_hit_to(result,g_)) return no_hit ;
+    if (!result.read().has_seqid()) return no_seqid ;
+    if (!result.read().has_sequence()) return no_seq ;
 
-    if (!result.has_best_to_genome()) return no_hit ;
-    if (!result.has_seqid()) return no_seqid ;
-    if (!result.has_sequence()) return no_seq ;
+    output::Hit hit = hit_to(result,g_) ;
 
-    output::Hit hit = result.best_to_genome() ;
+	if (len_from_bin_cigar(hit.cigar()) != result.read().sequence().length()) return bad_cigar ;
 
-	if (streams::len_from_bin_cigar(hit.cigar()) != result.sequence().length()) return bad_cigar ;
+	int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
 
-	int mapq = !result.has_diff_to_next() ? 254 : std::min( 254,
-			(int)( 0.5 + result.diff_to_next() / std::log(10.0) ) ) ;
-
-	out_ << /*QNAME*/   result.seqid() << '\t'
+	out_ << /*QNAME*/   result.read().seqid() << '\t'
          << /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
          << /*RNAME*/   hit.sequence() << '\t'
          << /*POS*/     1 + hit.start_pos() << '\t'
@@ -182,7 +213,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 
 	/*CIGAR*/ 
 	if( hit.aln_length() >= 0 ) decode_binCigar( out_, hit.cigar().begin(),  hit.cigar().end() ) ;
-	else                        decode_binCigar( out_, hit.cigar().rbegin(), hit.cigar().rend() ) ;
+	else                        decode_binCigar( out_, mk_rev_iter( hit.cigar().end() ), mk_rev_iter( hit.cigar().begin() ) ) ;
 	
 	out_ << '\t'
 		 // We don't have paired end reads (or don't deal with them)
@@ -190,11 +221,11 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 		 << /*MPOS*/    "0" << '\t'
 		 << /*ISIZE*/   "0" << '\t'
 
-         << /*SEQ*/     result.sequence() << '\t' ;
+         << /*SEQ*/     result.read().sequence() << '\t' ;
 
-	if( result.has_quality() ) /*QUAL*/   
-		for (size_t i = 0; i < result.quality().size(); i++)
-			out_ << char((uint8_t)result.quality()[i] + 33);
+	if( result.read().has_quality() ) /*QUAL*/   
+		for (size_t i = 0; i < result.read().quality().size(); i++)
+			out_ << char((uint8_t)result.read().quality()[i] + 33);
 	else
 		out_ << '*' ;
 
@@ -218,31 +249,32 @@ void SamWriter::put_footer( const Footer& f )
 	state_ = end_of_stream ;
 }
 
-void FastaWriter::put_result( const Result& r_ ) 
+void FastaWriter::put_result( const Result& r ) 
 {
-	if( r_.has_best_to_genome() && r_.best_to_genome().has_cigar() )
+	if( has_hit_to( r, g_ ) )
 	{
-		Result r = r_ ;
-		add_alignment( r.sequence().begin(), *r.mutable_best_to_genome(), hdr_.config(), genomes_, true ) ;
-		out_ << '>' << r.best_to_genome().sequence() << ' '
-			<< r.best_to_genome().start_pos()
-			<< "-+"[ r.best_to_genome().aln_length() > 0 ]
-			<< r.best_to_genome().start_pos() + abs(r.best_to_genome().aln_length()) - 1
-			<< '\n' << r.best_to_genome().ref() << '\n' 
-			<< '>' << r.seqid() 
-			<< ( r.has_trim_right() ? " adapter cut off\n" : "\n" ) 
-			<< r.best_to_genome().qry() << std::endl ;
+		const Hit &h = hit_to( r, g_ ) ;
+		std::string ref, qry, con ;
+		show_alignment( r.read().sequence().begin(), h, hdr_.config(), genomes_, true, ref, qry, con ) ;
+		out_ << '>' << h.sequence() << ' '
+			<< h.start_pos()
+			<< "-+"[ h.aln_length() > 0 ]
+			<< h.start_pos() + abs(h.aln_length()) - 1
+			<< '\n' << ref << '\n' 
+			<< '>' << r.read().seqid() 
+			<< ( r.read().has_trim_right() ? " adapter cut off\n" : "\n" ) 
+			<< qry << std::endl ;
 	}
 }
 
 void TableWriter::put_result( const Result& r )
 {
-	if( !r.has_best_to_genome() ) return ;
-	int e = r.has_trim_right() ? r.trim_right() : r.sequence().size() ;
-	int b = r.has_trim_left() ? r.trim_left() : 0 ;
-	int diff = r.has_diff_to_next() ? r.diff_to_next() : 9999 ;
+	if( !has_hit_to( r, g_ ) ) return ;
+	int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
+	int b = r.read().has_trim_left() ? r.read().trim_left() : 0 ;
+	int diff = hit_to( r, g_ ).has_diff_to_next() ? hit_to( r, g_ ).diff_to_next() : 9999 ;
 
-	out_ << e-b << '\t' << r.best_to_genome().score() << '\t' << diff << '\n' ;
+	out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 }
 
 } // namespace

@@ -147,10 +147,10 @@ int main_( int argc, const char**argv )
 				std::map< std::string, QSequence > &seqs = peers[ event.peer ] ;
 				output::Result res ;
 				res.ParseFromArray( event.packet->data+1, event.packet->dataLength-1 ) ;
-				streams::write_delimited_message( cos, 2, res ) ;
+				streams::write_delimited_message( cos, 4, res ) ;
 				--reads_in_flight ;
 				++reads_in ;
-				seqs.erase( res.seqid() ) ;
+				seqs.erase( res.read().seqid() ) ;
 
 				std::clog << "\r\e[Kreceived message; " 
 					<< peers.size() << " workers, " << reads_in_flight << " reads in flight, " 

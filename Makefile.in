@@ -57,7 +57,7 @@ install_doc: doc/html/index.html
 	$(INSTALL_DATA) doc/html/* @htmldir@/html
 
 
-align.o: config.pb.h
+align.o: config.pb.h output.pb.h
 anfo_common.o: output.pb.h config.pb.h
 ducttape.o: output.pb.h config.pb.h
 index.o: config.pb.h

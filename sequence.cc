@@ -1,4 +1,5 @@
 #include "sequence.h"
+#include "logdom.h"
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -85,12 +86,14 @@ inline bool descr_follows( const Reader &s ) { return s && s.peek() == ';' ; }
 QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
 {
 	int bits = bits_in[ a ] ;
-	double prob = phred_to_err_prob( q ) ;
+	Logdom prob = Logdom::from_phred( q ) ;
 	for( int i = 0 ; i != 4 ; ++i )
 	{
-		qualities[i] = a & (1<<i) ? (1.0-prob) / bits : prob / (4-bits) ;
-		qscores[i] = a & (1<<i) ? err_prob_to_phred( (1.0-prob)/bits )
-			                    : q + (uint8_t)(0.5 + 10*std::log(4-bits)/std::log(10)) ;
+		// qualities[i] = a & (1<<i) ? (1.0-prob) / bits : prob / (4-bits) ;
+		qscores[i] = a & (1<<i) ? ( (Logdom::from_float(1.0)-prob) / Logdom::from_float(bits) ).to_phred_byte()
+			                    : ( prob / Logdom::from_float(4-bits) ).to_phred_byte() ;
+		// qscores[i] = a & (1<<i) ? err_prob_to_phred( (1.0-prob)/bits )
+		//	                    : q + (uint8_t)(0.5 + 10*std::log(4-bits)/std::log(10)) ;
 	}
 }
 

@@ -57,16 +57,16 @@ static const int minscore = 4 ;
 
 int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignment_type >& ol )
 {
-	r.set_seqid( ps.get_name() ) ;
-	if( !ps.get_descr().empty() ) r.set_description( ps.get_descr() ) ;
+	r.mutable_read()->set_seqid( ps.get_name() ) ;
+	if( !ps.get_descr().empty() ) r.mutable_read()->set_description( ps.get_descr() ) ;
 	switch( ps.get_validity() ) 
 	{
 		case QSequence::bases_with_quality:
 		case QSequence::bases_with_qualities:
 		case QSequence::qualities_only:
-			r.set_quality( ps.qualities() ) ;
+			r.mutable_read()->set_quality( ps.qualities() ) ;
 		case QSequence::bases_only:
-			r.set_sequence( ps.as_string() ) ;
+			r.mutable_read()->set_sequence( ps.as_string() ) ;
 	}
 
 	// trim adapters, set trim points
@@ -86,7 +86,7 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
 		{
-			r.set_trim_right( ps.length() - ymax ) ;
+			r.mutable_read()->set_trim_right( ps.length() - ymax ) ;
 			ps.trim_right( ps.length() - ymax ) ;
 		}
 	}
@@ -99,7 +99,7 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
 		{
-			r.set_trim_left( r.trim_left() + ymax ) ;
+			r.mutable_read()->set_trim_left( r.read().trim_left() + ymax ) ;
 			ps.trim_left( ymax ) ;
 		}
 	}
@@ -124,24 +124,25 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 
 		setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
 	}
-	r.set_num_raw_seeds( num_raw ) ;
-	r.set_num_useless( num_useless ) ;
-	r.set_num_grown_seeds( num_comb ) ;
-	r.set_num_clumps( num_clumps ) ;
+	AlnStats *as = r.mutable_aln_stats() ;
+	as->set_num_raw_seeds( num_raw ) ;
+	as->set_num_useless( num_useless ) ;
+	as->set_num_grown_seeds( num_comb ) ;
+	as->set_num_clumps( num_clumps ) ;
 
 	if( !p.has_max_penalty_per_nuc() )
 	{
-		r.set_reason( output::no_policy ) ;
+		as->set_reason( output::no_policy ) ;
 		return INT_MAX ;
 	}
 	else if( ol.empty() ) 
 	{
-		r.set_reason( num_useless ? output::repeats_only : output::no_seeds ) ;
+		as->set_reason( num_useless ? output::repeats_only : output::no_seeds ) ;
 		return INT_MAX ;
 	}
 	else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
 	{
-		r.set_reason( output::too_many_seeds ) ;
+		as->set_reason( output::too_many_seeds ) ;
 		return INT_MAX ;
 	}
 	else return p.max_penalty_per_nuc() ;
@@ -167,12 +168,14 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 	uint32_t o, c, tt, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
-	r.set_open_nodes_after_alignment( o ) ;
-	r.set_closed_nodes_after_alignment( c ) ;
-	r.set_tracked_closed_nodes_after_alignment( tt ) ;
+
+	AlnStats *as = r.mutable_aln_stats() ;
+	as->set_open_nodes_after_alignment( o ) ;
+	as->set_closed_nodes_after_alignment( c ) ;
+	as->set_tracked_closed_nodes_after_alignment( tt ) ;
 	if( !best )
 	{
-		r.set_reason( output::bad_alignment ) ;
+		as->set_reason( output::bad_alignment ) ;
 	}
 	else
 	{
@@ -183,10 +186,10 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 		greedy( best ) ;
 		(enter_bt<alignment_type>( ol_ ))( best ) ;
 		DnaP minpos, maxpos ;
-		std::vector<uint8_t> t = find_cheapest( ol_, minpos, maxpos ) ;
+		std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
 		int32_t len = maxpos - minpos - 1 ;
 
-		output::Hit *h = r.mutable_best_to_genome() ;
+		output::Hit *h = r.add_hit() ;
 
 		uint32_t start_pos ;
 		std::string genome_file ;
@@ -204,8 +207,9 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 
 		h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
 		h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-		h->mutable_cigar()->assign( t.begin(), t.end() ) ;
 		h->set_score( penalty ) ;
+		std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
+
 		// XXX: h->set_evalue
 
 		//! \todo Find second best hit and similar stuff.
@@ -226,12 +230,12 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 		make_heap( ol.begin(), ol.end() ) ;
 
 		// search long enough to make sensible mapping quality possible
-		uint32_t max_penalty_2 = 600 + penalty ;
+		uint32_t max_penalty_2 = 254 + penalty ;
 		alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
-		r.set_open_nodes_after_alignment( o ) ;
-		r.set_closed_nodes_after_alignment( c ) ;
-		r.set_tracked_closed_nodes_after_alignment( tt ) ;
-		if( second_best ) r.set_diff_to_next( second_best.penalty - penalty ) ;
+		as->set_open_nodes_after_alignment( o ) ;
+		as->set_closed_nodes_after_alignment( c ) ;
+		as->set_tracked_closed_nodes_after_alignment( tt ) ;
+		if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
 	}
 }
 

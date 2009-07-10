@@ -12,6 +12,9 @@
 #endif
 
 namespace std {
+	bool operator < ( const output::Read& p, const output::Read& q )
+	{ return p.SerializeAsString() < q.SerializeAsString() ; }
+
 	bool operator < ( const config::Policy& p, const config::Policy& q )
 	{ return p.SerializeAsString() < q.SerializeAsString() ; }
 }
@@ -79,7 +82,78 @@ Result AnfoReader::fetch_result()
 	return r ;
 }
 
-void AnfoReader::read_next_message( CodedInputStream& cis )
+namespace {
+	void upgrade_cigar( google::protobuf::RepeatedField<unsigned int>& n, const string& o )
+	{
+		for( unsigned i = 0 ; i != o.size() ; ++i )
+			if(      (uint8_t)o[i] < 128 ) n.Add(  (unsigned)(uint8_t)o[i]        << 3 | Hit::Match  ) ;
+			else if( (uint8_t)o[i] < 192 ) n.Add( ((unsigned)(uint8_t)o[i] - 128) << 3 | Hit::Insert ) ;
+			else                           n.Add( ((unsigned)(uint8_t)o[i] - 192) << 3 | Hit::Delete ) ;
+	}
+
+	Hit upgrade( const OldHit& o ) 
+	{
+		Hit h ;
+		h.set_genome_name( o.has_genome_name() ? o.genome_name() : string() ) ;
+		h.set_sequence( o.sequence() ) ;
+		h.set_start_pos( o.start_pos() ) ;
+		h.set_aln_length( o.aln_length() ) ;
+		h.set_score( (int)( 0.5 + o.score() / log(10.0) ) ) ;
+		if( o.has_evalue() ) h.set_evalue( o.evalue() ) ;
+		if( o.has_taxid() ) h.set_taxid( o.taxid() ) ;
+		if( o.has_taxid_species() ) h.set_taxid_species( o.taxid_species() ) ;
+		if( o.has_taxid_order() ) h.set_taxid_order( o.taxid_order() ) ;
+		if( o.has_genome_file() ) h.set_genome_file( o.genome_file() ) ;
+		upgrade_cigar( *h.mutable_cigar(), o.cigar() ) ;
+		return h ;
+	}
+
+	Result upgrade( const OldResult& o )
+	{
+		Result rs ;
+		{
+			Read &r = *rs.mutable_read() ;
+			r.set_seqid( o.has_seqid() ? o.seqid() : string() ) ;
+			if( o.has_description() ) r.set_description( o.description() ) ;
+			r.set_sequence( o.sequence() ) ;
+			if( o.has_quality() ) r.set_quality( o.quality() ) ;
+			if( o.has_trim_left() ) r.set_trim_left( o.trim_left() ) ;
+			if( o.has_trim_right() ) r.set_trim_right( o.trim_right() ) ;
+		}
+
+		rs.mutable_member()->MergeFrom( o.member() ) ;
+
+		if( o.has_best_hit() ) *rs.add_hit() = upgrade( o.best_hit() ) ;
+		if( o.has_best_to_genome() ) {
+			Hit &h = *rs.add_hit() ;
+			h = upgrade( o.best_to_genome() ) ;
+			if( o.has_diff_to_next() ) h.set_diff_to_next( o.diff_to_next() ) ;
+			if( o.has_diff_to_next_chromosome() ) h.set_diff_to_next_chromosome( o.diff_to_next_chromosome() ) ;
+			if( o.has_diff_to_next_chromosome_class() ) h.set_diff_to_next_chromosome_class( o.diff_to_next_chromosome_class() ) ;
+		}
+
+		{
+			AlnStats &a = *rs.mutable_aln_stats() ;
+			a.set_reason( o.reason() ) ;
+
+			if( o.has_num_raw_seeds() ) a.set_num_raw_seeds( o.num_raw_seeds() ) ;
+			if( o.has_num_grown_seeds() ) a.set_num_grown_seeds( o.num_grown_seeds() ) ;
+			if( o.has_num_clumps() ) a.set_num_clumps( o.num_clumps() ) ;
+			if( o.has_num_useless() ) a.set_num_useless( o.num_useless() ) ;
+
+			if( o.has_open_nodes_after_alignment() ) a.set_open_nodes_after_alignment( o.open_nodes_after_alignment() ) ;
+			if( o.has_closed_nodes_after_alignment() ) a.set_closed_nodes_after_alignment( o.closed_nodes_after_alignment() ) ;
+			if( o.has_tracked_closed_nodes_after_alignment() ) a.set_tracked_closed_nodes_after_alignment( o.tracked_closed_nodes_after_alignment() ) ;
+		}
+
+		if( o.has_diff_to_next_species() ) rs.set_diff_to_next_species( o.diff_to_next_species() ) ;
+		if( o.has_diff_to_next_order() ) rs.set_diff_to_next_order( o.diff_to_next_order() ) ;
+		return rs ;
+	}
+} ;
+
+
+void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis )
 {
 	state_ = invalid ;
 	uint32_t tag = 0 ;
@@ -92,10 +166,19 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 		if( cis.ReadVarint32( &size ) ) 
 		{
 			int lim = cis.PushLimit( size ) ;
-			if( tag == 18 && res_.ParseFromCodedStream( &cis ) )
+			OldResult ores ;
+
+			if( tag == 34 && res_.ParseFromCodedStream( &cis ) )
 			{
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
+				return ;
+			}
+			if( tag == 18 && ores.ParseFromCodedStream( &cis ) )
+			{
+				cis.PopLimit( lim ) ;
+				state_ = have_output ;
+				res_ = upgrade( ores ) ;
 				return ;
 			}
 			if( tag == 26 && foot_.ParseFromCodedStream( &cis ) )
@@ -110,7 +193,7 @@ void AnfoReader::read_next_message( CodedInputStream& cis )
 	}
 }
 
-AnfoWriter::AnfoWriter( ZeroCopyOutputStream *zos ) : o_( zos )
+AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos ) : o_( zos )
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
@@ -169,6 +252,8 @@ void merge_sensibly( Header& lhs, const Header& rhs )
 	bool no_task_id = !lhs.has_sge_task_id() || (rhs.has_sge_task_id() && lhs.sge_task_id() != rhs.sge_task_id()) ;
 	bool no_job_id = !lhs.has_sge_job_id() || (rhs.has_sge_job_id() && lhs.sge_job_id() != rhs.sge_job_id()) ;
 
+	bool keep_sort = lhs.is_sorted_by_name() == rhs.is_sorted_by_name() && lhs.has_is_sorted_by_coordinate() == rhs.has_is_sorted_by_coordinate() && (!lhs.has_is_sorted_by_coordinate() || lhs.is_sorted_by_coordinate() == rhs.is_sorted_by_coordinate() ) ;
+
 	lhs.MergeFrom( rhs ) ;
 	nub( *lhs.mutable_sge_slicing_index() ) ;
 	nub( *lhs.mutable_command_line() ) ;
@@ -177,6 +262,7 @@ void merge_sensibly( Header& lhs, const Header& rhs )
 
 	if( no_task_id ) lhs.clear_sge_task_id() ;
 	if( no_job_id ) lhs.clear_sge_job_id() ;
+	if( !keep_sort ) { lhs.clear_is_sorted_by_name() ; lhs.clear_is_sorted_by_coordinate() ; }
 	sanitize( lhs ) ;
 }
 
@@ -196,13 +282,10 @@ void sanitize( Header& hdr )
 	}
 }
 
-//! \brief merges two results, keeping the best hit
-void merge_sensibly( Result& lhs, const Result& rhs )
+//! \brief merges aln_stats by adding them up
+void merge_sensibly( AlnStats& lhs, const AlnStats& rhs )
 {
-	// How to merge what...
-	// - seqid, description, sequence, trimpoints: all equal, no merging needed
-
-	// - reason: do the sensible thing...
+	// reason: do the sensible thing
 	if( lhs.reason() != aligned && rhs.reason() != no_policy && rhs.reason() != no_seeds )
 	{
 		if( rhs.reason() == aligned ) lhs.clear_reason() ;
@@ -210,53 +293,70 @@ void merge_sensibly( Result& lhs, const Result& rhs )
 		else if( lhs.reason() == too_many_seeds && rhs.reason() == bad_alignment ) lhs.set_reason( rhs.reason() ) ;
 	}
 
-	// - num_xxx: just add them
+	// everything else: add it up
 	lhs.set_num_raw_seeds( lhs.num_raw_seeds() + rhs.num_raw_seeds() ) ;
 	lhs.set_num_grown_seeds( lhs.num_grown_seeds() + rhs.num_grown_seeds() ) ;
 	lhs.set_num_clumps( lhs.num_clumps() + rhs.num_clumps() ) ;
+	lhs.set_num_useless( lhs.num_useless() + rhs.num_useless() ) ;
+	lhs.set_open_nodes_after_alignment( lhs.open_nodes_after_alignment() + rhs.open_nodes_after_alignment() ) ;
+	lhs.set_closed_nodes_after_alignment( lhs.closed_nodes_after_alignment() + rhs.closed_nodes_after_alignment() ) ;
+	lhs.set_tracked_closed_nodes_after_alignment( lhs.tracked_closed_nodes_after_alignment() + rhs.tracked_closed_nodes_after_alignment() ) ;
+}
 
-	// - best_hit, diff_to_next_species, diff_to_next_order: TODO
-	
-	// - best_to_genome: take better hit, recalculate diff_to_next{,_chromosome{,_class}}
-	if( rhs.has_best_to_genome() )
+//! \brief merges two hits by keeping the better one
+void merge_sensibly( Hit& lhs, const Hit& rhs )
+{
+	// take better hit, recalculate diff_to_next{,_chromosome{,_class}}
+	if( lhs.score() <= rhs.score() )
 	{
-		if( lhs.has_best_to_genome() )
-		{
-			// two hits, this is work...
-			if( lhs.best_to_genome().score() <= rhs.best_to_genome().score() )
-			{
-				// left is better
-				if( !lhs.has_diff_to_next() ||
-						lhs.best_to_genome().score() + lhs.diff_to_next() > rhs.best_to_genome().score() )
-					lhs.set_diff_to_next( rhs.best_to_genome().score() - lhs.best_to_genome().score() ) ;
+		// left is better
+		if( !lhs.has_diff_to_next() || lhs.score() + lhs.diff_to_next() > rhs.score() )
+			lhs.set_diff_to_next( rhs.score() - lhs.score() ) ;
 
-				//! \todo diff to chromosome, chromosome class? dunno...
-			}
-			else
-			{
-				// right is better
-				if( !rhs.has_diff_to_next() ||
-						rhs.best_to_genome().score() + rhs.diff_to_next() > lhs.best_to_genome().score() )
-					lhs.set_diff_to_next( lhs.best_to_genome().score() - rhs.best_to_genome().score() ) ;
-
-				*lhs.mutable_best_to_genome() = rhs.best_to_genome() ;
-				//! \todo diff to chromosome, chromosome class? dunno...
-			}
-		}
-		else
-		{
-			// no hit at left side --> just assign
-			*lhs.mutable_best_to_genome() = rhs.best_to_genome() ;
-			if( rhs.has_diff_to_next() )
-				lhs.set_diff_to_next( rhs.diff_to_next() ) ;
-
-			if( rhs.has_diff_to_next_chromosome() )
-				lhs.set_diff_to_next_chromosome( rhs.diff_to_next_chromosome() ) ;
-
-			if( rhs.has_diff_to_next_chromosome_class() )
-				lhs.set_diff_to_next_chromosome_class( rhs.diff_to_next_chromosome_class() ) ;
-		}
+		//! \todo diff to chromosome, chromosome class? dunno...
 	}
+	else
+	{
+		// right is better
+		if( !rhs.has_diff_to_next() || rhs.score() + rhs.diff_to_next() > lhs.score() )
+		{
+			int d = lhs.score() - rhs.score() ;
+			lhs = rhs ;
+			lhs.set_diff_to_next( d ) ;
+		}
+		else lhs = rhs ;
+
+		//! \todo diff to chromosome, chromosome class? dunno...
+	}
+}
+
+//! \brief merges two results, keeping the best hit
+void merge_sensibly( Result& lhs, const Result& rhs )
+{
+	// How to merge what...
+	// - read: all equal, no merging needed
+
+	// - member: concatenate and remove doubles
+	lhs.mutable_member()->MergeFrom( rhs.member() ) ;
+	nub( *lhs.mutable_member() ) ;
+
+	// - hits: merge those for the same genome, concatenate the rest
+	for( int j = 0 ; j != rhs.hit_size() ; ) {
+		for( int i = 0 ; i != lhs.hit_size() ; ++i ) {
+			if( rhs.hit(j).genome_name() == lhs.hit(i).genome_name() ) {
+				merge_sensibly( *lhs.mutable_hit(i), rhs.hit(j) ) ;
+				goto next ;
+			}
+		}
+		*lhs.add_hit() = rhs.hit(j) ;
+next:
+		++j ;
+	}
+
+	// - aln_stats: just add them up, this is for debugging only anyway
+	merge_sensibly( *lhs.mutable_aln_stats(), rhs.aln_stats() ) ; 
+
+	// - diff_to_next_species, diff_to_next_order: TODO
 }
 
 //! \brief merges two footers
@@ -269,6 +369,8 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 	lhs.set_exit_code( exit_code ) ;
 }
 
+// old stuff
+#if 0
 unsigned len_from_bin_cigar( const string& cigar )
 {
 	unsigned l = 0 ;
@@ -279,46 +381,87 @@ unsigned len_from_bin_cigar( const string& cigar )
 	}
 	return l ;
 }
+#endif
 
-bool ScoreFilter::xform( Result& r ) {
-	if( genome_ && r.has_best_to_genome() && r.best_to_genome().genome_name() == genome_ &&
-			r.best_to_genome().score() > slope_ * (len_from_bin_cigar( r.best_to_genome().cigar() ) - intercept_) )
-	{
-		r.set_reason( bad_alignment ) ;
-		r.clear_best_to_genome() ;
+bool has_hit_to( const output::Result& r, const std::string& g )
+{
+	if( g.empty() )
+		return r.hit_size() > 0 ;
+
+	for( int i = 0 ; i != r.hit_size() ; ++i )
+		if( r.hit(i).genome_name() == g )
+			return true ;
+
+	return false ;
+}
+
+const output::Hit& hit_to( const output::Result& r, const std::string& g )
+{
+	if( g.empty() ) {
+		if( r.hit_size() ) {
+			const output::Hit *h = &r.hit(0) ;
+			for( int i = 1 ; i != r.hit_size() ; ++i )
+				if( r.hit(i).score() < h->score() )
+					h = &r.hit(i) ; 
+			return *h ;
+		}
 	}
-	else if( !genome_ && r.has_best_hit() &&
-			r.best_hit().score() > slope_ * (len_from_bin_cigar( r.best_hit().cigar() ) - intercept_) )
+	else 
+		for( int i = 0 ; i != r.hit_size() ; ++i )
+			if( r.hit(i).genome_name() == g )
+				return r.hit(i) ;
+	throw "hit_to: no suitable hit" ;
+}
+
+output::Hit* mutable_hit_to( output::Result* r, const std::string& g )
+{
+	if( g.empty() ) {
+		if( r->hit_size() ) {
+			output::Hit *h = r->mutable_hit(0) ;
+			for( int i = 1 ; i != r->hit_size() ; ++i )
+				if( r->hit(i).score() < h->score() )
+					h = r->mutable_hit(i) ; 
+			return h ;
+		}
+	}
+	else
+		for( int i = 0 ; i != r->hit_size() ; ++i )
+			if( r->hit(i).genome_name() == g )
+				return r->mutable_hit(i) ;
+
+	Hit *h = r->add_hit() ;
+	if( !g.empty() ) h->set_genome_name( g ) ;
+	return h ;
+}
+
+
+//! \todo Decide whether removing all alignments is actually the right
+//!       course of action.
+bool ScoreFilter::xform( Result& r ) {
+	if( has_hit_to( r, genome_ ) && hit_to( r, genome_ ).score() >
+			slope_ * ( len_from_bin_cigar( hit_to( r, genome_ ).cigar() ) - intercept_ ) )
 	{
-		r.set_reason( bad_alignment ) ;
-		r.clear_best_hit() ;
+		r.mutable_aln_stats()->set_reason( bad_alignment ) ;
+		r.clear_hit() ;
 	}
 	return true ;
 }
 
 bool LengthFilter::xform( Result& r ) {
-	int len = ( r.has_trim_right() ? r.trim_right() : r.sequence().size() )
-		    - ( r.has_trim_left() ? r.trim_left() : 0 ) ;
-	if( r.has_best_to_genome() && len < minlength_ )
+	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() )
+		    - ( r.read().has_trim_left() ? r.read().trim_left() : 0 ) ;
+	if( r.hit_size() && len < minlength_ )
 	{
-		r.set_reason( no_policy ) ;
-		r.clear_best_to_genome() ;
-	}
-	if( r.has_best_hit() && len < minlength_ )
-	{
-		r.set_reason( no_policy ) ;
-		r.clear_best_hit() ;
+		r.clear_hit() ;
+		if( r.has_aln_stats() ) r.mutable_aln_stats()->set_reason( no_policy ) ;
 	}
 	return true ;
 }
 
 bool HitFilter::xform( Result& r ) 
 {
-	if( g_ && *g_ && r.has_best_to_genome() && r.best_to_genome().genome_name() == g_ )
-		return !s_ || !*s_ || r.best_to_genome().sequence() == s_ ;
-
-	if( !(g_ && *g_) && r.has_best_hit() )
-		return !s_ || !*s_ || r.best_hit().sequence() == s_ ;
+	if( has_hit_to( r, g_ ) )
+		return !s_ || !*s_ || hit_to( r, g_ ).sequence() == s_ ;
 
 	return false ;
 }
@@ -328,12 +471,13 @@ bool Subsample::xform( Result& )
 	return f_ >= drand48() ;
 }
 
-//! \todo configure which genome we're interested in
-bool RmdupStream::is_duplicate( const output::Result& lhs, const output::Result& rhs ) 
+bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) 
 {
-	if( !lhs.has_best_to_genome() || !rhs.has_best_to_genome()
-			|| lhs.sequence().size() != rhs.sequence().size() ) return false ;
-	const output::Hit &l = lhs.best_to_genome(), &r = rhs.best_to_genome() ;
+	if( !has_hit_to( lhs, g_ ) || !has_hit_to( rhs, g_ )
+			|| lhs.read().sequence().size() != rhs.read().sequence().size() )
+		return false ;
+
+	const output::Hit &l = hit_to( lhs, g_ ), &r = hit_to( rhs, g_ ) ;
 
 	return l.genome_name() == r.genome_name() && l.sequence() == r.sequence()
 		&& l.start_pos() == r.start_pos() && l.aln_length() == r.aln_length() ;
@@ -343,16 +487,12 @@ bool RmdupStream::is_duplicate( const output::Result& lhs, const output::Result&
 //!       their quality scores anyway?
 void RmdupStream::add_read( const Result& rhs ) 
 {
-	Read *rd = cur_.add_member() ;
-	if( rhs.has_seqid() ) rd->set_seqid( rhs.seqid() ) ;
-	if( rhs.has_description() ) rd->set_description( rhs.description() ) ;
-	if( rhs.has_sequence() ) rd->set_sequence( rhs.sequence() ) ;
-	if( rhs.has_quality() ) rd->set_quality( rhs.quality() ) ;
+	*cur_.add_member() = rhs.read() ;
 
-	for( size_t i = 0 ; i != rhs.sequence().size() ; ++i )
+	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
 		int base = -1 ;
-		switch( rhs.sequence()[i] ) {
+		switch( rhs.read().sequence()[i] ) {
 			case 'a': case 'A': base = 0 ; break ;
 			case 'c': case 'C': base = 1 ; break ;
 			case 't': case 'T':
@@ -360,7 +500,7 @@ void RmdupStream::add_read( const Result& rhs )
 			case 'g': case 'G': base = 3 ; break ;
 		}
 
-		Logdom qual = Logdom::from_phred( rhs.has_quality() ? rhs.quality()[i] : 30 ) ;
+		Logdom qual = Logdom::from_phred( rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ;
 		for( int j = 0 ; j != 4 ; ++j )
 			// XXX distribute errors sensibly
 			quals_[j].at(i) *= j != base 
@@ -397,13 +537,10 @@ void RmdupStream::put_footer( const Footer& f ) {
 }
 
 //! \brief receives a result record and merges it if appropriate
-//! \todo We do not want to merge sequences that have a bad alignment
-//!       score, instead they should pass through without disturbing the
-//!       merging process.
 //!
 //! There are the following possibilities what to do here:
 //! - A result with a bad alignment is passed through (means it is
-//!   stored in res_ and output becomes available). XXX
+//!   stored in res_ and output becomes available).
 //! - If cur_ is invalid, the result is stored there and cur_ becomes
 //!   valid.
 //! - A result with correct coordinates (according to is_duplicate) is
@@ -412,8 +549,10 @@ void RmdupStream::put_footer( const Footer& f ) {
 //!   moves to res_, next moves to cur_, and output becomes available.
 void RmdupStream::put_result( const Result& next ) 
 {
-	if( 0 /* check for bad alignment */ ) 
+	if( has_hit_to( next, g_ ) && hit_to( next, g_ ).score() <
+			slope_ * ( len_from_bin_cigar( hit_to( next, g_ ).cigar() ) - intercept_ ) )
 	{
+		// bad alignment -- this one passed through without merging
 		res_ = next ;
 		state_ = have_output ;
 	}
@@ -429,12 +568,12 @@ void RmdupStream::put_result( const Result& next )
 			for( size_t i = 0 ; i != 4 ; ++i )
 			{
 				quals_[i].clear() ;
-				quals_[i].resize( cur_.sequence().size() ) ;
+				quals_[i].resize( cur_.read().sequence().size() ) ;
 			}
 
 			add_read( cur_ ) ;
-			cur_.set_seqid( "C_" + cur_.seqid() ) ;
-			cur_.clear_description() ;
+			cur_.mutable_read()->set_seqid( "C_" + cur_.read().seqid() ) ;
+			cur_.mutable_read()->clear_description() ;
 		}
 		// Merge the new one.  No state change necessary, we continue to
 		// request input.
@@ -456,8 +595,8 @@ void RmdupStream::call_consensus()
 {
 	if( !cur_.member_size() ) return ;
 
-	cur_.clear_sequence() ;
-	cur_.clear_quality() ;
+	cur_.mutable_read()->clear_sequence() ;
+	cur_.mutable_read()->clear_quality() ;
 	for( size_t i = 0 ; i != quals_[0].size() ; ++i )
 	{
 		// select base with highest quality
@@ -479,8 +618,8 @@ void RmdupStream::call_consensus()
 		int qscore = (num/denom).to_phred() ;
 		if( qscore > 127 ) qscore = 127 ;
 
-		cur_.mutable_sequence()->push_back( m["ACTG"] ) ;
-		cur_.mutable_quality()->push_back( qscore ) ;
+		cur_.mutable_read()->mutable_sequence()->push_back( m["ACTG"] ) ;
+		cur_.mutable_read()->mutable_quality()->push_back( qscore ) ;
 	}
 }
 
@@ -515,9 +654,9 @@ Result ConcatStream::fetch_result()
 
 bool QualFilter::xform( Result& r )
 {
-	if( r.has_quality() ) 
-		for( size_t i = 0 ; i != r.sequence().size() && i != r.quality().size() ; ++i )
-			if( r.quality()[i] < q_ ) (*r.mutable_sequence())[i] = '-' ;
+	if( r.read().has_quality() ) 
+		for( size_t i = 0 ; i != r.read().sequence().size() && i != r.read().quality().size() ; ++i )
+			if( r.read().quality()[i] < q_ ) (*r.mutable_read()->mutable_sequence())[i] = '-' ;
 	return true ;
 }
 

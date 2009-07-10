@@ -196,7 +196,7 @@ int main_( int argc, const char * argv[] )
 				std::deque< alignment_type > ol ;
 				int pmax = mapper.index_sequence( ps, r, ol ) ;
 				if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-				streams::write_delimited_message( cos, 2, r ) ;
+				streams::write_delimited_message( cos, 4, r ) ;
 			}
 		}
 		if( total_size != -1 ) total_done += raw_inp.ByteCount() ;

@@ -34,7 +34,7 @@ class NotImplemented : public Exception
 		{ s << "method not implemented: " << method_ ; }
 } ;
 
-//! \page anfo-sort
+//! \page anfo_sort
 //! \brief reads ANFO files, sorts and merges them.
 //!
 //! Outline: We convert a list of files (use glob matching here, no need
@@ -54,53 +54,77 @@ class NotImplemented : public Exception
 //! files is useful, but we take that from the environment.  As far as
 //! genome files are needed, we can take the configuration from the
 //! input files.
-//!
-//! \todo implement copnsensus calling of PCR duplicates
-//! \todo implement score cutoff (we don't want crap alignments, and we
-//!       certainly don't want to include crap sequences in the
-//!       consensus calling)
 
 namespace streams {
 
 //! \brief compares hits by smallest genome coordinate
 //! Comparison is first done lexically on the subject name, then on the
 //! smallest coordinate that's part of the alignment, then on the
-//! alignment length.
+//! alignment length.  A particular genome can be selected, if this
+//! isn't done, we sort on the best hit and compare the genome name even
+//! before the subject name.
 struct by_genome_coordinate {
+	const std::string g_ ;
+	by_genome_coordinate( const std::string& g ) : g_(g) {}
+
 	bool operator() ( const Result *a, const Result *b ) {
-		if( a->has_best_to_genome() && !b->has_best_to_genome() ) return true ;
-		if( !a->has_best_to_genome() ) return false ;
-		const Hit& u = a->best_to_genome(), v = b->best_to_genome() ;
-		if( u.genome_name() < v.genome_name() ) return true ;
-		if( v.genome_name() < u.genome_name() ) return false ;
+		if( has_hit_to( *a, g_ ) && !has_hit_to( *b, g_ ) ) return true ;
+		if( !has_hit_to( *a, g_ ) ) return false ;
+
+		const Hit& u = hit_to( *a, g_ ), v = hit_to( *b, g_ ) ;
+		if( !g_.empty() ) {
+			if( u.genome_name() < v.genome_name() ) return true ;
+			if( v.genome_name() < u.genome_name() ) return false ;
+		}
 		if( u.sequence() < v.sequence() ) return true ;
 		if( v.sequence() < u.sequence() ) return false ;
 		if( u.start_pos() < v.start_pos() ) return true ;
 		if( v.start_pos() < u.start_pos() ) return false ;
 		return u.aln_length() < v.aln_length() ;
 	}
+
+	void tag_header( output::Header& h ) { h.set_is_sorted_by_coordinate( g_ ) ; }
+} ;
+
+struct by_seqid {
+	bool operator() ( const Result *a, const Result *b ) {
+		return a->read().seqid() < b->read().seqid() ;
+	}
+	void tag_header( output::Header& h ) { h.set_is_sorted_by_name( true ) ; }
 } ;
 
 
 //! \brief merges sorted streams into a sorted stream
-//! \todo needs to be parameterized with a comparison function (we
-//!       already need two).
-//! \todo Should be adapted to also combine streams, taking some
-//!       functionality from BestHitStream, requiring sorted input, but
-//!       not requiring unfiltered input.
+//! What to compare on is read from the input streams' header.  If they
+//! are unsorted, we fail.  Else we check that they are sorted in the
+//! same way and merge accordingly.
 class MergeStream : public StreamBundle
 {
 	private:
 		deque< Result > rs_ ;
+		enum { unknown, by_name, by_coordinate } mode_ ;
+		std::string g_ ;
 
 	public:
-		MergeStream() {}
+		MergeStream() : mode_( unknown ) {}
 		virtual ~MergeStream() {}
 
 		virtual void add_stream( Stream* s )
 		{
 			Header h = s->fetch_header() ;
-			assert( h.is_sorted_by_coordinate() ) ;
+			if( h.is_sorted_by_name() ) {
+				if( mode_ == unknown ) mode_ = by_name ;
+				else if( mode_ != by_name ) 
+					throw "MergeStream: inconsistent sorting of input" ;
+			}
+			else if( h.has_is_sorted_by_coordinate() ) {
+				if( mode_ == unknown ) {
+					mode_ = by_coordinate ;
+					g_ = h.is_sorted_by_coordinate() ;
+				}
+				else if( mode_ != by_coordinate || g_ != h.is_sorted_by_coordinate() )
+					throw "MergeStream: inconsistent sorting of input" ;
+			}
 			merge_sensibly( hdr_, h ) ;
 
 			if( s->get_state() == have_output )
@@ -126,7 +150,8 @@ Result MergeStream::fetch_result()
 {
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
-		if( by_genome_coordinate()( &rs_[ i ], &rs_[ min_idx ] ) )
+		if( ( mode_ == by_coordinate && by_genome_coordinate( g_ )( &rs_[ i ], &rs_[ min_idx ] ) )
+				|| ( mode_ == by_name && by_seqid()( &rs_[ i ], &rs_[ min_idx ] ) ) )
 			min_idx = i ;
 
 	Result res = rs_[ min_idx ] ;
@@ -224,7 +249,7 @@ Result BestHitStream::fetch_result()
 		}
 		else ++cur_input_ ;
 
-		pair< size_t, Result > &p = buffer_[ r.seqid() ] ;
+		pair< size_t, Result > &p = buffer_[ r.read().seqid() ] ;
 		++nread_ ;
 		++p.first ;
 		if( p.second.IsInitialized() ) merge_sensibly( p.second, r ) ;
@@ -235,7 +260,7 @@ Result BestHitStream::fetch_result()
 			++nwritten_ ;
 			Result r1 ;
 			swap( r1, p.second ) ;
-			buffer_.erase( r.seqid() ) ;
+			buffer_.erase( r.read().seqid() ) ;
 
 			if( buffer_.empty() && streams_.empty() )
 				state_ = end_of_stream ;
@@ -288,6 +313,8 @@ template< typename I > class ContainerStream : public Stream
 		}
 } ;
 
+unsigned SortingStream__ninstances = 0 ;
+
 //! \brief stream filter that sorts its input
 //! This stream is intended to sort large amounts of data.  To do that,
 //! it performs a quick sort on blocks that fit into memory (the maximum
@@ -296,11 +323,8 @@ template< typename I > class ContainerStream : public Stream
 //! too many files are open (as counted by \c AnfoReader, again
 //! configurable at construction time), some temporary files are merge
 //! sorted into a bigger one.
-//!
-//! \todo We need to parameterize the way to sort (by name, by
-//!       coordinate, anything else).
 
-class SortingStream : public Stream
+template <class Comp> class SortingStream : public Stream
 {
 	private:
 		typedef deque< streams::Stream* > MergeableQueue ;
@@ -324,7 +348,7 @@ class SortingStream : public Stream
 		int64_t total_scratch_size_ ;
 
 		unsigned max_que_size_, max_arr_size_ ;
-		static unsigned ninstances_ ;
+		Comp comp_ ;
 
 		//! \brief quicksort the scratch area
 		//! \internal
@@ -335,26 +359,26 @@ class SortingStream : public Stream
 				s << "SortingStream: qsorting " << scratch_space_.size() << " results" ; 
 				console.output( Console::notice, s.str() ) ;
 			}
-			sort( scratch_space_.begin(), scratch_space_.end(), streams::by_genome_coordinate() ) ;
+			sort( scratch_space_.begin(), scratch_space_.end(), comp_ ) ;
 		}
 
 		void enqueue_stream( streams::Stream*, int = 0 ) ;
 		void flush_scratch() ;
 
 	public:
-		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256)
-			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as )
-		{ foot_.set_exit_code( 0 ) ; ++ninstances_ ; }
+		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
+			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ), comp_( comp )
+		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
 
 		virtual ~SortingStream()
 		{
 			for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 			for( MergeableQueues::iterator i = mergeable_queues_.begin(), e = mergeable_queues_.end() ; i != e ; ++i )
 				for_each( i->second.begin(), i->second.end(), delete_ptr<Stream>() ) ;
-			--ninstances_ ;
+			--SortingStream__ninstances ;
 		}
 
-		virtual void put_header( const Header& h ) { hdr_ = h ; hdr_.set_is_sorted_by_coordinate(true) ; state_ = need_input ; }
+		virtual void put_header( const Header& h ) { hdr_ = h ; comp_.tag_header( hdr_ ) ; state_ = need_input ; }
 		virtual void put_footer( const Footer& ) ;
 		virtual void put_result( const Result& r ) {
 			scratch_space_.push_back( new Result( r ) ) ;
@@ -367,9 +391,7 @@ class SortingStream : public Stream
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_.fetch_footer() ) ; return foot_ ; }
 } ;
 
-unsigned SortingStream::ninstances_ = 0 ;
-
-void SortingStream::flush_scratch()
+template < typename Comp > void SortingStream<Comp>::flush_scratch()
 {
 	sort_scratch() ;
 	string tempname ;
@@ -389,7 +411,7 @@ void SortingStream::flush_scratch()
 	total_scratch_size_ = 0 ;
 }
 
-void SortingStream::enqueue_stream( streams::Stream* s, int level ) 
+template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::Stream* s, int level ) 
 {
 	Header h = s->fetch_header() ;
 	assert( h.is_sorted_by_coordinate() ) ;
@@ -437,7 +459,7 @@ void SortingStream::enqueue_stream( streams::Stream* s, int level )
 //! Only when the input ends can we completely sort it, so setting the
 //! footer switches to output mode.  Here we collect the temporary files
 //! we've written and become a \c MergeStream.
-void SortingStream::put_footer( const Footer& f ) 
+template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f ) 
 {
 	foot_ = f ;
 
@@ -448,7 +470,7 @@ void SortingStream::put_footer( const Footer& f )
 
 	if( scratch_space_.begin() != scratch_space_.end() )
 	{
-		if( ninstances_ > 1 ) flush_scratch() ; 
+		if( SortingStream__ninstances > 1 ) flush_scratch() ; 
 		else {
 			console.output( Console::notice, "SortingStream: final sort" ) ;
 			sort_scratch() ;
@@ -700,6 +722,7 @@ class StatStream : public Stream
 {
 	private:
 		const char* fn_ ;
+		const char* g_ ;
 		string name_ ;
 
 		unsigned total_, mapped_, mapped_u_ ;
@@ -709,8 +732,8 @@ class StatStream : public Stream
 		void printout( ostream& ) ;
 
 	public:
-		StatStream( const char* fn )
-			: fn_(fn), total_(0), mapped_(0), mapped_u_(0)
+		StatStream( const char* fn, const char* g )
+			: fn_(fn), g_(g), total_(0), mapped_(0), mapped_u_(0)
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
 		    , bases_squared_(0), bases_m_squared_(0)
 		{ state_ = need_input ; }
@@ -724,26 +747,23 @@ class StatStream : public Stream
 
 void StatStream::put_result( const Result& r )
 {
-	unsigned bases = r.sequence().size() ;
-	unsigned gc = count( r.sequence().begin(), r.sequence().end(), 'G' )
-		        + count( r.sequence().begin(), r.sequence().end(), 'C' ) ;
+	unsigned bases = r.read().sequence().size() ;
+	unsigned gc = count( r.read().sequence().begin(), r.read().sequence().end(), 'G' )
+		        + count( r.read().sequence().begin(), r.read().sequence().end(), 'C' ) ;
 	++total_ ;
 	bases_ += bases ;
 	bases_gc_ += gc ;
 	bases_squared_ += bases*bases ;
-	// XXX use genome?
-	if( r.has_best_to_genome() )
+	if( has_hit_to( r, g_ ) )
 	{
 		++mapped_ ;
 		bases_m_ += bases ;
 		bases_m_squared_ += bases*bases ;
 		bases_gc_m_ += gc ;
-		if( !r.has_diff_to_next() || r.diff_to_next() >= 140 )
-		{
+		if( !hit_to( r, g_ ).has_diff_to_next() || hit_to( r, g_ ).diff_to_next() >= 60 )
 			++mapped_u_ ;
-		}
 	}
-	if( name_.empty() ) name_ = r.seqid() ;
+	if( name_.empty() ) name_ = r.read().seqid() ;
 }
 
 void StatStream::put_footer( const Footer& )
@@ -765,6 +785,7 @@ static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
 //! -# total number of reads
 //! -# number of mapped reads
 //! -# number of uniquely mapped reads
+//! -# percentage of mapped reads
 //! -# GC content in raw data
 //! -# GC content in mapped data
 //! -# average length of raw data
@@ -773,8 +794,10 @@ static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
 //! -# standard deviation of length of mapped data
 void StatStream::printout( ostream& s )
 {
-	s << name_ << '\t'
-	  << total_ << '\t' << mapped_ << '\t' << mapped_u_ << '\t' 	// reads, mapped reads, uniquely mapped reads
+	s << "name\t#total\t#mapped\t#mapuniq\t%mapped\tGCraw\t"
+		 "GCmapped\trawlen\tdevrawlen\tmaplen\tdevmaplen\n"
+	  << name_ << '\t' << total_ << '\t' 							// arbitrary name, reads
+	  << mapped_ << '\t' << mapped_u_ << '\t' 						// mapped reads, uniquely mapped reads
 	  << 100*(float)mapped_/(float)total_ << '\t'					// percent hominid
       << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
 	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
@@ -814,10 +837,10 @@ template< typename S > struct FilterParams {
 typedef std::vector< FilterParams< Stream > > FilterStack ;
 
 Stream* mk_sort_by_pos( float, float, const char* genome, const char* arg )
-{ return new SortingStream( (arg ? atoi( arg ) : 1024) * 1024 * 1024 ) ; } // XXX use genome 
+{ return new SortingStream<by_genome_coordinate>( (arg ? atoi( arg ) : 1024) * 1024 * 1024, 256, by_genome_coordinate(genome) ) ; }
 
-Stream* mk_sort_by_name( float, float, const char*, const char* )
-{ throw NotImplemented( __PRETTY_FUNCTION__ ) ; } // XXX stream is missing
+Stream* mk_sort_by_name( float, float, const char*, const char* arg )
+{ return new SortingStream<by_seqid>( (arg ? atoi( arg ) : 1024) * 1024 * 1024 ) ; }
 
 Stream* mk_filter_by_length( float, float, const char*, const char* arg )
 { return new LengthFilter( atoi(arg) ) ; }
@@ -840,14 +863,14 @@ Stream* mk_subsample( float, float, const char*, const char* arg )
 Stream* mk_edit_header( float, float, const char*, const char* arg )
 { return new RepairHeaderStream( arg ) ; }
 
-Stream* mk_rmdup( float, float, const char*, const char* )
-{ return new RmdupStream() ; } // XXX use genome? how?
+Stream* mk_rmdup( float s, float i, const char*, const char* )
+{ return new RmdupStream( s, i ) ; }
 
 StreamBundle* mk_merge( float, float, const char*, const char* )
-{ return new MergeStream() ; } // XXX use genome?
+{ return new MergeStream() ; }
 
 StreamBundle* mk_join( float, float, const char*, const char* )
-{ return new BestHitStream() ; } // XXX use genome?
+{ return new BestHitStream() ; }
 
 StreamBundle* mk_mega_merge( float, float, const char*, const char* )
 { return new MegaMergeStream() ; }
@@ -861,20 +884,20 @@ Stream* mk_output      ( float, float, const char*, const char* fn )
 Stream* mk_output_text ( float, float, const char*, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new TextWriter( 1 ) : new TextWriter( fn ) ; } 
 
-Stream* mk_output_sam  ( float, float, const char*, const char* fn )
-{ return 0 == strcmp( fn, "-" ) ? new SamWriter( cout.rdbuf() ) : new SamWriter( fn ) ; } 
+Stream* mk_output_sam  ( float, float, const char* g, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new SamWriter( cout.rdbuf(), g ) : new SamWriter( fn, g ) ; } 
 
-Stream* mk_output_fasta( float, float, const char*, const char* fn )
-{ return 0 == strcmp( fn, "-" ) ? new FastaWriter( cout.rdbuf() ) : new FastaWriter( fn ) ; } 
+Stream* mk_output_fasta( float, float, const char* g, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new FastaWriter( cout.rdbuf(), g ) : new FastaWriter( fn, g ) ; } 
 
-Stream* mk_output_table( float, float, const char*, const char* fn )
-{ return 0 == strcmp( fn, "-" ) ? new TableWriter( cout.rdbuf() ) : new TableWriter( fn ) ; }
+Stream* mk_output_table( float, float, const char* g, const char* fn )
+{ return 0 == strcmp( fn, "-" ) ? new TableWriter( cout.rdbuf(), g ) : new TableWriter( fn, g ) ; }
 
 Stream* mk_output_glz  ( float, float, const char* g, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new DuctTaper( 1, g ) : new DuctTaper( fn, g ) ; }
 
-Stream* mk_stats       ( float, float, const char*, const char* arg )
-{ return new StatStream( arg ) ; }
+Stream* mk_stats       ( float, float, const char* g, const char* arg )
+{ return new StatStream( arg, g ) ; }
 
 const char *poptGetOptArg1( poptContext con )
 {

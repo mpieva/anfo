@@ -55,11 +55,6 @@ using namespace google::protobuf::io ;
 //! \todo We want an E-value...
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
-//! \todo Test this: the canonical test case is homo sapiens, chr 21.
-//! \todo Memory management and pointer/reference conventions are
-//!       somewhat wonky in here.  Deserves a thourough audit.
-//! \todo Investigate whether decompressing (LZF?) a complete index to
-//!       memory works better than the mmap used now.
 
 struct AlignmentWorkload
 {
@@ -86,7 +81,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		streams::write_delimited_message( q->output_stream, 2, *r ) ;
+		streams::write_delimited_message( q->output_stream, 4, *r ) ;
 		delete r ;
 	}
 	return 0 ;

@@ -99,15 +99,15 @@ int main_( int argc, const char * argv[] )
 				}
 			}
 
-			if( r.reason() != output::no_policy )
+			if( r.has_aln_stats() )
 			{
 				++total_seeded ;
 				cout << setw(27) << ps.get_name()
 					<< setw(5) << seq_len
-					<< setw(10) << r.num_raw_seeds()
-					<< setw(10) << r.num_useless()
-					<< setw(10) << r.num_grown_seeds()
-					<< setw(10) << r.num_clumps() ;
+					<< setw(10) << r.aln_stats().num_raw_seeds()
+					<< setw(10) << r.aln_stats().num_useless()
+					<< setw(10) << r.aln_stats().num_grown_seeds()
+					<< setw(10) << r.aln_stats().num_clumps() ;
 
 				if( simulation )
 					if( closest <= seq_len / 2 ) std::cout << "  got correct seed" ;

@@ -163,8 +163,6 @@ class Worker
 		//! - If someone disconnects, we return false (thus causing an early exit).
 		//! - If nothing happens for... say... 60 seconds, we also exit (in
 		//!   this case something is _very_ wrong)
-		//! \param timeout timeout in milliseconds if we should wait for
-		//!                an event
 		//! \return return 0 if processing shall continue, else an
 		//!                exit code xored with INT_MIN
 

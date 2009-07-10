@@ -3,12 +3,13 @@
 
 #include "index.h"
 #include "judy++.h"
+#include "logdom.h"
+
+#include <output.pb.h>
 
 #include <cmath>
 #include <deque>
 #include <sstream>
-
-inline uint32_t to_log_dom( double p ) { return (uint32_t)( -10 * std::log( p ) + 0.5 ) ; }
 
 /*!
 \page alignment_algorithm Alignment by Dijkstra's Algorithm
@@ -88,11 +89,6 @@ heap and live with the fact that it fill up with additional states that
 are never removed because they are simply too bad to ever be touched.
 
 \todo Find or create a priority search queue.  
-
-\todo Include penalty for unaligned tails of the query in score.  The
-	  expected score for aligning random sequence can be retrieved from
-	  the N column of the subst. matrix.  That also gives an expectation
-	  for aligning random sequence.
 */
 
 
@@ -362,7 +358,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 //! codes, this avoid the need for expensive additions in the log-domain
 //! should the need to align ambiguity codes arise.  First index is
 //! "from" (reference code), second index is "to" (query code).
-typedef float subst_mat[16][16] ;
+typedef Logdom subst_mat[16][16] ;
 
 //! \brief aDNA alignment automaton
 //! We encode the state as follows: Bit 0 is set if we're in the second
@@ -389,34 +385,36 @@ struct simple_adna : public gen_alignment<simple_adna> {
 	//! complementing is necessary as long as the mask_dir bit is \e not
 	//! set, since in the forward direction, aDNA damage actually
 	//! operates on the reverse strand.
-	uint32_t subst_penalty() const {
+	Logdom subst_penalty() const {
 		Ambicode r = state & mask_dir ? get_ref() : complement( get_ref() ) ;
 		if( !r ) r = 15 ; // if reference has a gap, pretend it was an N
-		float prob = 0 ;
+
+		Logdom prob ;
 		for( uint8_t p = 0 ; p != 4 ; ++p )
 		{
 			Ambicode q = state & mask_dir ? (1<<p) : complement(1<<p) ;
-			prob += ( state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] )
-				    * get_qry().qualities[p] ;
+			Logdom pr0 = ( state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] )
+				* Logdom::from_phred( get_qry().qscores[p] ) ;
+			if( p ) prob += pr0 ; else prob = pr0 ;
 		}
-		return to_log_dom( prob ) ;
+		return prob ;
 	}
 
 	//! \brief Penalty for extending an overhang.
 	//! Having a constant penalty for the overhang length models its
 	//! length distribution as geometric.
-	static uint32_t overhang_ext_penalty ;
+	static Logdom overhang_ext_penalty ;
 
 	//! \brief penalty for entering SS state
 	//! This is essentially the probability of having an overhang at
 	//! all.
-	static uint32_t overhang_enter_penalty ;
+	static Logdom overhang_enter_penalty ;
 
 	//! \brief gap open penalty
-	static uint32_t gap_open_penalty ;
+	static Logdom gap_open_penalty ;
 
 	//! \brief gap extension penalty
-	static uint32_t gap_ext_penalty ;
+	static Logdom gap_ext_penalty ;
 
 	//! \brief sets up parameters from configuration block
 	static void configure( const config::Aligner&, std::ostream* ) ;
@@ -443,8 +441,8 @@ inline void greedy( simple_adna& s )
 	{
 		while( s.get_qry().ambicode && s.get_ref() == s.get_qry().ambicode )
 		{
-			s.penalty += s.subst_penalty() ;
-			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::overhang_ext_penalty ;
+			s.penalty += s.subst_penalty().to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
 			s.adv_ref() ;
 			s.adv_qry() ;
 		}
@@ -487,8 +485,8 @@ template< typename F > void forward( const simple_adna& s, F f )
 		simple_adna s1 = s ;
 		while( s1.get_qry().ambicode )
 		{
-			s1.penalty += s1.subst_penalty() ;
-			if( s1.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty ;
+			s1.penalty += s1.subst_penalty().to_phred() ;
+			if( s1.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
 			s1.adv_qry() ;
 			f( s1 ) ;
 		}
@@ -507,26 +505,26 @@ template< typename F > void forward( const simple_adna& s, F f )
 		// no gaps open --> mismatch, open either gap, enter SS
 		{
 			simple_adna s1 = s ;
-			s1.penalty += s1.subst_penalty() ;
-			if( s.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty ;
+			s1.penalty += s1.subst_penalty().to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
 			s1.adv_ref() ;
 			s1.adv_qry() ;
 			f( s1 ) ;
 		}{
 			simple_adna s2 = s ;
-			s2.penalty += simple_adna::gap_open_penalty ;
+			s2.penalty += simple_adna::gap_open_penalty.to_phred() ;
 			s2.state |= simple_adna::mask_gap_qry ;
 			s2.adv_ref() ;
 			f( s2 ) ;
 		}{
 			simple_adna s3 = s ;
-			s3.penalty += simple_adna::gap_open_penalty ;
-			if( s.state & simple_adna::mask_ss ) s3.penalty += simple_adna::overhang_ext_penalty ;
+			s3.penalty += simple_adna::gap_open_penalty.to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s3.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
 			s3.state |= simple_adna::mask_gap_ref ;
 			s3.adv_qry() ;
 			f( s3 ) ;
 		}
-		if( simple_adna::overhang_enter_penalty != ~0U && (s.state & simple_adna::mask_ss) == 0 )
+		if( simple_adna::overhang_enter_penalty.is_finite() && (s.state & simple_adna::mask_ss) == 0 )
 		{
 			// To enter single stranded we require that the penalty for
 			// doing so is immediately recovered by the better match.
@@ -534,9 +532,9 @@ template< typename F > void forward( const simple_adna& s, F f )
 			// rates in aDNA.
 			simple_adna s4 = s ;
 			s4.state |= simple_adna::mask_ss ;
-			uint32_t p4 = s4.subst_penalty() + simple_adna::overhang_enter_penalty 
-			                                 + simple_adna::overhang_ext_penalty ;
-			uint32_t p0 = s.subst_penalty() ;
+			uint32_t p4 = ( s4.subst_penalty() + simple_adna::overhang_enter_penalty 
+			                                   + simple_adna::overhang_ext_penalty ).to_phred() ;
+			uint32_t p0 = s.subst_penalty().to_phred() ;
 			if( p4 < p0 ) {
 				s4.penalty += p4 ;
 				s4.adv_ref() ;
@@ -550,16 +548,16 @@ template< typename F > void forward( const simple_adna& s, F f )
 		// already gapping (ref or qry) --> continue or close
 		{
 			simple_adna s1 = s ;
-			s1.penalty += simple_adna::gap_ext_penalty ;
+			s1.penalty += simple_adna::gap_ext_penalty.to_phred() ;
 			bool which = (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref ;
-			if( which && (s.state & simple_adna::mask_ss) ) s1.penalty += simple_adna::overhang_ext_penalty ;
+			if( which && (s.state & simple_adna::mask_ss) ) s1.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
 			if( which ) s1.adv_qry() ; else s1.adv_ref() ;
 			f( s1 ) ;
 		}{
 			simple_adna s2 = s ;
 			s2.state &= ~simple_adna::mask_gaps ;
-			s2.penalty += s2.subst_penalty() ;
-			if( s.state & simple_adna::mask_ss ) s2.penalty += simple_adna::overhang_ext_penalty ;
+			s2.penalty += s2.subst_penalty().to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s2.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
 			s2.adv_ref() ;
 			s2.adv_qry() ;
 			f( s2 ) ;
@@ -635,9 +633,6 @@ template< typename State > struct enter_bt {
  * \param tracked_closed_nodes_after_alignment
  *      if not 0, will contain the number of nodes in the open list that
  *      are already closed (useful for debugging and tuning only)
- * \param log 
- *      if not 0, will periodically receive progress information during
- *      very long alignments
  * \return First state to be detected as finished() or an invalid state
  *         if no good alignment could be found.
  */
@@ -648,10 +643,8 @@ State find_cheapest(
 		uint32_t max_penalty = std::numeric_limits<uint32_t>::max(),
 		uint32_t *open_nodes_after_alignment = 0,
 		uint32_t *closed_nodes_after_alignment = 0,
-		uint32_t *tracked_closed_nodes_after_alignment = 0,
-		bool (*cb)(void*) = 0, void *par = 0 ) 
+		uint32_t *tracked_closed_nodes_after_alignment = 0 )
 {
-	int iter = 0 ;
 	while( !open_list.empty() && !exit_with )
 	{
 		State s = open_list.front() ;
@@ -675,11 +668,6 @@ State find_cheapest(
 			}
 			forward( s, enter<State>( open_list, max_penalty, &closed_list ) ) ;
 		}
-		/*if( ++iter % 10000000 == 0 && log ) (*log)
-				<< "After " << iter << " expansions, open list contains "
-				<< open_list.size() << " nodes, and " << deep_count( closed_list )
-				<< " nodes are closed." << std::endl ;*/
-		if( ++iter % 10000 == 0 && cb ) exit_with = (*cb)(par) ;
 	}
 
     if( open_nodes_after_alignment ) *open_nodes_after_alignment = 0 ;
@@ -689,33 +677,16 @@ State find_cheapest(
 }
 
 
-inline void push_m( std::vector<uint8_t>& s, unsigned m )
+inline void push_op( std::vector<unsigned>& s, unsigned m, unsigned op )
 {
-	if( !s.empty() && ((s.back() & 0x80) == 0) && (s.back() & 0x7f) ) {
-		m += s.back() ;
-		s.pop_back() ;
-	}
-	for( ; m > 0x7f ; m -= 0x7f ) s.push_back( 0x7f ) ;
-	if( m ) s.push_back( m ) ;
+	if( !s.empty() && ((s.back() & 7) == op) && (s.back() >> 3) ) 
+		s.back() += m << 3 ;
+	else s.push_back( m << 3 | op ) ;
 }
-inline void push_i( std::vector<uint8_t>& s, unsigned i )
-{
-	if( !s.empty() && ((s.back() & 0xc0) == 0x80) && (s.back() & 0x3f) ) {
-		i += s.back() & 0x3f ;
-		s.pop_back() ;
-	}
-	for( ; i > 0x3f ; i -= 0x3f ) s.push_back( 0x3f+0x80 ) ;
-	if( i ) s.push_back( i+0x80 ) ;
-}
-inline void push_d( std::vector<uint8_t>& s, unsigned d )
-{
-	if( !s.empty() && ((s.back() & 0xc0) == 0xc0) && (s.back() & 0x3f) ) {
-		d += s.back() & 0x3f ;
-		s.pop_back() ;
-	}
-	for( ; d > 0x3f ; d -= 0x3f ) s.push_back( 0x3f+0xc0 ) ;
-	if( d ) s.push_back( d+0xc0 ) ;
-}
+inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Match ) ; }
+inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }
+inline void push_i( std::vector<unsigned>& s, unsigned i ) { push_op( s, i, output::Hit::Insert ) ; }
+inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, output::Hit::Delete ) ; }
 
 //! \brief backtraces an alignment and return a CIGAR line
 //!
@@ -731,12 +702,8 @@ inline void push_d( std::vector<uint8_t>& s, unsigned d )
 //! only one differs, we copy one symbol and fill it up with a gap.
 //! Depending on the direction we moved in, the pair is added at the
 //! front or the end of the trace.  If the internal state changed, we
-//! don't trace at all (we just jump).
-//!
-//! Our CIGAR is a sequence of bytes b.  b==0 is a mark (we mark the
-//! place where the seeding started), b==1..127 is a match of length b,
-//! b==129..191 is an insert of length (b-128), b==193..255 is a
-//! deletion of length (b-192).  b==128,192 are reserved.
+//! don't trace at all (we just jump).  See output.proto for the
+//! encoding of these CIGAR lines.
 //!
 //! \param cl the ClosedMap that was used in find_cheapest()
 //! \param a final state to start backtracing from
@@ -744,11 +711,13 @@ inline void push_d( std::vector<uint8_t>& s, unsigned d )
 //! \param maxpos will be filled by position of greater end of alignment
 //! \return binary CIGAR string
 //! \internal
+//! \todo Write mismatches with different code (to allow various
+//!       calculations without the genome being available).
 
-template< typename State > std::vector<uint8_t>
+template< typename State > std::vector<unsigned>
 backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, DnaP &maxpos )
 {
-	std::vector<uint8_t> fwd, rev ;
+	std::vector<unsigned> fwd, rev ;
 
 	// When the alignment finished, it pointed to the minimum
 	// coordinate (to a gap actually).  Just store it.
@@ -816,7 +785,7 @@ backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, Dn
  * (at higher memory cost, naturally).  
  */
 template< typename State >
-std::vector<uint8_t> find_cheapest(
+std::vector<unsigned> find_cheapest(
 		std::deque< std::pair< State, const State *> > &open_list,
 		DnaP &minpos, DnaP &maxpos,
 		uint32_t max_penalty = std::numeric_limits<uint32_t>::max() ) 
@@ -837,7 +806,7 @@ std::vector<uint8_t> find_cheapest(
 			forward( p.first, enter_bt<State>( open_list, max_penalty, &closed_list, &used_states.back() ) ) ;
 		}
 	}
-	return std::vector<uint8_t>() ;
+	return std::vector<unsigned>() ;
 }
 
 //! \brief initializes alignments from a list of seeds
