@@ -29,11 +29,11 @@ class Logdom {
 		//! scale.
 		//! \todo This function need to be accurate only for x < 0; it
 		//!       could probably be approximated using a Taylor series.
-		static double ld1pexp10( double x ) { return -10.0 / log(10.0) * log1p(  exp( log(10.0)/10.0*x ) ) ; }
+		static double ld1pexp10( double x ) { return -10.0 / log(10.0) * log1p(  exp( -log(10.0)/10.0*x ) ) ; }
 
 		//! \brief calculates log( 1 - exp x )
 		//! \see ld1pexp10()
-		static double ld1mexp10( double x ) { return -10.0 / log(10.0) * log1p( -exp( log(10.0)/10.0*x ) ) ; }
+		static double ld1mexp10( double x ) { return -10.0 / log(10.0) * log1p( -exp( -log(10.0)/10.0*x ) ) ; }
 
 		//! \brief converts an ordinary number to log domain
 		static Logdom from_float( double v ) { return Logdom( -10 * log(v) / log(10.0) ) ; }
@@ -57,21 +57,21 @@ class Logdom {
 		// addition w/o sacrificing precision is a bit harder
 		Logdom operator + ( Logdom b ) const
 		{
-			return Logdom( v_ >= b.v_
+			return Logdom( v_ <= b.v_
 					?   v_ + ld1pexp10( b.v_ -   v_ ) 
 					: b.v_ + ld1pexp10(   v_ - b.v_ ) ) ;
 		}
 
 		Logdom operator - ( Logdom b ) const
 		{
-			return Logdom( v_ >= b.v_
+			return Logdom( v_ <= b.v_
 					?   v_ + ld1mexp10( b.v_ -   v_ ) 
 					: b.v_ + ld1mexp10(   v_ - b.v_ ) ) ; 
 		}
 
 		Logdom& operator += ( Logdom b )
 		{
-			v_ = v_ >= b.v_
+			v_ = v_ <= b.v_
 				?   v_ + ld1pexp10( b.v_ -   v_ ) 
 				: b.v_ + ld1pexp10(   v_ - b.v_ ) ;
 			return *this ;
@@ -79,7 +79,7 @@ class Logdom {
 
 		Logdom& operator -= ( Logdom b )
 		{
-			v_ = v_ >= b.v_
+			v_ = v_ <= b.v_
 				?   v_ + ld1mexp10( b.v_ -   v_ ) 
 				: b.v_ + ld1mexp10(   v_ - b.v_ ) ; 
 			return *this ;

@@ -505,7 +505,7 @@ void RmdupStream::add_read( const Result& rhs )
 			// XXX distribute errors sensibly
 			quals_[j].at(i) *= j != base 
 				? qual / Logdom::from_float( 3 ) 
-				: Logdom::from_float(1) - qual ;
+				: Logdom::from_float( 1 ) - qual ;
 	}
 }
 
@@ -607,13 +607,13 @@ void RmdupStream::call_consensus()
 		// but calculate the error probability from _all_others_ to
 		// retain precision
 
-		Logdom num = quals_[m?0:1].at(i) ;
 		Logdom denom = quals_[0].at(i) ;
 		for( size_t j = 1 ; j != 4 ; ++j )
-		{
 			denom += quals_[j].at( i ) ;
+
+		Logdom num = quals_[m?0:1].at(i) ;
+		for( size_t j = (m?1:2) ; j != 4 ; ++j )
 			if( j != m ) num += quals_[j].at( i ) ;
-		}
 
 		int qscore = (num/denom).to_phred() ;
 		if( qscore > 127 ) qscore = 127 ;
