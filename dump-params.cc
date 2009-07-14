@@ -20,10 +20,15 @@ int main_( int argc, const char** argv )
 {
 	if( argc != 2 ) throw "expected exactly one argument" ;
 
-	streams::AnfoReader af( argv[1], true ) ;
-	config::Config conf = af.fetch_footer().exit_code() 
-		? parse_text_config( argv[1] )
-		: af.fetch_header().config() ;
+	config::Config conf ;
+	try {
+		streams::AnfoReader af( argv[1] ) ;
+		conf = af.fetch_header().config() ;
+	} 
+	catch( const streams::AnfoReader::ParseError& )
+	{
+		conf = parse_text_config( argv[1] ) ;
+	}
 	
 	if( !conf.has_aligner() ) throw "couldn't find aligner configuration" ;
 	simple_adna::configure( conf.aligner(), &std::cout ) ;

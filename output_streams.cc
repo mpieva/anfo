@@ -9,6 +9,7 @@
 #include <iterator>
 #include <sstream>
 
+namespace streams {
 namespace {
 
 void show_alignment(
@@ -38,8 +39,8 @@ void show_alignment(
 
 		for( int i = 0 ; i != h.cigar_size() ; ++i )
 		{
-			unsigned l = h.cigar(i) >> 3 ;
-			switch( h.cigar(i) & 7 )
+			unsigned l = cigar_len( h.cigar(i) ) ;
+			switch( cigar_op( h.cigar(i) ) )
 			{
 				case output::Hit::Match:
 					if( !l && !for_fastq ) {
@@ -71,6 +72,11 @@ void show_alignment(
 						c.push_back( ' ' ) ;
 					}
 					break ;
+
+				case output::Hit::SoftClip: break ; // ???
+				case output::Hit::Skip: break ; // ???
+				case output::Hit::HardClip: break ; // ???
+				case output::Hit::Pad: break ; // ???
 			}
 		}
 	}
@@ -80,8 +86,8 @@ void show_alignment(
 
 		for( int i = 0 ; i != h.cigar().size() ; ++i )
 		{
-			unsigned l = h.cigar(i) >> 3 ;
-			switch( h.cigar(i) & 7 )
+			unsigned l = cigar_len( h.cigar(i) ) ;
+			switch( cigar_op( h.cigar(i) ) )
 			{
 				case output::Hit::Match:
 					if( !l && !for_fastq ) q.push_back('~') ;
@@ -94,14 +100,17 @@ void show_alignment(
 				case output::Hit::Delete:
 					for( size_t j = 0 ; j != l ; ++j ) q.push_back( '-' ) ;
 					break ;
+
+				case output::Hit::SoftClip: break ; // ???
+				case output::Hit::Skip: break ; // ???
+				case output::Hit::HardClip: break ; // ???
+				case output::Hit::Pad: break ; // ???
 			}
 		}
 	}
 }
 
 } // namespace
-
-namespace streams {
 
 void TextWriter::print_msg( const google::protobuf::Message& m )
 {
@@ -177,62 +186,85 @@ std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end )
 
 	for( ; begin != end ; ++begin )
 	{
-		unsigned o = *begin & 7, l = *begin >> 3  ;
+		unsigned o = cigar_op( *begin ), l = cigar_len( *begin ) ;
 		if( o == Hit::Mismatch ) o = Hit::Match ;
 		if( o == op ) len += l ;
 		else {
-			if( len ) s << len << "MID"[op] ;
+			if( len ) s << len << "MIDNSHP"[op] ;
 			op = o ;
 			len = l ;
 		}
 	}
-	if( len ) s << len << "MID"[op] ;
+	if( len ) s << len << "MIDNSHP"[op] ;
     return s ;
 }
 
 template <typename Iter> std::reverse_iterator<Iter> mk_rev_iter( Iter i )
 { return std::reverse_iterator<Iter>( i ) ; }
 
+inline char qual_to_sam( uint8_t q ) { return 33 + std::min( q, (uint8_t)93 ) ; }
+
 SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result )
 {
-    if (!has_hit_to(result,g_)) return no_hit ;
-    if (!result.read().has_seqid()) return no_seqid ;
-    if (!result.read().has_sequence()) return no_seq ;
+	if (!has_hit_to(result,g_)) return no_hit ;
+	if (!result.read().has_seqid()) return no_seqid ;
+	if (!result.read().has_sequence()) return no_seq ;
 
-    output::Hit hit = hit_to(result,g_) ;
+	output::Hit hit = hit_to(result,g_) ;
 
 	if (len_from_bin_cigar(hit.cigar()) != result.read().sequence().length()) return bad_cigar ;
 
 	int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
 
-	out_ << /*QNAME*/   result.read().seqid() << '\t'
-         << /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
-         << /*RNAME*/   hit.sequence() << '\t'
-         << /*POS*/     1 + hit.start_pos() << '\t'
-		 << /*MAPQ*/    mapq << '\t' ;
+	out_ << /*QNAME*/  result.read().seqid() << '\t'
+		<< /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
+		<< /*RNAME*/   hit.sequence() << '\t'
+		<< /*POS*/     1 + hit.start_pos() << '\t'
+		<< /*MAPQ*/    mapq << '\t' ;
 
-	/*CIGAR*/ 
-	if( hit.aln_length() >= 0 ) decode_binCigar( out_, hit.cigar().begin(),  hit.cigar().end() ) ;
-	else                        decode_binCigar( out_, mk_rev_iter( hit.cigar().end() ), mk_rev_iter( hit.cigar().begin() ) ) ;
-	
-	out_ << '\t'
-		 // We don't have paired end reads (or don't deal with them)
-		 << /*MRNM*/    "*" << '\t'
-		 << /*MPOS*/    "0" << '\t'
-		 << /*ISIZE*/   "0" << '\t'
+	if( hit.aln_length() >= 0 )
+	{
+		decode_binCigar( out_, hit.cigar().begin(),  hit.cigar().end() ) ; /*CIGAR*/ 
+		// We don't have paired end reads (or don't deal with them)
+		out_ << "\t*\t0\t0\t" // MRNM, MPOS, ISIZE
+			<< /*SEQ*/ result.read().sequence() << '\t' ;
 
-         << /*SEQ*/     result.read().sequence() << '\t' ;
-
-	if( result.read().has_quality() ) /*QUAL*/   
-		for (size_t i = 0; i < result.read().quality().size(); i++)
-			out_ << char((uint8_t)result.read().quality()[i] + 33);
+		if( result.read().has_quality() ) /*QUAL*/   
+			for (size_t i = 0 ; i != result.read().quality().size() ; ++i )
+				out_ << qual_to_sam( result.read().quality()[i] ) ;
+		else
+			out_ << '*' ;
+	}
 	else
-		out_ << '*' ;
+	{
+		// need to revcom sequence, reverse qual and cigar
+		decode_binCigar( out_, hit.cigar().begin(),  hit.cigar().end() ) ; /*CIGAR*/ 
+		// We don't have paired end reads (or don't deal with them)
+		out_ << "\t*\t0\t0\t" ; // MRNM, MPOS, ISIZE
+		const std::string& s = result.read().sequence() ;
+		for( size_t i = s.size() ; i != 0 ; --i )
+			switch( s[i-1] )
+			{
+				case 'A': case 'a': out_ << 'T' ; break ;
+				case 'C': case 'c': out_ << 'G' ; break ;
+				case 'G': case 'g': out_ << 'C' ; break ;
+				case 'T': case 't':
+				case 'U': case 'u': out_ << 'A' ; break ;
+				default: out_ << s[i-1] ;
+			}
+
+		out_ << '\t' ;
+		if( result.read().has_quality() ) /*QUAL*/   
+			for (size_t i = result.read().quality().size() ; i != 0 ; --i )
+				out_ << qual_to_sam( result.read().quality()[i-1] ) ;
+		else
+			out_ << '*' ;
+	}
 
 	/*[TAGS]*/ /*SCORE*/
 	out_ << "\tAS:i:" << hit.score() << '\n' ;
 
-    return goodness ;
+	return goodness ;
 }
 
 const char *SamWriter::descr[] = { "were converted", "had no hit", "had multiple hits", "missed the sequence id"

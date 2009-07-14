@@ -35,17 +35,26 @@ void transfer( Stream& in, Stream& out )
 
 int AnfoReader::num_files_ = 0 ;
 
-AnfoReader::AnfoReader( const std::string& name, bool quiet )
+AnfoReader::AnfoReader( const std::string& name )
 	: iis_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
-	, zis_( decompress( &iis_ ) ), name_( name ), quiet_( quiet )
+	, zis_( decompress( &iis_ ) ), name_( name ), read_(0), total_(0)
 {
+	struct stat st ;
+	if( 0 == stat( name.c_str(), &st ) ) total_ = st.st_size ;
 	initialize() ;
 }
 
-AnfoReader::AnfoReader( int fd, const std::string& name, bool quiet )
-	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( name ), quiet_( quiet )
+AnfoReader::AnfoReader( int fd, const std::string& name )
+	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( name ), read_(0), total_(0)
 {
+	struct stat st ;
+	if( 0 == fstat( fd, &st ) ) total_ = st.st_size ;
 	initialize() ;
+}
+
+void AnfoReader::ParseError::print_to( std::ostream& s ) const
+{
+	s << "AnfoReader: " << msg_ ;
 }
 
 void AnfoReader::initialize()
@@ -55,10 +64,10 @@ void AnfoReader::initialize()
 	CodedInputStream cis( zis_.get() ) ;
 
 	if( !cis.ReadString( &magic, 4 ) || magic != "ANFO" ) {
-		if( !quiet_ ) console.output( Console::error, "AnfoReader: " + name_ + "is not an ANFO file" ) ;
+		throw ParseError( name_ + " is not an ANFO file" ) ;
 	} else {
 		uint32_t tag ;
-		if( cis.ReadVarint32( &tag ) && tag == 10 && cis.ReadVarint32( &tag ) ) {
+		if( cis.ReadVarint32( &tag ) && tag == mk_msg_tag( 1 ) && cis.ReadVarint32( &tag ) ) {
 			int lim = cis.PushLimit( tag ) ;
 			if( hdr_.ParseFromCodedStream( &cis ) ) {
 				sanitize( hdr_ ) ;
@@ -68,7 +77,7 @@ void AnfoReader::initialize()
 				return ;
 			}
 		}
-		if( !quiet_ ) console.output( Console::error, "AnfoReader: deserialization error in header of " + name_ ) ;
+		throw ParseError( "deserialization error in header of " + name_ ) ;
 	}
 	foot_.set_exit_code(1) ;
 }
@@ -79,6 +88,15 @@ Result AnfoReader::fetch_result()
 	swap( r, res_ ) ;
 	CodedInputStream cis( zis_.get() ) ;
 	read_next_message( cis ) ;
+	if( iis_.ByteCount() >> 16 != read_ >> 16 ) {
+		read_ = iis_.ByteCount() ;
+		stringstream s ;
+		s << name_ << ": " << read_ ;
+		if( total_ ) s << '/' << total_ ;
+		s << " Bytes" ;
+		if( total_ ) s << " (" << read_*100/total_ << "%)" ;
+		chan_( Console::info, s.str() ) ;
+	}
 	return r ;
 }
 
@@ -86,9 +104,9 @@ namespace {
 	void upgrade_cigar( google::protobuf::RepeatedField<unsigned int>& n, const string& o )
 	{
 		for( unsigned i = 0 ; i != o.size() ; ++i )
-			if(      (uint8_t)o[i] < 128 ) n.Add(  (unsigned)(uint8_t)o[i]        << 3 | Hit::Match  ) ;
-			else if( (uint8_t)o[i] < 192 ) n.Add( ((unsigned)(uint8_t)o[i] - 128) << 3 | Hit::Insert ) ;
-			else                           n.Add( ((unsigned)(uint8_t)o[i] - 192) << 3 | Hit::Delete ) ;
+			if(      (uint8_t)o[i] < 128 ) n.Add( mk_cigar( Hit::Match,  (unsigned)(uint8_t)o[i]       ) ) ;
+			else if( (uint8_t)o[i] < 192 ) n.Add( mk_cigar( Hit::Insert, (unsigned)(uint8_t)o[i] - 128 ) ) ;
+			else                           n.Add( mk_cigar( Hit::Delete, (unsigned)(uint8_t)o[i] - 192 ) ) ;
 	}
 
 	Hit upgrade( const OldHit& o ) 
@@ -152,13 +170,12 @@ namespace {
 	}
 } ;
 
-
 void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis )
 {
 	state_ = invalid ;
 	uint32_t tag = 0 ;
 	if( cis.ExpectAtEnd() ) {
-		if( !quiet_ ) console.output( Console::error, "AnfoReader: " + name_ + " ended unexpectedly" ) ;
+		throw ParseError( name_ + " ended unexpectedly" ) ;
 	}
 	else if( (tag = cis.ReadTag()) )
 	{
@@ -168,32 +185,32 @@ void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis 
 			int lim = cis.PushLimit( size ) ;
 			OldResult ores ;
 
-			if( tag == 34 && res_.ParseFromCodedStream( &cis ) )
+			if( tag == mk_msg_tag( 4 ) && res_.ParseFromCodedStream( &cis ) )
 			{
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
 				return ;
 			}
-			if( tag == 18 && ores.ParseFromCodedStream( &cis ) )
+			if( tag == mk_msg_tag( 2 ) && ores.ParseFromCodedStream( &cis ) )
 			{
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
 				res_ = upgrade( ores ) ;
 				return ;
 			}
-			if( tag == 26 && foot_.ParseFromCodedStream( &cis ) )
+			if( tag == mk_msg_tag( 3 ) && foot_.ParseFromCodedStream( &cis ) )
 			{
 				cis.PopLimit( lim ) ;
 				state_ = end_of_stream ;
 				return ; 
 			}
 
-			if( !quiet_ ) console.output( Console::error, "AnfoReader: deserialization error in " + name_ ) ;
+			throw ParseError( "deserialization error in " + name_ ) ;
 		}
 	}
 }
 
-AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos ) : o_( zos )
+AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos ) : o_( zos ), name_( "<pipe>" ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
@@ -201,7 +218,7 @@ AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos ) : o_( 
 AnfoWriter::AnfoWriter( int fd, bool expensive )
 	: fos_( new FileOutputStream( fd ) )
 	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
-	, o_( zos_.get() )
+	, o_( zos_.get() ), name_( "<pipe>" ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
@@ -209,12 +226,23 @@ AnfoWriter::AnfoWriter( int fd, bool expensive )
 AnfoWriter::AnfoWriter( const char* fname, bool expensive )
 	: fos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) )
 	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
-	, o_( zos_.get() )
+	, o_( zos_.get() ), name_( fname ), wrote_(0)
 {
 	fos_->SetCloseOnDelete( true ) ;
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
 
+void AnfoWriter::put_result( const Result& r )
+{
+	write_delimited_message( o_, 4, r ) ; 
+	++wrote_ ;
+	if( wrote_ % 1000 == 0 )
+	{
+		stringstream s ;
+		s << name_ << ": " << wrote_ << " msgs" ;
+		chan_( Console::info, s.str() ) ;
+	}
+}
 
 template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
 {
@@ -369,24 +397,9 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 	lhs.set_exit_code( exit_code ) ;
 }
 
-// old stuff
-#if 0
-unsigned len_from_bin_cigar( const string& cigar )
+bool has_hit_to( const output::Result& r, const char* g )
 {
-	unsigned l = 0 ;
-	for( size_t i = 0 ; i != cigar.size() ; ++i )
-	{
-		if( (uint8_t)cigar[i] < 128 ) l += (uint8_t)cigar[i] ;
-		else if( (uint8_t)cigar[i] < 192 ) l += (unsigned)(uint8_t)cigar[i] - 128 ;
-	}
-	return l ;
-}
-#endif
-
-bool has_hit_to( const output::Result& r, const std::string& g )
-{
-	if( g.empty() )
-		return r.hit_size() > 0 ;
+	if( !g ) return r.hit_size() > 0 ;
 
 	for( int i = 0 ; i != r.hit_size() ; ++i )
 		if( r.hit(i).genome_name() == g )
@@ -395,9 +408,9 @@ bool has_hit_to( const output::Result& r, const std::string& g )
 	return false ;
 }
 
-const output::Hit& hit_to( const output::Result& r, const std::string& g )
+const output::Hit& hit_to( const output::Result& r, const char* g )
 {
-	if( g.empty() ) {
+	if( !g ) {
 		if( r.hit_size() ) {
 			const output::Hit *h = &r.hit(0) ;
 			for( int i = 1 ; i != r.hit_size() ; ++i )
@@ -413,9 +426,9 @@ const output::Hit& hit_to( const output::Result& r, const std::string& g )
 	throw "hit_to: no suitable hit" ;
 }
 
-output::Hit* mutable_hit_to( output::Result* r, const std::string& g )
+output::Hit* mutable_hit_to( output::Result* r, const char* g )
 {
-	if( g.empty() ) {
+	if( !g ) {
 		if( r->hit_size() ) {
 			output::Hit *h = r->mutable_hit(0) ;
 			for( int i = 1 ; i != r->hit_size() ; ++i )
@@ -430,7 +443,7 @@ output::Hit* mutable_hit_to( output::Result* r, const std::string& g )
 				return r->mutable_hit(i) ;
 
 	Hit *h = r->add_hit() ;
-	if( !g.empty() ) h->set_genome_name( g ) ;
+	if( g ) h->set_genome_name( g ) ;
 	return h ;
 }
 

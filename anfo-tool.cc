@@ -64,15 +64,15 @@ namespace streams {
 //! isn't done, we sort on the best hit and compare the genome name even
 //! before the subject name.
 struct by_genome_coordinate {
-	const std::string g_ ;
-	by_genome_coordinate( const std::string& g ) : g_(g) {}
+	const char *g_ ;
+	by_genome_coordinate( const char *g ) : g_(g) {}
 
 	bool operator() ( const Result *a, const Result *b ) {
 		if( has_hit_to( *a, g_ ) && !has_hit_to( *b, g_ ) ) return true ;
 		if( !has_hit_to( *a, g_ ) ) return false ;
 
 		const Hit& u = hit_to( *a, g_ ), v = hit_to( *b, g_ ) ;
-		if( !g_.empty() ) {
+		if( !g_ ) {
 			if( u.genome_name() < v.genome_name() ) return true ;
 			if( v.genome_name() < u.genome_name() ) return false ;
 		}
@@ -103,11 +103,11 @@ class MergeStream : public StreamBundle
 	private:
 		deque< Result > rs_ ;
 		enum { unknown, by_name, by_coordinate } mode_ ;
-		std::string g_ ;
+		const char *g_ ;
 
 	public:
 		MergeStream() : mode_( unknown ) {}
-		virtual ~MergeStream() {}
+		virtual ~MergeStream() { free( const_cast<char*>( g_ ) ) ; }
 
 		virtual void add_stream( Stream* s )
 		{
@@ -120,7 +120,7 @@ class MergeStream : public StreamBundle
 			else if( h.has_is_sorted_by_coordinate() ) {
 				if( mode_ == unknown ) {
 					mode_ = by_coordinate ;
-					g_ = h.is_sorted_by_coordinate() ;
+					g_ = strdup( h.is_sorted_by_coordinate().c_str() ) ;
 				}
 				else if( mode_ != by_coordinate || g_ != h.is_sorted_by_coordinate() )
 					throw "MergeStream: inconsistent sorting of input" ;
@@ -484,6 +484,7 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
 			final_stream_.add_stream( *j ) ;
 	mergeable_queues_.clear() ;
+	console.output( Console::notice, "SortingStream: merging everything to output" ) ;
 	
 	state_ = final_stream_.get_state() ;
 }
@@ -725,7 +726,7 @@ class StatStream : public Stream
 		const char* g_ ;
 		string name_ ;
 
-		unsigned total_, mapped_, mapped_u_ ;
+		unsigned total_, mapped_, mapped_u_, different_ ;
 		uint64_t bases_, bases_gc_, bases_m_, bases_gc_m_ ;
 		uint64_t bases_squared_, bases_m_squared_ ; 
 
@@ -733,7 +734,7 @@ class StatStream : public Stream
 
 	public:
 		StatStream( const char* fn, const char* g )
-			: fn_(fn), g_(g), total_(0), mapped_(0), mapped_u_(0)
+			: fn_(fn), g_(g), total_(0), mapped_(0), mapped_u_(0), different_(0)
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
 		    , bases_squared_(0), bases_m_squared_(0)
 		{ state_ = need_input ; }
@@ -750,18 +751,22 @@ void StatStream::put_result( const Result& r )
 	unsigned bases = r.read().sequence().size() ;
 	unsigned gc = count( r.read().sequence().begin(), r.read().sequence().end(), 'G' )
 		        + count( r.read().sequence().begin(), r.read().sequence().end(), 'C' ) ;
-	++total_ ;
+	unsigned count = std::max( r.member_size(), 1 ) ;
+	total_ += count ;
 	bases_ += bases ;
 	bases_gc_ += gc ;
 	bases_squared_ += bases*bases ;
 	if( has_hit_to( r, g_ ) )
 	{
-		++mapped_ ;
+		mapped_ += count ;
 		bases_m_ += bases ;
 		bases_m_squared_ += bases*bases ;
 		bases_gc_m_ += gc ;
 		if( !hit_to( r, g_ ).has_diff_to_next() || hit_to( r, g_ ).diff_to_next() >= 60 )
-			++mapped_u_ ;
+		{
+			mapped_u_ += count ;
+			++different_ ;
+		}
 	}
 	if( name_.empty() ) name_ = r.read().seqid() ;
 }
@@ -786,6 +791,7 @@ static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
 //! -# number of mapped reads
 //! -# number of uniquely mapped reads
 //! -# percentage of mapped reads
+//! -# number of unique sequences mapped uniquely
 //! -# GC content in raw data
 //! -# GC content in mapped data
 //! -# average length of raw data
@@ -794,11 +800,12 @@ static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
 //! -# standard deviation of length of mapped data
 void StatStream::printout( ostream& s )
 {
-	s << "name\t#total\t#mapped\t#mapuniq\t%mapped\tGCraw\t"
-		 "GCmapped\trawlen\tdevrawlen\tmaplen\tdevmaplen\n"
+	s << "name\t#total\t#mapped\t#mapuniq\t%mapped\t#distinct\t"
+		 "GCraw\tGCmapped\trawlen\tdevrawlen\tmaplen\tdevmaplen\n"
 	  << name_ << '\t' << total_ << '\t' 							// arbitrary name, reads
 	  << mapped_ << '\t' << mapped_u_ << '\t' 						// mapped reads, uniquely mapped reads
 	  << 100*(float)mapped_/(float)total_ << '\t'					// percent hominid
+	  << different_ << '\t'
       << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
 	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
 	  << bases_ / (float)total_ << '\t'								// avg. length
@@ -935,7 +942,7 @@ int main_( int argc, const char **argv )
 		mk_output_fasta, mk_output_table, mk_output_glz, mk_stats, 0 } ;
 
 
-	float param_slope = 0, param_intercept = 0 ;
+	float param_slope = 7.5, param_intercept = 20.0 ;
 	const char *param_genome = 0 ;
 
 	int POPT_ARG_OSTR = POPT_ARG_STRING | POPT_ARGFLAG_OPTIONAL ;

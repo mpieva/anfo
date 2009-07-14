@@ -4,6 +4,7 @@
 #include "index.h"
 #include "judy++.h"
 #include "logdom.h"
+#include "stream.h"
 
 #include <output.pb.h>
 
@@ -677,11 +678,11 @@ State find_cheapest(
 }
 
 
-inline void push_op( std::vector<unsigned>& s, unsigned m, unsigned op )
+inline void push_op( std::vector<unsigned>& s, unsigned m, output::Hit::Operation op )
 {
-	if( !s.empty() && ((s.back() & 7) == op) && (s.back() >> 3) ) 
-		s.back() += m << 3 ;
-	else s.push_back( m << 3 | op ) ;
+	if( !s.empty() && (streams::cigar_op( s.back() ) == op) && streams::cigar_len( s.back() ) ) 
+		s.back() = streams::mk_cigar( op, m + streams::cigar_len( s.back() ) ) ;
+	else s.push_back( streams::mk_cigar( op, m ) ) ;
 }
 inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Match ) ; }
 inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }

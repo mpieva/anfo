@@ -262,14 +262,21 @@ message Hit {
     optional float evalue = 6 ;
 
     // Alignment as (binary near-equivalent of) a CIGAR line
-	// The low three bits encode the operation as an enum, the rest
+	// The low four bits encode the operation as an enum, the rest
 	// encodes the length.  This way, no real length restriction exists.
-	// A match of length 0 encodes for the seed center.
+	// This encoding happens to be the same as that used by BAM, with
+	// two extensions: A match of length 0 encodes for the seed center
+	// and the Mismatch operation is equivalent to the Match operation,
+	// but signifies that the sequences actually differ.
 	enum Operation {
 		Match = 0 ;
 		Insert = 1 ;
 		Delete = 2 ;
-		Mismatch = 3 ;
+		Skip = 3 ; 		// unused
+		SoftClip = 4 ; 	// unused
+		HardClip = 5 ; 	// unused
+		Pad = 6 ;   	// unused
+		Mismatch = 15 ; // not yet used
 	} ;
 
     repeated uint32 cigar = 7 [packed=true] ;

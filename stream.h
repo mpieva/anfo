@@ -17,6 +17,8 @@
 namespace streams {
 	using namespace output ;
 
+inline uint32_t mk_msg_tag( uint32_t i ) { return i << 3 | 2 ; }
+
 //! \defgroup outputfile Convenience functions to handle output files
 //! The output file is a series of protocol buffer messages.  This makes
 //! it compact and extensible.  Instead of writing a serial file, the
@@ -48,7 +50,7 @@ namespace streams {
 template< typename Msg >
 void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int tag, const Msg& m )
 {
-	os.WriteTag( (tag << 3) | 2 ) ;
+	os.WriteTag( mk_msg_tag( tag ) ) ;
 	os.WriteVarint32( m.ByteSize() ) ;
 	if( !m.SerializeToCodedStream( &os ) )
 		throw "error while serializing" ;
@@ -73,17 +75,17 @@ void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 
 //! \brief checks if a genome was hit
 //! If an empty genome is asked for, checks for any hit.
-bool has_hit_to( const output::Result&, const std::string& ) ;
+bool has_hit_to( const output::Result&, const char* ) ;
 
 //! \brief returns the hit to some genome
 //! If an empty genome is asked for, returns the best hit.  Behaviour is
 //! undefined if no suitable hit exists.
-const output::Hit& hit_to( const output::Result&, const std::string& ) ;
+const output::Hit& hit_to( const output::Result&, const char* ) ;
 
 //! \brief returns the mutable hit to some genome
 //! If an empty genome is asked for, returns the best hit.  If no
 //! suitable hit exists, a new one is created.
-output::Hit* mutable_hit_to( output::Result*, const std::string& ) ;
+output::Hit* mutable_hit_to( output::Result*, const char* ) ;
 
 //! \brief computes (trimmed) query length from CIGAR line
 template< typename C > unsigned len_from_bin_cigar( const C& cig )
@@ -91,20 +93,28 @@ template< typename C > unsigned len_from_bin_cigar( const C& cig )
 	unsigned l = 0 ;
 	for( typename C::const_iterator i = cig.begin(), e = cig.end() ; i != e ; ++i )
 	{
-		switch( *i & 7 )
+		switch( cigar_op( *i ) )
 		{
 			case output::Hit::Match:
 			case output::Hit::Mismatch:
 			case output::Hit::Insert:
-				l += *i >> 3 ;
+			case output::Hit::SoftClip:
+				l += cigar_len( *i ) ;
 				break ;
 
 			case output::Hit::Delete:
+			case output::Hit::Skip:
+			case output::Hit::HardClip:
+			case output::Hit::Pad:
 				break ;
 		}
 	}
 	return l ;
 }
+
+inline output::Hit::Operation cigar_op( uint32_t c ) { return (output::Hit::Operation)(c & 0xf) ; }
+inline uint32_t cigar_len( uint32_t c ) { return c >> 4 ; }
+inline uint32_t mk_cigar( output::Hit::Operation op, uint32_t len ) { return len << 4 | op ; }
 
 //! @}
 
@@ -221,7 +231,8 @@ class AnfoReader : public Stream
 		google::protobuf::io::FileInputStream iis_ ;
 		std::auto_ptr<google::protobuf::io::ZeroCopyInputStream> zis_ ;
 		std::string name_ ;
-		bool quiet_ ;
+		Chan chan_ ;
+		int64_t read_, total_ ;
 
 		void initialize() ;
 		void read_next_message( google::protobuf::io::CodedInputStream& ) ;
@@ -232,13 +243,19 @@ class AnfoReader : public Stream
 		static int num_files_ ;
 
 	public: 
+		struct ParseError : public Exception {
+			std::string msg_ ;
+			ParseError( const std::string& m ) : msg_(m) {}
+			virtual void print_to( std::ostream& ) const ;
+		} ;
+
 		//! \brief opens the named file
-		AnfoReader( const std::string& name, bool quiet = false ) ;
+		AnfoReader( const std::string& name ) ;
 
 		//! \brief uses a given name and filedescriptor
 		//! No actual file is touched, the name is for informational
 		//! purposes only.
-		AnfoReader( int fd, const std::string& name = "<unknown>", bool quiet = false ) ;
+		AnfoReader( int fd, const std::string& name = "<pipe>" ) ;
 
 		virtual ~AnfoReader() { --num_files_ ; }
 		virtual Result fetch_result() ;
@@ -255,6 +272,9 @@ class AnfoWriter : public Stream
 		std::auto_ptr< google::protobuf::io::FileOutputStream > fos_ ;
 		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos_ ;
 		google::protobuf::io::CodedOutputStream o_ ;
+		Chan chan_ ;
+		std::string name_ ;
+		int64_t wrote_ ;
 
 	public:
 		AnfoWriter( google::protobuf::io::ZeroCopyOutputStream* ) ;
@@ -263,7 +283,7 @@ class AnfoWriter : public Stream
 
 
 		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; state_ = need_input ; } 
-		virtual void put_result( const Result& r ) { write_delimited_message( o_, 4, r ) ; }
+		virtual void put_result( const Result& r ) ;
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; state_ = end_of_stream ; }
 } ;
 
@@ -429,7 +449,7 @@ class RmdupStream : public Stream
 		std::vector< Logdom > quals_[4] ;
 		double slope_ ;
 		double intercept_ ;
-		std::string g_ ;
+		const char *g_ ;
 
 		// XXX double err_prob_[4][4] ; // get this from config or
 		// something?
@@ -439,13 +459,13 @@ class RmdupStream : public Stream
 		void call_consensus() ;
 
 	public:
-		RmdupStream( double s, double i ) : slope_(s), intercept_(i) {}
-		virtual ~RmdupStream() {}
+		RmdupStream( double s, double i ) : slope_(s), intercept_(i), g_(0) {}
+		virtual ~RmdupStream() { free( const_cast<char*>(g_) ) ; }
 
 		virtual void put_header( const Header& h )
 		{
 			assert( h.has_is_sorted_by_coordinate() ) ;
-			g_ = h.is_sorted_by_coordinate() ;
+			g_ = strdup( h.is_sorted_by_coordinate().c_str() ) ;
 			hdr_ = h ;
 			state_ = need_input ;
 		}

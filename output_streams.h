@@ -58,7 +58,7 @@ class SamWriter : public Stream
 
 		std::auto_ptr< std::filebuf > buf_ ;
 		std::ostream out_ ;
-		std::string g_ ;
+		const char *g_ ;
 		int discarded[bad_stuff_max] ;
 
 		enum bam_flags {
@@ -84,7 +84,7 @@ class SamWriter : public Stream
 			memset( discarded, 0, sizeof(discarded) ) ;
 		}
 
-		SamWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) 
+		SamWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g)
 		{
 			memset( discarded, 0, sizeof(discarded) ) ;
 		}
