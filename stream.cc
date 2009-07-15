@@ -210,15 +210,15 @@ void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis 
 	}
 }
 
-AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos ) : o_( zos ), name_( "<pipe>" ), wrote_(0)
+AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos, const char* fname ) : o_( zos ), name_( fname ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
 
-AnfoWriter::AnfoWriter( int fd, bool expensive )
+AnfoWriter::AnfoWriter( int fd, const char* fname, bool expensive )
 	: fos_( new FileOutputStream( fd ) )
 	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
-	, o_( zos_.get() ), name_( "<pipe>" ), wrote_(0)
+	, o_( zos_.get() ), name_( fname ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
@@ -277,25 +277,27 @@ template <typename E> void nub( google::protobuf::RepeatedField<E>& r )
 
 void merge_sensibly( Header& lhs, const Header& rhs )
 {
-	bool no_task_id = !lhs.has_sge_task_id() || (rhs.has_sge_task_id() && lhs.sge_task_id() != rhs.sge_task_id()) ;
-	bool no_job_id = !lhs.has_sge_job_id() || (rhs.has_sge_job_id() && lhs.sge_job_id() != rhs.sge_job_id()) ;
+	if( !lhs.IsInitialized() ) lhs = rhs ;
+	else {
+		bool no_task_id = !lhs.has_sge_task_id() || (rhs.has_sge_task_id() && lhs.sge_task_id() != rhs.sge_task_id()) ;
+		bool no_job_id = !lhs.has_sge_job_id() || (rhs.has_sge_job_id() && lhs.sge_job_id() != rhs.sge_job_id()) ;
 
-	bool keep_sort = lhs.is_sorted_by_name() == rhs.is_sorted_by_name() && lhs.has_is_sorted_by_coordinate() == rhs.has_is_sorted_by_coordinate() && (!lhs.has_is_sorted_by_coordinate() || lhs.is_sorted_by_coordinate() == rhs.is_sorted_by_coordinate() ) ;
+		bool keep_sort = lhs.is_sorted_by_name() == rhs.is_sorted_by_name() && lhs.has_is_sorted_by_coordinate() == rhs.has_is_sorted_by_coordinate() && (!lhs.has_is_sorted_by_coordinate() || lhs.is_sorted_by_coordinate() == rhs.is_sorted_by_coordinate() ) ;
 
-	lhs.MergeFrom( rhs ) ;
-	nub( *lhs.mutable_sge_slicing_index() ) ;
-	nub( *lhs.mutable_command_line() ) ;
-	nub( *lhs.mutable_config()->mutable_genome_path() ) ;
-	nub( *lhs.mutable_config()->mutable_policy() ) ;
-
-	if( no_task_id ) lhs.clear_sge_task_id() ;
-	if( no_job_id ) lhs.clear_sge_job_id() ;
-	if( !keep_sort ) { lhs.clear_is_sorted_by_name() ; lhs.clear_is_sorted_by_coordinate() ; }
+		lhs.MergeFrom( rhs ) ;
+		if( no_task_id ) lhs.clear_sge_task_id() ;
+		if( no_job_id ) lhs.clear_sge_job_id() ;
+		if( !keep_sort ) { lhs.clear_is_sorted_by_name() ; lhs.clear_is_sorted_by_coordinate() ; }
+	}
 	sanitize( lhs ) ;
 }
 
 void sanitize( Header& hdr )
 {
+	nub( *hdr.mutable_sge_slicing_index() ) ;
+	nub( *hdr.mutable_command_line() ) ;
+	nub( *hdr.mutable_config()->mutable_genome_path() ) ;
+	nub( *hdr.mutable_config()->mutable_policy() ) ;
 	if( hdr.has_sge_slicing_stride() ) 
 	{
 		set< int > indices ;
@@ -308,6 +310,7 @@ void sanitize( Header& hdr )
 			hdr.clear_sge_slicing_stride() ;
 		}
 	}
+	hdr.clear_was_sorted_by_coordinate() ;
 }
 
 //! \brief merges aln_stats by adding them up

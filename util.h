@@ -202,7 +202,7 @@ class Console
 		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
 		~Console() { if( fd_ >= 0 ) { write( fd_, "\n", 1 ) ; close( fd_ ) ; } }
 
-		int alloc_chan() { return next_ ; }
+		int alloc_chan() { return ++next_ ; }
 		void free_chan( int c ) { chans_.erase( c ) ; update() ; }
 		void update() ; 
 

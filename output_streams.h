@@ -94,7 +94,10 @@ class SamWriter : public Stream
 		virtual void put_header( const Header& h ) 
 		{
 			out_ << "@HD\tVN:1.0" ;
-			if( h.has_is_sorted_by_coordinate() && h.is_sorted_by_coordinate() == g_ ) out_ << "\tSO:coordinate" ;
+			if( h.has_is_sorted_by_coordinate() && (
+						(!g_ && h.is_sorted_by_coordinate().empty())
+						|| h.is_sorted_by_coordinate() == g_ ) )
+				out_ << "\tSO:coordinate" ;
 			else if( h.is_sorted_by_name() ) out_ << "\tSO:queryname" ;
 			out_ << "\n@PG\tID:ANFO\tVN:" << h.version() << '\n' ;
 			state_ = need_input ;

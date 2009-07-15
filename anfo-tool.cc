@@ -83,14 +83,20 @@ struct by_genome_coordinate {
 		return u.aln_length() < v.aln_length() ;
 	}
 
-	void tag_header( output::Header& h ) { h.set_is_sorted_by_coordinate( g_ ) ; }
+	void tag_header( output::Header& h ) {
+		h.clear_is_sorted_by_name() ;
+		h.set_is_sorted_by_coordinate( g_ ? g_ : "" ) ;
+	}
 } ;
 
 struct by_seqid {
 	bool operator() ( const Result *a, const Result *b ) {
 		return a->read().seqid() < b->read().seqid() ;
 	}
-	void tag_header( output::Header& h ) { h.set_is_sorted_by_name( true ) ; }
+	void tag_header( output::Header& h ) {
+		h.clear_is_sorted_by_coordinate() ;
+		h.set_is_sorted_by_name( true ) ;
+	}
 } ;
 
 
@@ -112,6 +118,8 @@ class MergeStream : public StreamBundle
 		virtual void add_stream( Stream* s )
 		{
 			Header h = s->fetch_header() ;
+			merge_sensibly( hdr_, h ) ;
+
 			if( h.is_sorted_by_name() ) {
 				if( mode_ == unknown ) mode_ = by_name ;
 				else if( mode_ != by_name ) 
@@ -125,7 +133,6 @@ class MergeStream : public StreamBundle
 				else if( mode_ != by_coordinate || g_ != h.is_sorted_by_coordinate() )
 					throw "MergeStream: inconsistent sorting of input" ;
 			}
-			merge_sensibly( hdr_, h ) ;
 
 			if( s->get_state() == have_output )
 			{
@@ -141,8 +148,11 @@ class MergeStream : public StreamBundle
 			}
 		}
 
-		virtual Header fetch_header() { return hdr_ ; }
-		virtual Footer fetch_footer() { return foot_ ; }
+		virtual Header fetch_header()
+		{
+			if( mode_ == unknown ) throw "MergeStream: don't know what to merge on" ;
+			return hdr_ ;
+		}
 		virtual Result fetch_result() ;
 } ;
 
@@ -150,7 +160,7 @@ Result MergeStream::fetch_result()
 {
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
-		if( ( mode_ == by_coordinate && by_genome_coordinate( g_ )( &rs_[ i ], &rs_[ min_idx ] ) )
+		if( ( mode_ == by_coordinate && by_genome_coordinate( *g_ ? g_ : 0 )( &rs_[ i ], &rs_[ min_idx ] ) )
 				|| ( mode_ == by_name && by_seqid()( &rs_[ i ], &rs_[ min_idx ] ) ) )
 			min_idx = i ;
 
@@ -386,7 +396,6 @@ template <class Comp> class SortingStream : public Stream
 			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
 		}
 
-		virtual Header fetch_header() { return hdr_ ; }
 		virtual Result fetch_result() { Result r = final_stream_.fetch_result() ; state_ = final_stream_.get_state() ; return r ; }
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_.fetch_footer() ) ; return foot_ ; }
 } ;
@@ -399,9 +408,9 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 	{
 		ContainerStream< deque< Result* >::const_iterator >
 			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
-		AnfoWriter out( fd ) ;
-		transfer( sa, out ) ;
+		AnfoWriter out( fd, tempname.c_str() ) ;
 		console.output( Console::notice, "SortingStream: Writing to tempfile " + tempname ) ;
+		transfer( sa, out ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
 	enqueue_stream( new AnfoReader( fd, tempname.c_str() ), 1 ) ;
@@ -446,7 +455,7 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 						ms.add_stream( i->second[j] ) ;
 					i->second.clear() ;
 				}
-				AnfoWriter out( fd ) ;
+				AnfoWriter out( fd, fname.c_str() ) ;
 				transfer( ms, out ) ;
 			}
 			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
@@ -486,6 +495,7 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 	mergeable_queues_.clear() ;
 	console.output( Console::notice, "SortingStream: merging everything to output" ) ;
 	
+	final_stream_.fetch_header() ;
 	state_ = final_stream_.get_state() ;
 }
 
@@ -886,7 +896,7 @@ StreamBundle* mk_concat( float, float, const char*, const char* )
 { return new ConcatStream() ; }
 
 Stream* mk_output      ( float, float, const char*, const char* fn )
-{ return 0 == strcmp( fn, "-" ) ? new AnfoWriter( 1, true ) : new AnfoWriter( fn, true ) ; } 
+{ return 0 == strcmp( fn, "-" ) ? new AnfoWriter( 1, "<stdout>", true ) : new AnfoWriter( fn, true ) ; } 
 
 Stream* mk_output_text ( float, float, const char*, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new TextWriter( 1 ) : new TextWriter( fn ) ; } 

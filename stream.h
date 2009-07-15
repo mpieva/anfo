@@ -263,7 +263,6 @@ class AnfoReader : public Stream
 		//! \internal
 		static unsigned num_open_files() { return num_files_ ; }
 } ;
-
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
 class AnfoWriter : public Stream
@@ -277,14 +276,14 @@ class AnfoWriter : public Stream
 		int64_t wrote_ ;
 
 	public:
-		AnfoWriter( google::protobuf::io::ZeroCopyOutputStream* ) ;
-		AnfoWriter( int fd, bool expensive = false ) ;
+		AnfoWriter( google::protobuf::io::ZeroCopyOutputStream*, const char* = "<pipe>" ) ;
+		AnfoWriter( int fd, const char* = "<pipe>", bool expensive = false ) ;
 		AnfoWriter( const char* fname, bool expensive = false ) ;
 
 
 		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; state_ = need_input ; } 
-		virtual void put_result( const Result& r ) ;
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; state_ = end_of_stream ; }
+		virtual void put_result( const Result& r ) ;
 } ;
 
 //! \brief filters that drop or modify isolated records
@@ -464,8 +463,8 @@ class RmdupStream : public Stream
 
 		virtual void put_header( const Header& h )
 		{
-			assert( h.has_is_sorted_by_coordinate() ) ;
-			g_ = strdup( h.is_sorted_by_coordinate().c_str() ) ;
+			if( !h.has_is_sorted_by_coordinate() ) throw "RmdupStream: need sorted stream to remove duplicates" ;
+			g_ = h.is_sorted_by_coordinate().empty() ? 0 : strdup( h.is_sorted_by_coordinate().c_str() ) ;
 			hdr_ = h ;
 			state_ = need_input ;
 		}
