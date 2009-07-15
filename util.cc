@@ -102,8 +102,8 @@ void Console::update()
     if( 0 == ioctl( fd_, TIOCGWINSZ, &ws ) ) width = ws.ws_col-1 ;
 
 	std::string line = "\r\e[K" ;
-	for( std::map<int, std::string>::const_iterator ch = chans_.begin() ;
-		width > 0 && ch != chans_.end() ; ++ch )
+	for( std::map<int, std::string>::const_reverse_iterator ch = chans_.rbegin() ;
+		width > 0 && ch != chans_.rend() ; ++ch )
 	{
 		line.push_back( '[' ) ;
 		line.append( ch->second.substr( 0, width-2 ) ) ;

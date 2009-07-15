@@ -841,6 +841,8 @@ void StatStream::printout( ostream& s )
 
 using namespace streams ;
 
+typedef string (*G)( float, float, const char*, const char* ) ;
+
 template< typename S > struct FilterParams {
 	typedef S* (*F)( float, float, const char*, const char* ) ;
 
@@ -849,6 +851,7 @@ template< typename S > struct FilterParams {
 	const char* genome ;
 	const char* arg ;
 	F maker ;
+	G describe ;
 } ;
 
 typedef std::vector< FilterParams< Stream > > FilterStack ;
@@ -856,11 +859,32 @@ typedef std::vector< FilterParams< Stream > > FilterStack ;
 Stream* mk_sort_by_pos( float, float, const char* genome, const char* arg )
 { return new SortingStream<by_genome_coordinate>( (arg ? atoi( arg ) : 1024) * 1024 * 1024, 256, by_genome_coordinate(genome) ) ; }
 
+string desc_sort_by_pos( float, float, const char* g, const char* a )
+{ 
+	stringstream ss ; 
+	ss << "sort by position on " << (g?g:"any") << " genome, using " << + (a?atoi(a):1024) <<  " MB" ;
+	return ss.str() ;
+}
+
 Stream* mk_sort_by_name( float, float, const char*, const char* arg )
 { return new SortingStream<by_seqid>( (arg ? atoi( arg ) : 1024) * 1024 * 1024 ) ; }
 
+string desc_sort_by_name( float, float, const char*, const char* a )
+{ 
+	stringstream ss ;
+	ss << "sort by seqeunce id, using " << (a?atoi(a):1024) << " MB" ;
+	return ss.str() ;
+}
+
 Stream* mk_filter_by_length( float, float, const char*, const char* arg )
 { return new LengthFilter( atoi(arg) ) ; }
+
+string desc_filter_by_length( float, float, const char*, const char* arg )
+{
+	stringstream ss ;
+	ss << "remove alignments shorter than " << atoi(arg) ;
+	return ss.str() ;
+}
 
 Stream* mk_filter_by_score( float s, float i, const char* g, const char* )
 { return new ScoreFilter( s, i, g ) ; }
@@ -895,11 +919,17 @@ StreamBundle* mk_mega_merge( float, float, const char*, const char* )
 StreamBundle* mk_concat( float, float, const char*, const char* )
 { return new ConcatStream() ; }
 
+string desc_concat( float, float, const char*, const char* )
+{ return "concatenate streams" ; }
+
 Stream* mk_output      ( float, float, const char*, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new AnfoWriter( 1, "<stdout>", true ) : new AnfoWriter( fn, true ) ; } 
 
 Stream* mk_output_text ( float, float, const char*, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new TextWriter( 1 ) : new TextWriter( fn ) ; } 
+
+string desc_output_text( float, float, const char*, const char* fn )
+{ return "write in text format to " + string(fn) ; }
 
 Stream* mk_output_sam  ( float, float, const char* g, const char* fn )
 { return 0 == strcmp( fn, "-" ) ? new SamWriter( cout.rdbuf(), g ) : new SamWriter( fn, g ) ; } 
@@ -915,6 +945,14 @@ Stream* mk_output_glz  ( float, float, const char* g, const char* fn )
 
 Stream* mk_stats       ( float, float, const char* g, const char* arg )
 { return new StatStream( arg, g ) ; }
+
+string desc_generic( float s, float i, const char* g, const char* a )
+{ 
+	stringstream ss ;
+	ss << "generic filter, slope=" << s << ", intercept=" << i 
+		<< ", genome=" << (g?g:"\"\"") << ", arg=" << (a?a:"\"\"") ;
+	return ss.str() ;
+}
 
 const char *poptGetOptArg1( poptContext con )
 {
@@ -951,6 +989,11 @@ int main_( int argc, const char **argv )
 		0, 0, 0, mk_output, mk_output_text, mk_output_sam,
 		mk_output_fasta, mk_output_table, mk_output_glz, mk_stats, 0 } ;
 
+	G descriptions[opt_MAX] = {
+		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
+		desc_generic, desc_generic, desc_generic, desc_generic, desc_generic, desc_generic, desc_generic, desc_generic, 
+		desc_generic, desc_concat, desc_generic, desc_generic, desc_output_text, desc_generic, 
+		desc_generic, desc_generic, desc_generic, desc_generic, desc_generic } ;
 
 	float param_slope = 7.5, param_intercept = 20.0 ;
 	const char *param_genome = 0 ;
@@ -995,8 +1038,7 @@ int main_( int argc, const char **argv )
 
 	FilterStack filters_initial ;
 	FilterStack *filters_current = &filters_initial ;
-
-	std::auto_ptr< StreamBundle > merging_stream( new ConcatStream ) ;
+	FilterParams< StreamBundle > merging_filter = { 0, 0, 0, 0, mk_concat, desc_concat } ;
 
 	typedef std::deque< FilterStack > FilterStacks ;
 	FilterStacks filters_terminal ;
@@ -1017,7 +1059,8 @@ int main_( int argc, const char **argv )
 		{
 			FilterParams< Stream > fp = {
 				param_slope, param_intercept, param_genome, 
-				poptGetOptArg1( pc ), filter_makers[rc]
+				poptGetOptArg1( pc ), filter_makers[rc],
+				descriptions[rc]
 			} ;
 			filters_current->push_back( fp ) ;
 		}
@@ -1027,8 +1070,14 @@ int main_( int argc, const char **argv )
 			if( filters_current != &filters_initial )
 				throw "merge-like commands cannot not follow merge- or output-like commands" ;
 
-			merging_stream.reset( (merge_makers[rc])(
-						param_slope, param_intercept, param_genome, poptGetOptArg1( pc ) ) ) ;
+			FilterParams< StreamBundle > fp = {
+				param_slope, param_intercept, param_genome,
+				poptGetOptArg1( pc ), merge_makers[rc],
+				descriptions[rc]
+			} ;
+			merging_filter = fp ;
+			// merging_stream.reset( (merge_makers[rc])(
+						// param_slope, param_intercept, param_genome, poptGetOptArg1( pc ) ) ) ;
 
 			// from now on we build output filters
 			filters_current = &filters_terminal.back() ;
@@ -1042,7 +1091,8 @@ int main_( int argc, const char **argv )
 			// create filter
 			FilterParams< Stream > fp = {
 				param_slope, param_intercept, param_genome,
-				poptGetOptArg1( pc ), output_makers[rc]
+				poptGetOptArg1( pc ), output_makers[rc],
+				descriptions[rc]
 			} ;
 			filters_current->push_back( fp ) ;
 
@@ -1067,6 +1117,38 @@ int main_( int argc, const char **argv )
 		glob( arg, glob_flag, 0, &the_glob ) ;
 		glob_flag |= GLOB_APPEND ;
 	}
+
+	// give a report of the filter stack (because it's so easy to get
+	// wrong)
+	console.output( Console::notice, "Input files:" ) ;
+	for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
+		console.output( Console::notice, "  " + string(*arg) ) ;
+
+	if( !filters_initial.empty() ) 
+	{
+		console.output( Console::notice, "For every input file:" ) ;
+		for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
+			console.output( Console::notice, "  " + (i->describe)( i->intercept, i->slope, i->genome, i->arg ) ) ;
+	}
+	console.output( Console::notice, merging_filter.describe( 
+				merging_filter.intercept, merging_filter.slope, merging_filter.genome, merging_filter.arg ) ) ;
+
+	if( filters_terminal.size() == 1 && filters_terminal[0].empty() )
+	{
+		console.output( Console::notice, desc_output_text( 0, 0, 0, "<stdout>" ) ) ;
+	}
+	else for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
+	{
+		console.output( Console::notice, "Filter a copy of the result as follows:" ) ;
+		for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
+			console.output( Console::notice, "  " + (j->describe)( j->intercept, j->slope, j->genome, j->arg ) ) ;
+	}
+
+	console.output( Console::warning, "Last chance to quit (5 seconds)" ) ;
+	sleep( 5 ) ;
+
+	std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( 
+				merging_filter.intercept, merging_filter.slope, merging_filter.genome, merging_filter.arg ) ) ;
 
 	// iterate over glob results
 	for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )

@@ -565,7 +565,7 @@ void RmdupStream::put_footer( const Footer& f ) {
 //!   moves to res_, next moves to cur_, and output becomes available.
 void RmdupStream::put_result( const Result& next ) 
 {
-	if( has_hit_to( next, g_ ) && hit_to( next, g_ ).score() <
+	if( !has_hit_to( next, g_ ) || hit_to( next, g_ ).score() >
 			slope_ * ( len_from_bin_cigar( hit_to( next, g_ ).cigar() ) - intercept_ ) )
 	{
 		// bad alignment -- this one passed through without merging
