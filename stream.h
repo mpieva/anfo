@@ -306,7 +306,9 @@ class Filter : public Stream
 //! \brief stream that filters for a given score
 //! Alignments that exceed the score are deleted, but the sequences are
 //! kept.  (Most interesting operations will ignore sequences without
-//! alignments).
+//! alignments).  Scores are in Phred scale now, experience tells that a
+//! typical butoff between good alignments and junk is
+//! \f$ 8 \cdot ( \mbox{length} - 20 ) \f$
 class ScoreFilter : public Filter
 {
 	private:

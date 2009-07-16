@@ -34,27 +34,6 @@ class NotImplemented : public Exception
 		{ s << "method not implemented: " << method_ ; }
 } ;
 
-//! \page anfo_sort
-//! \brief reads ANFO files, sorts and merges them.
-//!
-//! Outline: We convert a list of files (use glob matching here, no need
-//! to rely on the shell) into a single file.  First we need to collect
-//! files that operated on the same sequences, but different indices and
-//! keep the best hit from each of them.  Then we keep a queue of sorted
-//! streams, whereby a stream can be a sorted temporary file or a
-//! virtual stream that sorts on the fly.  Streams are ordered according
-//! to estimated size, whenever we run the danger of running out of file
-//! descriptors, we merge small streams into a temporary file containing
-//! a bigger one.  In the end, everything is merged to output.
-//!
-//! Are parameters necessary?  Certainly an output and many input files;
-//! the number of different indices is encoded in the header.  We run
-//! into problem if multiple distinct indices were used, it might be
-//! useful to have an override for that case.  A directory for temporary
-//! files is useful, but we take that from the environment.  As far as
-//! genome files are needed, we can take the configuration from the
-//! input files.
-
 namespace streams {
 
 //! \brief compares hits by smallest genome coordinate

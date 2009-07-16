@@ -8,7 +8,11 @@
 //! numbers, but the representation is in the log domain, so we don't
 //! lose precision due to multiplication of many small values.  For ease
 //! of conversion, we'll use the phred scale.  That means more work in
-//! additions, but less on conversion.
+//! additions, but less on conversion.  Assuming \f$ q_2 \geq q_1 \f$
+//! the formula for additions is:
+//!
+//! \f[ q_s = q_1 - \frac{10}{\ln 10} \ln \left( 1 + \exp \left( \frac{\ln 10}{10} (q_1-q_2) \right) \right) \f]
+//!
 class Logdom {
 	private:
 		double v_ ;
