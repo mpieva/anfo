@@ -349,7 +349,8 @@ int main_( int argc, const char * argv[] )
 	else g.set_name( drop_suffix( ".fa", drop_suffix( ".fas", drop_suffix( ".fna", poptPeekArg( pc ))))) ;
 
 	std::ofstream output_stream( (std::string(output_dir) + "/" + 
-				(output_file ? output_file : (g.name() + ".dna"))).c_str() ) ;
+				(output_file ? output_file : (g.name() + ".dna"))).c_str(),
+			std::ios::trunc ) ;
 	FastaDecoder fd( output_stream, g, max_num_n, verbose ) ;
 
 	if( !poptPeekArg( pc ) ) fd.consume( std::cin ) ;

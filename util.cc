@@ -103,7 +103,7 @@ void Console::update()
 
 	std::string line = "\r\e[K" ;
 	for( std::map<int, std::string>::const_reverse_iterator ch = chans_.rbegin() ;
-		width > 0 && ch != chans_.rend() ; ++ch )
+		width >= 3 && ch != chans_.rend() ; ++ch )
 	{
 		line.push_back( '[' ) ;
 		line.append( ch->second.substr( 0, width-2 ) ) ;

@@ -452,7 +452,7 @@ output::Hit* mutable_hit_to( output::Result* r, const char* g )
 
 
 //! \todo Decide whether removing all alignments is actually the right
-//!       course of action.
+//!       course of action.  (XXX -- it's not)
 bool ScoreFilter::xform( Result& r ) {
 	if( has_hit_to( r, genome_ ) && hit_to( r, genome_ ).score() >
 			slope_ * ( len_from_bin_cigar( hit_to( r, genome_ ).cigar() ) - intercept_ ) )
@@ -503,7 +503,13 @@ bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs )
 //!       their quality scores anyway?
 void RmdupStream::add_read( const Result& rhs ) 
 {
-	*cur_.add_member() = rhs.read() ;
+	// if the new member is itself a cluster, we add its member reads,
+	// no the single synthetic one
+	if( rhs.member_size() ) 
+		for( int i = 0 ; i != rhs.member_size() ; ++i )
+			*cur_.add_member() = rhs.member(i) ;
+	else
+		*cur_.add_member() = rhs.read() ;
 
 	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
@@ -563,6 +569,11 @@ void RmdupStream::put_footer( const Footer& f ) {
 //!   directly merged into cur_, no output becomes available.
 //! - Anything else cannot be merged, so a consensus is called, cur_
 //!   moves to res_, next moves to cur_, and output becomes available.
+//!
+//! \todo In principle, search for duplicates can be repeated (e.g.
+//!       after sorting on a different genome coordinate), and this is
+//!       supported; it is not really tested, though.
+
 void RmdupStream::put_result( const Result& next ) 
 {
 	if( !has_hit_to( next, g_ ) || hit_to( next, g_ ).score() >
@@ -574,6 +585,11 @@ void RmdupStream::put_result( const Result& next )
 	}
 	else if( !cur_.IsInitialized() ) {
 		cur_ = next ;
+		for( size_t i = 0 ; i != 4 ; ++i )
+		{
+			quals_[i].clear() ;
+			quals_[i].resize( cur_.read().sequence().size() ) ;
+		}
 	}
 	else if( is_duplicate( cur_, next ) )
 	{
@@ -581,12 +597,6 @@ void RmdupStream::put_result( const Result& next )
 		// degenerate merged one first...
 		if( cur_.member_size() == 0 )
 		{
-			for( size_t i = 0 ; i != 4 ; ++i )
-			{
-				quals_[i].clear() ;
-				quals_[i].resize( cur_.read().sequence().size() ) ;
-			}
-
 			add_read( cur_ ) ;
 			cur_.mutable_read()->set_seqid( "C_" + cur_.read().seqid() ) ;
 			cur_.mutable_read()->clear_description() ;
@@ -603,6 +613,11 @@ void RmdupStream::put_result( const Result& next )
 		call_consensus() ;
 		swap( res_, cur_ ) ;
 		cur_ = next ;
+		for( size_t i = 0 ; i != 4 ; ++i )
+		{
+			quals_[i].clear() ;
+			quals_[i].resize( cur_.read().sequence().size() ) ;
+		}
 		state_ = have_output ;
 	}
 }
