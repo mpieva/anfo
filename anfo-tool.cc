@@ -91,7 +91,7 @@ class MergeStream : public StreamBundle
 		const char *g_ ;
 
 	public:
-		MergeStream() : mode_( unknown ) {}
+		MergeStream() : mode_( unknown ), g_(0) {}
 		virtual ~MergeStream() { free( const_cast<char*>( g_ ) ) ; }
 
 		virtual void add_stream( Stream* s )
@@ -455,7 +455,7 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 	// we're alone, we sort and add a a stream.  Else we flush to
 	// temporary storage.
 
-	if( scratch_space_.begin() != scratch_space_.end() ) // flush_scratch() ;
+	if( scratch_space_.begin() != scratch_space_.end() )
 	{
 		if( SortingStream__ninstances > 1 ) flush_scratch() ; 
 		else {
