@@ -97,7 +97,8 @@ class MergeStream : public StreamBundle
 		virtual void add_stream( Stream* s )
 		{
 			Header h = s->fetch_header() ;
-			merge_sensibly( hdr_, h ) ;
+			if( streams_.empty() ) hdr_ = h ;
+			else merge_sensibly( hdr_, h ) ;
 
 			if( h.is_sorted_by_name() ) {
 				if( mode_ == unknown ) mode_ = by_name ;
@@ -880,10 +881,10 @@ Stream* mk_filter_by_length( float, float, const char*, const char* arg )
 void desc_filter_by_length( ostream& ss, float, float, const char*, const char* arg )
 { ss << "remove alignments shorter than " << parse_int( arg ) ; }
 
-Stream* mk_filter_by_score( float s, float i, const char* g, const char* )
+Stream* mk_filter_by_score( float i, float s, const char* g, const char* )
 { return new ScoreFilter( s, i, g ) ; }
 
-void desc_filter_by_score( ostream& ss, float s, float i, const char* g, const char* )
+void desc_filter_by_score( ostream& ss, float i, float s, const char* g, const char* )
 {
 	ss << "remove alignments to " << (g?g:"any genome") 
 		<< " scoring worse than ( " << s << " * ( L - " << i << " )" ;
@@ -923,10 +924,10 @@ Stream* mk_edit_header( float, float, const char*, const char* arg )
 void desc_edit_header( ostream& ss, float, float, const char*, const char* arg )
 { ss << "invoke " << (arg?arg:" text editor ") << " on stream's header" ; }
 
-Stream* mk_rmdup( float s, float i, const char*, const char* )
+Stream* mk_rmdup( float i, float s, const char*, const char* )
 { return new RmdupStream( s, i ) ; }
 
-void desc_rmdup( ostream& ss, float s, float i, const char*, const char* )
+void desc_rmdup( ostream& ss, float i, float s, const char*, const char* )
 { ss << "coalesce duplicates as long as score is no worse than ( " << s << " * ( L - " << i << " )" ; }
 
 StreamBundle* mk_merge( float, float, const char*, const char* )
@@ -974,8 +975,17 @@ void desc_output_sam( ostream& ss, float, float, const char*, const char* fn )
 Stream* mk_output_fasta( float, float, const char* g, const char* fn )
 { return is_stdout( fn ) ? new FastaWriter( cout.rdbuf(), g ) : new FastaWriter( fn, g ) ; } 
 
-void desc_output_fasta( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write in aligned FASTA format to " << parse_fn( fn ) ; }
+void desc_output_fasta( ostream& ss, float, float, const char* g, const char* fn )
+{ 
+	ss << "write alignments to " << (g?g:"any genome") 
+	   << " in FASTA format to " << parse_fn( fn ) ;
+}
+
+Stream* mk_output_fastq( float, float, const char*, const char* fn )
+{ return is_stdout( fn ) ? new FastqWriter( cout.rdbuf() ) : new FastqWriter( fn ) ; } 
+
+void desc_output_fastq( ostream& ss, float, float, const char*, const char* fn )
+{ ss << "write sequences(!) in FASTQ format to " << parse_fn( fn ) ; }
 
 Stream* mk_output_table( float, float, const char* g, const char* fn )
 { return is_stdout( fn ) ? new TableWriter( cout.rdbuf(), g ) : new TableWriter( fn, g ) ; }
@@ -1015,31 +1025,31 @@ int main_( int argc, const char **argv )
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam,
-		opt_output_fasta, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
+		opt_output_fasta, opt_output_fastq, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
 		0, 0, mk_rmdup, 0, 0, 0,
-		0, 0, 0, 0, 0 } ;
+		0, 0, 0, 0, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, mk_merge, mk_join,
 		mk_mega_merge, mk_concat, 0, 0, 0, 0,
-		0, 0, 0, 0, 0 } ;
+		0, 0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_text, mk_output_sam,
-		mk_output_fasta, mk_output_table, mk_duct_tape, mk_stats, 0 } ;
+		mk_output_fasta, mk_output_fastq, mk_output_table, mk_duct_tape, mk_stats, 0 } ;
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
 		desc_filter_by_score, desc_filter_by_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, 
-		desc_output_fasta, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
+		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
 
 	float param_slope = 7.5, param_intercept = 20.0 ;
 	const char *param_genome = 0 ;
@@ -1066,6 +1076,7 @@ int main_( int argc, const char **argv )
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
+		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble in glz format into FILE", "FILE" },
 		{ "stats",          0,  POPT_ARG_OSTR,   0, opt_stats,         "write simple statistics to FILE", "FILE" },

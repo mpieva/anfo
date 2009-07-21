@@ -299,6 +299,26 @@ void FastaWriter::put_result( const Result& r )
 	}
 }
 
+void FastqWriter::put_result( const Result& rr ) 
+{
+    const output::Read& r = rr.read() ;
+	if( r.has_quality() ) 
+	{
+		out_ << '@' << r.seqid() ;
+		if( r.has_description() ) out_ << ' ' << r.description() ;
+		for( size_t i = 0 ; i < r.sequence().size() ; i += 50 )
+			out_ << '\n' << r.sequence().substr( i, 50 ) ;
+		out_ << "\n+\n" ;
+        const std::string& q = r.quality() ;
+		for( size_t i = 0 ; i < q.size() ; i += 50 )
+		{
+			for( size_t j = i ; j != i+50 && j != q.size() ; ++j )
+				out_ << (char)std::min(126, 33 + q[j]) ;
+			out_ << '\n' ;
+		}
+	}
+}
+
 void TableWriter::put_result( const Result& r )
 {
 	if( !has_hit_to( r, g_ ) ) return ;

@@ -112,7 +112,7 @@ class SamWriter : public Stream
 } ;
 
 
-//! \brief writes in FASTA-format
+//! \brief writes in aligned FASTA-format
 //! Each alignment appears as a pair of sequences, reference first,
 //! query last.  Score, coordinates and whether an adapter was trimmed
 //! are encoded in the header.  This is considered a legacy format,
@@ -133,6 +133,31 @@ class FastaWriter : public Stream
 
 		FastaWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
 		virtual ~FastaWriter() {}
+
+		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
+		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
+		virtual void put_result( const Result& ) ;
+} ;
+
+//! \brief writes in FASTQ format
+//! This should simply reproduce the input to ANFO, so I can throw away
+//! the ugly FASTQ files.  Every sequence gets a header, then the
+//! sequence (50 bases per line), the header is then *not* repeated and
+//! the quality scores follow in the same layout.
+class FastqWriter : public Stream
+{
+	private:
+		std::auto_ptr< std::filebuf > buf_ ;
+		std::ostream out_ ;
+
+	public:
+		FastqWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		{
+			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
+		}
+
+		FastqWriter( std::streambuf *s ) : buf_(), out_( s ) {}
+		virtual ~FastqWriter() {}
 
 		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
 		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }

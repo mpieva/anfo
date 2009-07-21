@@ -305,10 +305,14 @@ class Filter : public Stream
 
 //! \brief stream that filters for a given score
 //! Alignments that exceed the score are deleted, but the sequences are
-//! kept.  (Most interesting operations will ignore sequences without
-//! alignments).  Scores are in Phred scale now, experience tells that a
-//! typical butoff between good alignments and junk is
-//! \f$ 8 \cdot ( \mbox{length} - 20 ) \f$
+//! kept.  If a genome is given, only alignments to that genome are
+//! removed, else all are considered individually and selectively
+//! removed.  If no alignments remains, \c reason is set to \c
+//! bad_alignment.  Most interesting downstream operations will ignore
+//! sequences without alignments.  Scores are in Phred scale now,
+//! experience tells that a typical butoff between good alignments and
+//! junk is \f$ 7.5 \cdot ( \mbox{length} - 20 ) \f$
+
 class ScoreFilter : public Filter
 {
 	private:

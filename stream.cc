@@ -451,15 +451,29 @@ output::Hit* mutable_hit_to( output::Result* r, const char* g )
 }
 
 
-//! \todo Decide whether removing all alignments is actually the right
-//!       course of action.  (XXX -- it's not)
-bool ScoreFilter::xform( Result& r ) {
-	if( has_hit_to( r, genome_ ) && hit_to( r, genome_ ).score() >
-			slope_ * ( len_from_bin_cigar( hit_to( r, genome_ ).cigar() ) - intercept_ ) )
+bool ScoreFilter::xform( Result& r )
+{
+	int ix_in = 0, ix_out = 0 ;
+	while( ix_in != r.hit_size() )
+	{
+		// keep hits if we're actually looking for a specific genome and
+		// they hit the wrong one or if their score is good (small) enough
+		if( ( genome_ && *genome_ && r.hit(ix_in).genome_name() != genome_ ) ||
+				( slope_ * ( len_from_bin_cigar( r.hit(ix_in).cigar() )
+							 - intercept_ ) >= r.hit(ix_in).score() ) )
+		{
+			if( ix_in != ix_out ) *r.mutable_hit(ix_out) = r.hit(ix_in) ;
+			++ix_out ;
+		}
+		++ix_in ;
+	}
+
+	if( !ix_out )
 	{
 		r.mutable_aln_stats()->set_reason( bad_alignment ) ;
 		r.clear_hit() ;
 	}
+	else while( ix_out != r.hit_size() ) r.mutable_hit()->RemoveLast() ;
 	return true ;
 }
 
