@@ -887,7 +887,7 @@ Stream* mk_filter_by_score( float i, float s, const char* g, const char* )
 void desc_filter_by_score( ostream& ss, float i, float s, const char* g, const char* )
 {
 	ss << "remove alignments to " << (g?g:"any genome") 
-		<< " scoring worse than ( " << s << " * ( L - " << i << " )" ;
+		<< " scoring worse than ( " << s << " * ( L - " << i << " ) )" ;
 }
 
 Stream* mk_filter_by_hit( float, float, const char* genome, const char* arg )
@@ -928,7 +928,7 @@ Stream* mk_rmdup( float i, float s, const char*, const char* )
 { return new RmdupStream( s, i ) ; }
 
 void desc_rmdup( ostream& ss, float i, float s, const char*, const char* )
-{ ss << "coalesce duplicates as long as score is no worse than ( " << s << " * ( L - " << i << " )" ; }
+{ ss << "coalesce duplicates as long as score is no worse than ( " << s << " * ( L - " << i << " ) )" ; }
 
 StreamBundle* mk_merge( float, float, const char*, const char* )
 { return new MergeStream() ; }

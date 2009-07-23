@@ -2,6 +2,8 @@
 #define INCLUDED_DUCTTAPE_H
 
 #include "stream.h"
+#include <string>
+#include <vector>
 
 namespace streams {
 
@@ -29,6 +31,27 @@ class DuctTaper : public Stream
 		DeflateStream out_ ;
 		const char* g_ ;
 
+		// tracking of current reference sequence; we need to start a
+		// new contig if one of these changes
+		std::string cur_genome_ ;
+		std::string cur_sequence_ ;
+
+		// start of current contig on the reference; we're always on the
+		// forward strand
+		uint32_t contig_start_ ;
+
+		// stop-gap: number of observed bases per position in contig
+		// will soon be replaced by somthing that can be used to
+		// calculate posterior probabilities
+		std::vector< int > observed_[5] ;
+
+		// current CIGAR line
+		// This shouldn't ever contain a deletion, but inserts will
+		// happen.  If cigar_ is empty, no contig has been started yet.
+		std::vector< int > cigar_ ;
+
+		void flush_contig() ;
+
 	public:
 		DuctTaper( const char* fn, const char* g ) 
 			: fos_( throw_errno_if_minus1( creat( fn, 0666 ), "writing to", fn ) )
@@ -43,6 +66,7 @@ class DuctTaper : public Stream
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
+		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
 } ;
 
 } // namespace
