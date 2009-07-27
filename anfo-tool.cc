@@ -762,9 +762,6 @@ void StatStream::put_result( const Result& r )
 
 void StatStream::put_footer( const Footer& )
 {
-
-	if( fn_ && *fn_ == '+' )
-
 	if( !fn_ || strcmp( fn_, "-" ) ) printout( cout, true ) ;
 	else if( strcmp( fn_, "+-" ) ) printout( cout, false ) ;
 	else if( *fn_ == '+' ) 
@@ -1004,10 +1001,10 @@ Stream* mk_stats       ( float, float, const char* g, const char* arg )
 
 void desc_stats( ostream& ss, float, float, const char*, const char* fn )
 { 
-	if( !fn || *fn != '+' )
-		ss << "write statistics to " << parse_fn( fn ) ;
-	else
+	if( fn && *fn == '+' )
 		ss << "append statistics to " << parse_fn( fn+1 ) ;
+	else
+		ss << "write statistics to " << parse_fn( fn ) ;
 }
 
 const char *poptGetOptArg1( poptContext con )
@@ -1054,19 +1051,18 @@ int main_( int argc, const char **argv )
 	float param_slope = 7.5, param_intercept = 20.0 ;
 	const char *param_genome = 0 ;
 
-	int POPT_ARG_OSTR = POPT_ARG_STRING | POPT_ARGFLAG_OPTIONAL ;
-	int POPT_ARG_OINT = POPT_ARG_INT | POPT_ARGFLAG_OPTIONAL ;
+	int POPT_ARG_DFLT = POPT_ARG_FLOAT | POPT_ARGFLAG_SHOW_DEFAULT ;
 
 	struct poptOption options[] = {
-		{ "sort-pos",      's', POPT_ARG_OINT,   0, opt_sort_pos,      "sort by alignment position [using <n MiB memory]", "n" },
-		{ "sort-name",     'S', POPT_ARG_OINT,   0, opt_sort_name,     "sort by read name [using <n MiB memory]", "n" },
+		{ "sort-pos",      's', POPT_ARG_INT,    0, opt_sort_pos,      "sort by alignment position [using <n MiB memory]", "n" },
+		{ "sort-name",     'S', POPT_ARG_INT,    0, opt_sort_name,     "sort by read name [using <n MiB memory]", "n" },
 		{ "filter-length", 'l', POPT_ARG_INT,    0, opt_filter_length, "filter for length of at least L", "L" },
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
-		{ "filter-hit",    'h', POPT_ARG_OSTR,   0, opt_filter_hit,    "filter for hitting (in G) SEQ/anything", "SEQ" },
+		{ "filter-hit",    'h', POPT_ARG_STRING, 0, opt_filter_hit,    "filter for hitting (in G) SEQ/anything", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
-		{ "edit-header",    0 , POPT_ARG_OSTR,   0, opt_edit_header,   "invoke editor ED on the stream's header", "ED" },
+		{ "edit-header",    0 , POPT_ARG_STRING, 0, opt_edit_header,   "invoke editor ED on the stream's header", "ED" },
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
@@ -1079,10 +1075,10 @@ int main_( int argc, const char **argv )
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble in glz format into FILE", "FILE" },
-		{ "stats",          0,  POPT_ARG_OSTR,   0, opt_stats,         "write simple statistics to FILE", "FILE" },
+		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
-		{ "set-slope",      0 , POPT_ARG_FLOAT,  &param_slope,      0, "set slope parameter to S", "S" },
-		{ "set-intercept",  0 , POPT_ARG_FLOAT,  &param_intercept,  0, "set length discount parameter to L", "L" },
+		{ "set-slope",      0 , POPT_ARG_DFLT,   &param_slope,      0, "set slope parameter to S", "S" },
+		{ "set-intercept",  0 , POPT_ARG_DFLT,   &param_intercept,  0, "set length discount parameter to L", "L" },
 		{ "set-genome",     0 , POPT_ARG_STRING, &param_genome,     0, "set interesting genome parameter to G", "G" },
 		{ "clear-genome",   0 , POPT_ARG_VAL,    &param_genome,     0, "clear interesting genome parameter", 0 },
 
@@ -1146,7 +1142,7 @@ int main_( int argc, const char **argv )
 			// create filter
 			FilterParams< Stream > fp = {
 				param_slope, param_intercept, param_genome,
-				poptGetOptArg1( pc ), output_makers[rc],
+				poptGetOptArg( pc ), output_makers[rc],
 				descriptions[rc]
 			} ;
 			filters_current->push_back( fp ) ;
@@ -1165,6 +1161,8 @@ int main_( int argc, const char **argv )
 
 	// iterate over non-option arguments, glob everything
 	glob_t the_glob ;
+	the_glob.gl_pathv = 0 ;
+	the_glob.gl_pathc = 0 ;
 	int glob_flag = GLOB_NOSORT ;
 
 	while( const char* arg = poptGetArg( pc ) )
@@ -1176,8 +1174,10 @@ int main_( int argc, const char **argv )
 	// give a report of the filter stack (because it's so easy to get
 	// wrong)
 	console.output( Console::notice, "Input files:" ) ;
-	for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
-		console.output( Console::notice, "  " + string(*arg) ) ;
+	if( the_glob.gl_pathc )
+		for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
+			console.output( Console::notice, "  " + string(*arg) ) ;
+	else console.output( Console::notice, "  <stdin>" ) ;
 
 	if( !filters_initial.empty() ) 
 	{
@@ -1223,6 +1223,7 @@ int main_( int argc, const char **argv )
 				merging_filter.intercept, merging_filter.slope, merging_filter.genome, merging_filter.arg ) ) ;
 
 	// iterate over glob results
+	if( the_glob.gl_pathc )
 	{
 		vector< Compose* > cs ;
 		for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
@@ -1236,6 +1237,7 @@ int main_( int argc, const char **argv )
 		for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
 			merging_stream->add_stream( *i ) ;
 	}
+	else merging_stream->add_stream( new AnfoReader( 0, "<stdin>" ) ) ;
 
 	FanOut out ;
 	// only one output and that one is empty?  add a writer for stdout
