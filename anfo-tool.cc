@@ -893,8 +893,8 @@ Stream* mk_filter_by_hit( float, float, const char* genome, const char* arg )
 void desc_filter_by_hit( ostream& ss, float, float, const char* g, const char* a )
 {
 	ss << "remove sequences without hit" ;
-	if(a) ss << " to sequence " << a ;
-	if(g) ss << " in genome " << g ; 
+	if( a && *a ) ss << " to sequence " << a ;
+	if( g && *g ) ss << " in genome " << g ; 
 }
 
 Stream* mk_filter_qual( float, float, const char*, const char* arg )
@@ -1215,9 +1215,6 @@ int main_( int argc, const char **argv )
 			}
 		}
 	}
-
-	console.output( Console::warning, "Last chance to quit (5 seconds)" ) ;
-	sleep( 5 ) ;
 
 	std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( 
 				merging_filter.intercept, merging_filter.slope, merging_filter.genome, merging_filter.arg ) ) ;
