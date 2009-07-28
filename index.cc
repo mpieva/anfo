@@ -93,7 +93,10 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 		if( !ci_.ParseFromArray( (const char*)p + 8, meta_len ) )
 			throw "error parsing meta information" ;
 
-		first_level_len = 1 << (2 * ci_.wordsize()) + 1 ;
+		// XXX: this line is actually correct, but indexes need to be
+		// rebuilt
+		// first_level_len = (1 << (2 * ci_.wordsize())) + 1 ;
+		first_level_len = 1 << ((2 * ci_.wordsize()) + 1) ;
 		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
 	}
@@ -215,12 +218,14 @@ unsigned FixedIndex::lookupS( const QSequence& dna, std::vector<Seed>& v,
 			default: filled = 0 ; break ;
 		}
 		if( filled >= ci_.wordsize() ) 
+		{
 			if( near_perfect )
 				total += lookup1m( o_f, v, cutoff,   offset - ci_.wordsize() + 1, num_useless ) 
 					   + lookup1m( o_r, v, cutoff, - offset                     , num_useless ) ;
 			else
 				total += lookup1( o_f, v, cutoff,   offset - ci_.wordsize() + 1, num_useless ) 
 					   + lookup1( o_r, v, cutoff, - offset                     , num_useless ) ;
+		}
 	}
 	combine_seeds( v ) ;
 	return total ;

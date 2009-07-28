@@ -3,9 +3,11 @@
 
 #include <cassert>
 #include <climits>
+#include <limits>
 #include <istream>
 #include <vector>
 
+#include <math.h>
 #include <stdint.h>
 
 #include <google/protobuf/io/zero_copy_stream.h>
@@ -138,7 +140,7 @@ class DnaP
 		Ambicode operator * () const { return (*this)[0] ; }
 		Ambicode operator [] ( int64_t ix ) const {
 			int64_t p = p_ + ix ;
-			int64_t p2 = std::abs(p) ;
+			int64_t p2 = llabs(p) ;
 			if( (p2 << 1) < 0 ) p2 |= std::numeric_limits<int64_t>::min() ;
 			uint8_t w = *( reinterpret_cast<uint8_t*>( p2 >> 1 ) ) ;
 			w = 0xf & ( p & 1 ? w >> 4 : w ) ;
@@ -148,7 +150,7 @@ class DnaP
 		operator const void*() const { return (const void*)p_ ; }
 
 		bool is_reversed() const { return p_ < 0 ; }
-		DnaP abs() const { DnaP q ; q.p_ = std::abs(p_) ; return q ; }
+		DnaP abs() const { DnaP q ; q.p_ = llabs(p_) ; return q ; }
 		DnaP reverse() const { DnaP q ; q.p_ = -p_ ; return q ; }
 		DnaP reverse_if( bool p ) const { return p ? reverse() : *this ; }
 
@@ -157,7 +159,7 @@ class DnaP
 		//! If you call this function for anything, you're on your own.
 		const uint8_t *unsafe_ptr() const
 		{ 
-			int64_t p2 = std::abs(p_) ;
+			int64_t p2 = llabs(p_) ;
 			if( (p2 << 1) < 0 ) p2 |= std::numeric_limits<int64_t>::min() ;
 			return reinterpret_cast<uint8_t*>( p2 >> 1 ) ;
 		}

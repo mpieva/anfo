@@ -251,7 +251,7 @@ class FastaDecoder
 				finish_sequence() ;
 				finish_genome() ;
 			}
-			else if( c == 'N' || c == 'n' && num_n_ == max_n_ ) {
+			else if( (c == 'N' || c == 'n') && num_n_ == max_n_ ) {
 				source_position_ -= num_n_ ;
 				finish_contig() ;
 				source_position_ += num_n_+1 ;

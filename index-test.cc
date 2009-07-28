@@ -110,13 +110,14 @@ int main_( int argc, const char * argv[] )
 					<< setw(10) << r.aln_stats().num_clumps() ;
 
 				if( simulation )
+				{
 					if( closest <= seq_len / 2 ) std::cout << "  got correct seed" ;
 					else {
 						++total_failures ;
 						if( closest == UINT_MAX ) std::cout << "  no seed" ;
 						else std::cout << "  closest seed: " << closest ;
 					}
-
+				}
 				std::cout << std::endl ;
 
 				for( size_t i = 0 ; i != ol.size() ; ++i )

@@ -6,6 +6,8 @@
 #endif
 
 #include <cerrno>
+#include <cstring>
+#include <cstdlib>
 #include <iosfwd>
 #include <map>
 #include <sstream>
@@ -200,7 +202,7 @@ class Console
 
 	public:
 		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
-		~Console() { if( fd_ >= 0 ) { write( fd_, "\n", 1 ) ; close( fd_ ) ; } }
+		~Console() { if( fd_ >= 0 ) { mywrite( fd_, "\n", 1 ) ; close( fd_ ) ; } }
 
 		int alloc_chan() { return ++next_ ; }
 		void free_chan( int c ) { chans_.erase( c ) ; update() ; }

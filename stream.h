@@ -10,6 +10,7 @@
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 
+#include <algorithm>
 #include <deque>
 #include <fstream>
 #include <memory>

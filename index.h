@@ -5,6 +5,7 @@
 #include "sequence.h"
 #include "util.h"
 
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <limits>

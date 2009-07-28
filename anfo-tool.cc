@@ -556,7 +556,7 @@ void RepairHeaderStream::put_header( const Header& h )
 
 	string cmd = string( editor_ ? editor_ : getenv("EDITOR") ) + " " + tmpname ;
 	for(;;) {
-		system( cmd.c_str() ) ;
+		if( system( cmd.c_str() ) ) break ;;
 		lseek( fd, 0, SEEK_SET ) ;
 		FileInputStream fis( fd ) ;
 		if( TextFormat::Parse( &fis, &hdr_ ) ) break ;

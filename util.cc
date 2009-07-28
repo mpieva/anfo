@@ -87,10 +87,10 @@ void Console::output( Loglevel l, const std::string& s )
 	if( l < loglevel ) return ;
 	if( fd_ < 0 ) { std::clog << s << std::endl ; }
 	if( s.empty() ) return ;
-	write( fd_, "\r\e[K", 4 ) ;
-	write( fd_, describe[l], strlen( describe[l] ) ) ;
-	write( fd_, s.data(), s.size() ) ;
-	if( s[ s.size()-1 ] != '\n' ) write( fd_, "\n", 1 ) ;
+	mywrite( fd_, "\r\e[K", 4 ) ;
+	mywrite( fd_, describe[l], strlen( describe[l] ) ) ;
+	mywrite( fd_, s.data(), s.size() ) ;
+	if( s[ s.size()-1 ] != '\n' ) mywrite( fd_, "\n", 1 ) ;
 	update() ;
 }
 
@@ -111,7 +111,7 @@ void Console::update()
 		line.push_back( ' ' ) ;
 		width -= ch->second.size()+3 ;
 	}
-	write( fd_, line.data(), line.size() - (line[line.size()-1] == ' ') ) ;
+	mywrite( fd_, line.data(), line.size() - (line[line.size()-1] == ' ') ) ;
 }
 
 
