@@ -701,7 +701,7 @@ bool QualFilter::xform( Result& r )
 {
 	if( r.read().has_quality() ) 
 		for( size_t i = 0 ; i != r.read().sequence().size() && i != r.read().quality().size() ; ++i )
-			if( r.read().quality()[i] < q_ ) (*r.mutable_read()->mutable_sequence())[i] = '-' ;
+			if( r.read().quality()[i] < q_ ) (*r.mutable_read()->mutable_sequence())[i] = 'N' ;
 	return true ;
 }
 

@@ -384,10 +384,10 @@ class MultiFilter : public Filter
 } ;
 
 //! \brief stream that filters out low quality bases
-//! Bases with insufficient quality are replaced by gap symbols.
-//! Strictly speaking gap symbols in a sequence don't make sense and
-//! would confuse many tools, but the intention here is to apply this
-//! filter only when producing legacy FASTA out where it serves to
+//! Bases with insufficient quality are replaced by N symbols.
+//! (Originally I used gap symbols, which doesn't make sense and
+//! actually confused the legacy tool downstream.  Ns should be fine and
+//! are actually the correct symbol in a certain sense.)
 //! suppress the counting of low quality bases.
 class QualFilter : public Filter
 {
@@ -442,7 +442,7 @@ class QualFilter : public Filter
 	P(\omega | N) \f$.  We easily get \f$ P(\omega | A) \f$ (see above),
 	which will normally be very close to one, and the sum of the other
 	three.  To distribute the sum, we set
-	\f[ P(\omega|N) = \frac{P(N|\omega) * P(\omega)}{\P(N)} =
+	\f[ P(\omega|N) = \frac{P(N|\omega) * P(\omega)}{P(N)} =
 	P(N|\omega) = P(N|\bar{A}) * P(\bar{A}|\omega) \f]
 	and estimate \f$ P(N|\bar{A}) \f$ from misclassfication statistics
 	of the base caller.
