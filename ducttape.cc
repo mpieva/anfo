@@ -20,6 +20,8 @@ void DuctTaper::put_header( const Header& h )
 // quality score.  (We can also call an ambiguity code, choosing it so
 // the highest amount of information is retained.)  Then synthesize a
 // result to return and change state accordingly.
+//
+// XXX: need a rule to decide whether sth. was inserted and how much
 void DuctTaper::flush_contig()
 {
 	if( is_ins_.empty() ) return ;
@@ -37,6 +39,17 @@ void DuctTaper::flush_contig()
 	std::clog << "(flush) contig " << cur_genome_ << ':'
 		<< cur_sequence_ << ':' << contig_start_ << '-' << contig_end_ 
 		<< " (" << (contig_end_ - contig_start_) << ") @ " << nreads_ << std::endl ;
+
+	for( size_t i = 0 ; i != is_ins_.size() ; ++i )
+	{
+		std::clog << (is_ins_[i] ? '-' : 'N') ;
+		for( int j = 0 ; j != 5 ; ++j )
+			if( observed_[i].seen[j] )
+				std::clog << '\t' << observed_[i].seen[j] ; 
+			else 
+				std::clog << '\t' << ' ' ;
+		std::clog << std::endl ;
+	}
 
 	is_ins_.clear() ;
 	observed_.clear() ;
@@ -70,13 +83,13 @@ void DuctTaper::put_result( const Result& r )
 	if( !has_hit_to( r, g_ ) ) return ;
 	const Hit& h = hit_to( r, g_ ) ;
 
-	// XXX is this good enough?
+	// XXX is this good enough?  make it configurable?
 	if( h.has_diff_to_next() && h.diff_to_next() < 60 ) return ;
 
 	++nreads_ ;
-	if( !is_ins_.empty() && (cur_genome_ != h.genome_name()
+	if( cur_genome_ != h.genome_name()
 				|| cur_sequence_ != h.sequence()
-				|| h.start_pos() >= contig_end_ ) )
+				|| h.start_pos() > contig_end_ )
 	{
 		flush_contig() ;
 		cur_genome_ = h.genome_name() ;
@@ -84,7 +97,7 @@ void DuctTaper::put_result( const Result& r )
 		contig_start_ = contig_end_ = h.start_pos() ;
 	}
 
-	// XXX Darn, need to treat RC'd alignments differently.
+	// Damn, need to treat RC'd alignments differently.
 	bool rev = h.aln_length() < 0 ;
 	std::vector< int > cigar( h.cigar().begin(), h.cigar().end() ) ;
 	std::string qual = r.read().quality() ;
@@ -109,6 +122,10 @@ void DuctTaper::put_result( const Result& r )
 	size_t column = 0 ;
 	size_t cigar_maj = 0 ;
 	size_t cigar_min = 0 ;
+
+	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
+		if( !is_ins_[column] ) --offs ;
+
 	while( p_seq != seq.end() && cigar_maj != cigar.size() )
 	{
 		if( cigar_len( cigar[ cigar_maj ] ) == cigar_min )
