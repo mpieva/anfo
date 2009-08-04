@@ -678,17 +678,6 @@ State find_cheapest(
 }
 
 
-inline void push_op( std::vector<unsigned>& s, unsigned m, output::Hit::Operation op )
-{
-	if( !s.empty() && (streams::cigar_op( s.back() ) == op) && streams::cigar_len( s.back() ) ) 
-		s.back() = streams::mk_cigar( op, m + streams::cigar_len( s.back() ) ) ;
-	else s.push_back( streams::mk_cigar( op, m ) ) ;
-}
-inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Match ) ; }
-inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }
-inline void push_i( std::vector<unsigned>& s, unsigned i ) { push_op( s, i, output::Hit::Insert ) ; }
-inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, output::Hit::Delete ) ; }
-
 //! \brief backtraces an alignment and return a CIGAR line
 //!
 //! This backtraces an alignment after it has been created by
@@ -735,15 +724,15 @@ backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, Dn
 		if( int m = std::min( dr, dq ) ) {
 			dr -= m ;
 			dq -= m ;
-			push_m( fwd, m ) ;
+			streams::push_m( fwd, m ) ;
 		}
-		push_i( fwd, dq ) ;
-		push_d( fwd, dr ) ;
+		streams::push_i( fwd, dq ) ;
+		streams::push_d( fwd, dr ) ;
 		a = b ;
 	}
 
 	assert( a->ref_offs == a->query_offs ) ;
-	push_m( fwd, -a->ref_offs-1 ) ;
+	streams::push_m( fwd, -a->ref_offs-1 ) ;
 	fwd.push_back( 0 ) ;
 
 	// Skip one state, this is the one aligning the terminal gap.
@@ -762,10 +751,10 @@ backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, Dn
 		if( int m = std::min( dr, dq ) ) {
 			dr -= m ;
 			dq -= m ;
-			push_m( rev, m ) ; 
+			streams::push_m( rev, m ) ; 
 		}
-		push_i( rev, dq ) ;
-		push_d( rev, dr ) ;
+		streams::push_i( rev, dq ) ;
+		streams::push_d( rev, dr ) ;
 		a = b ;
 	}
 
@@ -774,7 +763,7 @@ backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, Dn
 	// vanish).  We can again add this to t2, as we're going in the same
 	// direction.
 	assert( a->ref_offs == a->query_offs ) ;
-	push_m( rev, a->ref_offs ) ;
+	streams::push_m( rev, a->ref_offs ) ;
 
 	fwd.insert( fwd.end(), rev.rbegin(), rev.rend() ) ;
 	return fwd ;

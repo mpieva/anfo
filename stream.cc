@@ -477,6 +477,12 @@ bool ScoreFilter::xform( Result& r )
 	return true ;
 }
 
+bool MapqFilter::xform( Result& r ) {
+	return has_hit_to( r, g_ ) &&
+		( !hit_to( r, g_).has_diff_to_next() ||
+		  hit_to( r, g_ ).diff_to_next() >= minmapq_ ) ;
+}
+
 bool LengthFilter::xform( Result& r ) {
 	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() )
 		    - ( r.read().has_trim_left() ? r.read().trim_left() : 0 ) ;

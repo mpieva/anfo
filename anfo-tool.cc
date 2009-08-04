@@ -887,6 +887,16 @@ void desc_filter_by_score( ostream& ss, float i, float s, const char* g, const c
 		<< " scoring worse than ( " << s << " * ( L - " << i << " ) )" ;
 }
 
+Stream* mk_filter_by_mapq( float, float, const char* g, const char* arg )
+{ return new MapqFilter( g, parse_int( arg ) ) ; }
+
+void desc_filter_by_mapq( ostream& ss, float, float, const char* g, const char* arg )
+{
+	ss << "remove alignments where MAPQ" ;
+	if( g ) ss << " on genome " << g ;
+	ss << " is below " << parse_int( arg ) ;
+}
+
 Stream* mk_filter_by_hit( float, float, const char* genome, const char* arg )
 { return new HitFilter( genome, arg ) ; }
 
@@ -990,11 +1000,17 @@ Stream* mk_output_table( float, float, const char* g, const char* fn )
 void desc_output_table( ostream& ss, float, float, const char*, const char* fn )
 { ss << "write useless table to " << parse_fn( fn ) ; }
 
-Stream* mk_duct_tape  ( float, float, const char* g, const char* fn )
-{ return is_stdout( fn ) ? new DuctTaper( 1, g ) : new DuctTaper( fn, g ) ; }
+Stream* mk_duct_tape  ( float, float, const char* g, const char* arg )
+{ return new DuctTaper( g, parse_int( arg ) ) ; }
 
-void desc_duct_tape( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write mock assembly in GLZ format to " << parse_fn( fn ) ; }
+void desc_duct_tape( ostream& ss, float, float, const char* g, const char* arg )
+{ 
+	ss << "mock-assemble hits" ;
+	if( g ) ss << " to genome " << g ;
+	ss << " and clamp Q-score to no more than " << parse_int( arg ) ;
+}
+
+// { ss << "write mock assembly in GLZ format to " << parse_fn( fn ) ; }
 
 Stream* mk_stats       ( float, float, const char* g, const char* arg )
 { return new StatStream( arg, g ) ; }
@@ -1020,31 +1036,31 @@ int main_( int argc, const char **argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
-		opt_filter_score, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
+		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam,
 		opt_output_fasta, opt_output_fastq, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
-		mk_filter_by_score, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
+		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
 		0, 0, mk_rmdup, 0, 0, 0,
-		0, 0, 0, 0, 0, 0 } ;
+		0, 0, 0, mk_duct_tape, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, mk_merge, mk_join,
+		0, 0, 0, 0, 0, 0, 0, mk_merge, mk_join,
 		mk_mega_merge, mk_concat, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_text, mk_output_sam,
-		mk_output_fasta, mk_output_fastq, mk_output_table, mk_duct_tape, mk_stats, 0 } ;
+		mk_output_fasta, mk_output_fastq, mk_output_table, 0, mk_stats, 0 } ;
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
-		desc_filter_by_score, desc_filter_by_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
+		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, 
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
 
@@ -1058,6 +1074,7 @@ int main_( int argc, const char **argv )
 		{ "sort-name",     'S', POPT_ARG_INT,    0, opt_sort_name,     "sort by read name [using <n MiB memory]", "n" },
 		{ "filter-length", 'l', POPT_ARG_INT,    0, opt_filter_length, "filter for length of at least L", "L" },
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
+		{ "filter-mapq",    0 , POPT_ARG_INT,    0, opt_filter_mapq,   "remove alignments with MAPQ below Q", "Q" },
 		{ "filter-hit",    'h', POPT_ARG_STRING, 0, opt_filter_hit,    "filter for hitting (in G) SEQ/anything", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
@@ -1074,7 +1091,7 @@ int main_( int argc, const char **argv )
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
-		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble in glz format into FILE", "FILE" },
+		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble while clamping Q-scores to Q", "Q" },
 		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_DFLT,   &param_slope,      0, "set slope parameter to S", "S" },
@@ -1197,22 +1214,24 @@ int main_( int argc, const char **argv )
 		console.output( Console::notice, s.str() ) ;
 	}
 
-	if( filters_terminal.size() == 1 && filters_terminal[0].empty() )
+	// only one filter stack and no output?  add a writer for stdout
+	if( filters_terminal.size() == 1 )
 	{
-		stringstream s ;
-		desc_output_text( s, 0, 0, 0, 0 ) ;
-		console.output( Console::notice, s.str() ) ;
+		FilterParams< Stream > fp = {
+			param_slope, param_intercept, param_genome,
+			0, mk_output_text, desc_output_text
+		} ;
+		filters_terminal[0].push_back( fp ) ;
 	}
-	else for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
+
+	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
 	{
-		if( !i->empty() ) {
-			console.output( Console::notice, "Filter a copy of the result as follows:" ) ;
-			for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
-			{
-				stringstream s ;
-				(j->describe)( s << "  ", j->intercept, j->slope, j->genome, j->arg ) ;
-				console.output( Console::notice, s.str() ) ;
-			}
+		console.output( Console::notice, "Filter a copy of the result as follows:" ) ;
+		for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
+		{
+			stringstream s ;
+			(j->describe)( s << "  ", j->intercept, j->slope, j->genome, j->arg ) ;
+			console.output( Console::notice, s.str() ) ;
 		}
 	}
 
@@ -1237,19 +1256,12 @@ int main_( int argc, const char **argv )
 	else merging_stream->add_stream( new AnfoReader( 0, "<stdin>" ) ) ;
 
 	FanOut out ;
-	// only one output and that one is empty?  add a writer for stdout
-	if( filters_terminal.size() == 1 && filters_terminal[0].empty() )
+	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
 	{
-		out.add_stream( new TextWriter( 1 ) ) ;
-	}
-	else for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
-	{
-		if( !i->empty() ) {
-			auto_ptr< Compose > c( new Compose ) ;
-			for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
-				c->add_stream( (j->maker)( j->intercept, j->slope, j->genome, j->arg ) ) ;
-			out.add_stream( c.release() ) ;
-		}
+		auto_ptr< Compose > c( new Compose ) ;
+		for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
+			c->add_stream( (j->maker)( j->intercept, j->slope, j->genome, j->arg ) ) ;
+		out.add_stream( c.release() ) ;
 	}
 
 	transfer( *merging_stream, out ) ;

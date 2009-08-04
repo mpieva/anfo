@@ -117,6 +117,17 @@ inline output::Hit::Operation cigar_op( uint32_t c ) { return (output::Hit::Oper
 inline uint32_t cigar_len( uint32_t c ) { return c >> 4 ; }
 inline uint32_t mk_cigar( output::Hit::Operation op, uint32_t len ) { return len << 4 | op ; }
 
+inline void push_op( std::vector<unsigned>& s, unsigned m, output::Hit::Operation op )
+{
+	if( !s.empty() && (streams::cigar_op( s.back() ) == op) && streams::cigar_len( s.back() ) ) 
+		s.back() = streams::mk_cigar( op, m + streams::cigar_len( s.back() ) ) ;
+	else s.push_back( streams::mk_cigar( op, m ) ) ;
+}
+inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Match ) ; }
+inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }
+inline void push_i( std::vector<unsigned>& s, unsigned i ) { push_op( s, i, output::Hit::Insert ) ; }
+inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, output::Hit::Delete ) ; }
+
 //! @}
 
 struct MissingMethod : public Exception {
@@ -324,6 +335,21 @@ class ScoreFilter : public Filter
 	public:
 		ScoreFilter( double s, double i, const char* g ) : slope_(s), intercept_(i), genome_(g) {}
 		virtual ~ScoreFilter() {}
+		virtual bool xform( Result& ) ;
+} ;
+
+//! \brief stream that filters for minimum mapping quality
+//! All alignments of sequences where the differenc eto the next hit is
+//! too low are deleted.
+class MapqFilter : public Filter
+{
+	private:
+		const char* g_ ;
+		int minmapq_ ; ;
+
+	public:
+		MapqFilter( const char* g, int q ) : g_(g), minmapq_(q) {}
+		virtual ~MapqFilter() {}
 		virtual bool xform( Result& ) ;
 } ;
 
