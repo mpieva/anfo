@@ -203,30 +203,28 @@ message Read {
     // quality scores (Phred scale, raw, without silly offsets)
     optional bytes quality = 14 ;
 
-	// likelihoods of consensus sequence
-	// This is intended to resemble the GL format or at least allow
-	// generation of GLF.  For each position in the sequence, we store
-	// either 4 or 10 likelihood ratios (for haploid/diploid genomes) as
-	// specified for GLF.  This is a 2D array, the inner index is
-	// sequence position, the outer is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].
-	// Length must be 4*(length sequence) or 10*(length sequence).  I
-	// interpret the min_lk field of GLF as the quality score (therefore
-	// it's stored in quality), sequence will be called with the most
-	// likely base (or maybe an ambiguity code).
-	// Bytes are sufficient for storage, since we clamp everything at
-	// 255.
-	optional bytes likelihoods = 3 ;
+    // likelihoods of consensus sequence
+    // This is intended to resemble the GL format or at least allow
+    // generation of GLF.  For each position in the sequence, we store
+    // either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
+    // as specified for GLF.  Each entry is as long as the sequence, the
+    // order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  I
+    // interpret the min_lk field of GLF as the quality score (therefore
+    // it's stored in quality), sequence will be called with the most
+    // likely base (or maybe an ambiguity code).  Bytes are sufficient
+    // for storage, since we clamp everything at 255 anyway.
+    repeated bytes likelihoods = 15 ;
 
-	// raw counts of what base was seen in a position
-	// Not needed or useful for GLF, but useful to retain 'just in
-	// case'.  Length must equal 4*(length sequence), treated as 2D
-	// array, outer index is [A,C,G,T].
-	repeated uint32 seen_bases = 4 [packed=true] ;
+    // raw counts of what base was seen in a position
+    // Not needed or useful for GLF, but useful to retain 'just in
+    // case'.  Length must equal 4*(length sequence), treated as 2D
+    // array, inner index is [A,C,G,T].
+    repeated uint32 seen_bases = 16 [packed=true] ;
 
-	// total depth at each position
-	// Coverage at each position is the sum of bases A,C,G,T and gaps.
-	// Length is supposed to equal (length sequence).
-	repeated uint32 depth = 5 [packed=true] ;
+    // total depth at each position
+    // Coverage at each position is the sum of bases A,C,G,T and gaps.
+    // Length is supposed to equal (length sequence).
+    repeated uint32 depth = 17 [packed=true] ;
 
     // number of bases trimmed at 5' (at 3') end if trimming was done
     optional uint32 trim_left = 11 ;

@@ -1,7 +1,6 @@
 #include "ducttape.h"
 
 #include <algorithm>
-// #include <iostream>
 #include <numeric>
 #include <sstream>
 
@@ -52,20 +51,14 @@ void DuctTaper::flush_contig()
 	ss2 << nreads_ << " reads joined" ;
 	rd.set_description( ss2.str() ) ;
 
-	// XXX remove columns where sth. was inserted, but most reads show a
-	// gap
+	// XXX remove columns where sth. was inserted, but most reads show a gap
 	
 	int eff_length = 0 ;
 	for( size_t i = 0 ; i != is_ins_.size() ; ++i )
 		if( std::accumulate( observed_[i].seen, observed_[i].seen+4, 0 ) > observed_[i].seen[4] )
 			++eff_length ;
 
-	// XXX rd.mutable_sequence()->resize( eff_length ) ;
-	// XXX rd.mutable_quality()->resize( eff_length ) ;
-	// while( rd.likelihoods().size() != eff_length * 4 /*10*/ ) rd.add_likelihoods( 0 ) ;
-	rd.mutable_likelihoods()->resize( eff_length * 4 /*10*/ ) ;
-	while( rd.seen_bases_size() != eff_length * 4 ) rd.add_seen_bases( 0 ) ;
-	while( rd.depth_size() != eff_length ) rd.add_depth( 0 ) ;
+    for( int i = 0 ; i != 4 /*10*/ ; ++i ) rd.add_likelihoods() ;
 
 	std::vector<unsigned> cigar ;
 	for( size_t i = 0, ie = 0 ; i != is_ins_.size() ; ++i )
@@ -78,15 +71,13 @@ void DuctTaper::flush_contig()
 			int maxlk = 0 ;
 			for( int j = 0 ; j != 4 ; ++j )
 			{
-				rd.set_seen_bases( eff_length * j + ie, observed_[i].seen[j] ) ;
+				rd.add_seen_bases( observed_[i].seen[j] ) ;
 				if( observed_[i].lk[j] > observed_[i].lk[maxlk] ) maxlk = j ;
 			}
 
-			rd.set_depth( ie, cov + observed_[i].seen[4] ) ; // includes gaps
-
+			rd.add_depth( cov + observed_[i].seen[4] ) ;
 			rd.mutable_sequence()->push_back( "ACTG"[maxlk] ) ;
 
-			// set quality (=^= min_lk)
 			Logdom q = maxlk == 0 ? observed_[i].lk[1] : observed_[i].lk[0] ;
 			for( int j = maxlk == 0 ? 2 : 1 ; j != 4 ; ++j )
 				if( j != maxlk ) q += observed_[i].lk[j] ;
@@ -94,8 +85,8 @@ void DuctTaper::flush_contig()
 			rd.mutable_quality()->push_back( (q / lk_tot).to_phred_byte() ) ;
 
 			for( int j = 0 ; j != 4 ; ++j )
-				(*rd.mutable_likelihoods())[ eff_length * j + ie ] =
-						(observed_[i].lk[j] / observed_[i].lk[maxlk]).to_phred_byte() ;
+				rd.mutable_likelihoods(j)->push_back( 
+						(observed_[i].lk[j] / observed_[i].lk[maxlk]).to_phred_byte() ) ;
 
 			++ie ;
 		}
@@ -144,9 +135,6 @@ void DuctTaper::put_result( const Result& r )
 {
 	if( !has_hit_to( r, g_ ) ) return ;
 	const Hit& h = hit_to( r, g_ ) ;
-
-	// XXX is this good enough?  make it configurable?
-	if( h.has_diff_to_next() && h.diff_to_next() < 60 ) return ;
 
 	++nreads_ ;
 	if( cur_genome_ != h.genome_name()
@@ -258,9 +246,6 @@ void DuctTaper::put_result( const Result& r )
 		}
 		++column ;
 	}
-
-	// std::clog << "contig " << cur_genome_ << ':'
-		// << cur_sequence_ << ':' << contig_start_ << '-' << contig_end_ << std::endl ;
 } 
 
 } // namespace
