@@ -46,15 +46,19 @@ class DuctTaper : public Stream
 		// Accumulated quantity is \f$ P(\omega | x) * P(y->x) * P(y)
 		// \f$, for we can easily calculate a probability from that.
 		// Order is A,C,G,T,-.  Also tracks whether a column is inserted
-		// relative to the reference.  XXX Missing: a way to track how
-		// many reads span a given position.
+		// relative to the reference.
 		struct Acc {
-			int seen[5] ;
-			Logdom lk[10] ; 
-			bool is_ins ;
+			int seen[4] ;		// # of times A,C,G,T was seen
+			int gapped ;		// # of times a gap was seen
+			int crossed ;		// # of times a read overlapped the gap before this col.
+			bool is_ins ;		// was this iserted rel. to reference?
+			Logdom lk[10] ; 	// likelihoods for allele pairs
 
-			Acc( bool ins = false ) : is_ins(ins) { seen[0] = seen[1] = seen[2] = seen[3] = seen[4] = 0 ; }
-			bool pristine() const { for( int i = 0 ; i != 5 ; ++i ) if( seen[i] ) return false ; return true ; }
+			Acc( bool ins = false, int gap = 0 ) : gapped(gap), crossed(0), is_ins(ins)
+			{ seen[0] = seen[1] = seen[2] = seen[3] = 0 ; }
+
+			bool pristine() const
+			{ for( int i = 0 ; i != 5 ; ++i ) if( seen[i] ) return false ; return gapped == 0 ; }
 		} ;
 		typedef std::vector< Acc > Accs ;
 		Accs observed_ ;

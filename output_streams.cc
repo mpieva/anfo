@@ -91,15 +91,40 @@ void show_alignment(
 			switch( cigar_op( h.cigar(i) ) )
 			{
 				case output::Hit::Match:
-					if( !l && !for_fastq ) q.push_back('~') ;
+					if( !l && !for_fastq ) {
+						r.push_back('~') ;
+						q.push_back('~') ;
+						c.push_back('~') ;
+					}
+					else for( size_t j = 0 ; j != l ; ++j, ++qry ) {
+						r.push_back('N') ;
+						q.push_back( *qry ) ;
+						c.push_back('*') ;
+					}
+					break ;
 
 				case output::Hit::Mismatch:
+					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
+						r.push_back('N') ;
+						q.push_back( *qry ) ;
+						c.push_back(' ') ;
+					}
+					break ;
+
 				case output::Hit::Insert:
-					for( size_t j = 0 ; j != l ; ++j, ++qry ) q.push_back( *qry ) ;
+					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
+						r.push_back( '-' ) ;
+						q.push_back( *qry ) ;
+						c.push_back( ' ' ) ;
+					}
 					break ;
 
 				case output::Hit::Delete:
-					for( size_t j = 0 ; j != l ; ++j ) q.push_back( '-' ) ;
+					for( size_t j = 0 ; j != l ; ++j ) {
+						r.push_back( 'N' ) ;
+						q.push_back( '-' ) ;
+						c.push_back( ' ' ) ;
+					}
 					break ;
 
 				case output::Hit::SoftClip: break ; // ???

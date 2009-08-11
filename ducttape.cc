@@ -23,8 +23,6 @@ void DuctTaper::put_header( const Header& h )
 // quality score.  (We can also call an ambiguity code, choosing it so
 // the highest amount of information is retained.)  Then synthesize a
 // result to return and change state accordingly.
-//
-// XXX: need a rule to decide whether sth. was inserted and how much
 
 void DuctTaper::flush_contig()
 {
@@ -96,7 +94,6 @@ void DuctTaper::flush_contig()
 	hit.set_start_pos( contig_start_ ) ;
 	hit.set_aln_length( contig_end_ - contig_start_ ) ;
 	hit.set_diff_to_next( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ;
-	hit.set_score( 0 ) ; // XXX cannot calculate the friggen' score 
 	std::copy( cigar.begin(), cigar.end(), RepeatedFieldBackInserter( hit.mutable_cigar() ) ) ;
 
 	observed_.clear() ;
@@ -197,11 +194,14 @@ void DuctTaper::put_result( const Result& r )
 			case Hit::Insert:
 				if( cigar_op( cigar[ cigar_maj ] ) == Hit::Insert )
 				{
-					if( !column->is_ins ) column = observed_.insert( column, Acc(true) ) ;
+					if( !column->is_ins ) column = observed_.insert( column, Acc(true, column->crossed ) ) ;
 				} 
 				else
 				{
-					if( column->is_ins ) break ;
+					if( column->is_ins ) {
+						++column->gapped ;
+						break ;
+					}
 				}
 
 				if( *p_seq != -1 ) {
@@ -228,7 +228,7 @@ void DuctTaper::put_result( const Result& r )
 				break ;
 
 			case Hit::Delete:
-				++column->seen[4] ; // == gap
+				++column->gapped ;
 				++cigar_min ;
 				break ;
 
@@ -236,6 +236,7 @@ void DuctTaper::put_result( const Result& r )
 				throw "unexpected CIGAR operation" ;
 				break ;
 		}
+		if( p_seq != seq.begin() ) ++column->crossed ;
 		++column ;
 	}
 } 

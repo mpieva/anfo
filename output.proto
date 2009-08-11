@@ -279,9 +279,11 @@ message Hit {
 
     // Score 
     // This is actually a penalty, and it represents the Phred-scaled
-	// probability of this alignment being right.  Signed because we may
-	// want to allow negative scores, too.
-    required sint32 score = 5 ;
+    // probability of this alignment being right.  Signed because we may
+    // want to allow negative scores, too (though only if the scale ever
+    // changes).  Optional, because majority sequences won't have a
+    // sensible score.
+    optional sint32 score = 5 ;
 
     // E-value (because it's customary to have one)
     optional float evalue = 6 ;
