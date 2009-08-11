@@ -293,8 +293,6 @@ template< typename I > class ContainerStream : public Stream
 			state_ = cur_ == end_ ? end_of_stream : have_output ;
 		}
 
-		virtual Header fetch_header() { return hdr_ ; }
-		virtual Footer fetch_footer() { return foot_ ; }
 		virtual Result fetch_result() {
 			Result r = **cur_ ;
 			++cur_ ;
@@ -367,7 +365,7 @@ template <class Comp> class SortingStream : public Stream
 			--SortingStream__ninstances ;
 		}
 
-		virtual void put_header( const Header& h ) { hdr_ = h ; comp_.tag_header( hdr_ ) ; state_ = need_input ; }
+		virtual void put_header( const Header& h ) { Stream::put_header( h ) ; comp_.tag_header( hdr_ ) ; }
 		virtual void put_footer( const Footer& ) ;
 		virtual void put_result( const Result& r ) {
 			scratch_space_.push_back( new Result( r ) ) ;
@@ -449,7 +447,7 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 //! we've written and become a \c MergeStream.
 template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f ) 
 {
-	foot_ = f ;
+	Stream::put_footer( f ) ;
 
 	// We have to be careful about buffering; if more than one
 	// SortingStream is active, we could run out of RAM.  Therefore, if
@@ -534,15 +532,7 @@ class RepairHeaderStream : public Stream
 	public:
 		RepairHeaderStream( const char* e ) : editor_( e ) {}
 		virtual ~RepairHeaderStream() {}
-
 		virtual void put_header( const Header& ) ;
-		virtual Header fetch_header() { return hdr_ ; }
-
-		virtual void put_result( const Result& r ) { res_ = r ; state_ = have_output ; }
-		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
-
-		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
-		virtual Footer fetch_footer() { return foot_ ; }
 } ;
 
 void RepairHeaderStream::put_header( const Header& h ) 
@@ -594,9 +584,9 @@ void FanOut::put_result( const Result& r )
 
 void FanOut::put_footer( const Footer& f )
 {
+	Stream::put_footer( f ) ;
 	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
 		(*i)->put_footer( f ) ;
-	state_ = streams_.front()->get_state() ;
 }
 
 class Compose : public StreamBundle
@@ -760,8 +750,9 @@ void StatStream::put_result( const Result& r )
 	if( name_.empty() ) name_ = r.read().seqid() ;
 }
 
-void StatStream::put_footer( const Footer& )
+void StatStream::put_footer( const Footer& f )
 {
+	Stream::put_footer( f ) ;
 	if( !fn_ || strcmp( fn_, "-" ) ) printout( cout, true ) ;
 	else if( strcmp( fn_, "+-" ) ) printout( cout, false ) ;
 	else if( *fn_ == '+' ) 
@@ -976,15 +967,25 @@ void desc_output_text( ostream& ss, float, float, const char*, const char* fn )
 Stream* mk_output_sam  ( float, float, const char* g, const char* fn )
 { return is_stdout( fn ) ? new SamWriter( cout.rdbuf(), g ) : new SamWriter( fn, g ) ; } 
 
-void desc_output_sam( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write in SAM format to " << parse_fn( fn ) ; }
+void desc_output_sam( ostream& ss, float, float, const char* g, const char* fn )
+{ 
+	ss << "write alignments" ;
+	if( g ) ss << " to genome " << g ;
+	ss << " in SAM format to " << parse_fn( fn ) ;
+}
+
+Stream* mk_output_glz  ( float, float, const char*, const char* fn )
+{ return is_stdout( fn ) ? new GlzWriter( 1 ) : new GlzWriter( fn ) ; } 
+
+void desc_output_glz( ostream& ss, float, float, const char*, const char* fn )
+{ ss << "write contigs in GLZ format to " << parse_fn( fn ) ; }
 
 Stream* mk_output_fasta( float, float, const char* g, const char* fn )
 { return is_stdout( fn ) ? new FastaWriter( cout.rdbuf(), g ) : new FastaWriter( fn, g ) ; } 
 
 void desc_output_fasta( ostream& ss, float, float, const char* g, const char* fn )
 { 
-	ss << "write alignments to " << (g?g:"any genome") 
+	ss << "write alignments(!) to " << (g?g:"any genome") 
 	   << " in FASTA format to " << parse_fn( fn ) ;
 }
 
@@ -1037,31 +1038,31 @@ int main_( int argc, const char **argv )
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
-		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam,
+		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam, opt_output_glz,
 		opt_output_fasta, opt_output_fastq, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
-		0, 0, mk_rmdup, 0, 0, 0,
+		0, 0, mk_rmdup, 0, 0, 0, 0,
 		0, 0, 0, mk_duct_tape, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, mk_merge, mk_join,
-		mk_mega_merge, mk_concat, 0, 0, 0, 0,
+		mk_mega_merge, mk_concat, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, mk_output, mk_output_text, mk_output_sam,
+		0, 0, 0, mk_output, mk_output_text, mk_output_sam, mk_output_glz,
 		mk_output_fasta, mk_output_fastq, mk_output_table, 0, mk_stats, 0 } ;
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
 		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
-		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, 
+		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
 
 	float param_slope = 7.5, param_intercept = 20.0 ;
@@ -1088,6 +1089,7 @@ int main_( int argc, const char **argv )
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
+		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write alignments in sam format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
@@ -1214,15 +1216,18 @@ int main_( int argc, const char **argv )
 		console.output( Console::notice, s.str() ) ;
 	}
 
-	// only one filter stack and no output?  add a writer for stdout
-	if( filters_terminal.size() == 1 )
+	// last filter stack is not empty (== missing output filter) or only
+	// one filter stack (== no output at all)?  --> add a writer for
+	// stdout to last filter.  else remove the empty one
+	if( !filters_terminal.back().empty() || filters_terminal.size() == 1 )
 	{
 		FilterParams< Stream > fp = {
 			param_slope, param_intercept, param_genome,
 			0, mk_output_text, desc_output_text
 		} ;
-		filters_terminal[0].push_back( fp ) ;
+		filters_terminal.back().push_back( fp ) ;
 	}
+	else filters_terminal.pop_back() ;
 
 	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
 	{

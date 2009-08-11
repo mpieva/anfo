@@ -4,6 +4,7 @@
 #include "index.h"
 #include "stream.h"
 
+#include <google/protobuf/io/gzip_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <fstream>
 #include <ios>
@@ -35,17 +36,16 @@ class TextWriter : public Stream
 
 		virtual void put_header( const Header& h ) 
 		{
-			hdr_ = h ;
+			Stream::put_header( h ) ;
 			print_msg( h ) ;
-			state_ = need_input ;
 		}
 
 		virtual void put_result( const Result& ) ;
 
 		virtual void put_footer( const Footer& f )
 		{
+			Stream::put_footer( f ) ;
 			print_msg( f ) ;
-			state_ = end_of_stream ;
 		}
 } ;
 
@@ -93,6 +93,7 @@ class SamWriter : public Stream
 
 		virtual void put_header( const Header& h ) 
 		{
+			Stream::put_header( h ) ;
 			out_ << "@HD\tVN:1.0" ;
 			if( h.has_is_sorted_by_coordinate() && (
 						(!g_ && h.is_sorted_by_coordinate().empty())
@@ -100,7 +101,6 @@ class SamWriter : public Stream
 				out_ << "\tSO:coordinate" ;
 			else if( h.is_sorted_by_name() ) out_ << "\tSO:queryname" ;
 			out_ << "\n@PG\tID:ANFO\tVN:" << h.version() << '\n' ;
-			state_ = need_input ;
 		}
 
 		virtual void put_result( const Result& res )
@@ -134,8 +134,6 @@ class FastaWriter : public Stream
 		FastaWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
 		virtual ~FastaWriter() {}
 
-		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
-		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
 		virtual void put_result( const Result& ) ;
 } ;
 
@@ -159,8 +157,6 @@ class FastqWriter : public Stream
 		FastqWriter( std::streambuf *s ) : buf_(), out_( s ) {}
 		virtual ~FastqWriter() {}
 
-		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
-		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
 		virtual void put_result( const Result& ) ;
 } ;
 
@@ -180,10 +176,27 @@ class TableWriter : public Stream
 		TableWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
 		virtual ~TableWriter() {}
 
-		virtual void put_header( const Header& h ) { state_ = need_input ; }
-		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
 		virtual void put_result( const Result& ) ;
 } ;
+
+class GlzWriter : public Stream
+{
+	private:
+		google::protobuf::io::FileOutputStream fos_ ;
+		google::protobuf::io::GzipOutputStream gos_ ;
+		Genomes genomes_ ;
+		Chan chan_ ;
+
+	public:
+		GlzWriter( int fd ) : fos_( fd ), gos_( &fos_ ) {}
+		GlzWriter( const char* fn ) 
+			: fos_( throw_errno_if_minus1( creat( fn, 0666 ), "creating", fn ) ), gos_( &fos_ )
+		{ fos_.SetCloseOnDelete( true ) ; }
+		virtual ~GlzWriter() {}
+
+		virtual void put_result( const Result& ) ;
+} ;
+
 } // namespace
 
 #endif

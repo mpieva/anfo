@@ -188,7 +188,7 @@ class Stream
 		//! Every result can only be read once, internal iterator style.
 		//! If the stream state is have_output, this method returns the
 		//! next result.  Otherwise the behavior is undefined.
-		virtual Result fetch_result() { throw MissingMethod(__FUNCTION__) ; }
+		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
 
 		//! \brief returns the footer
 		//! Only after all results have been consumed is the footer
@@ -199,19 +199,19 @@ class Stream
 		//! \brief sets the stream header
 		//! Output streams and stream filters need the header to become
 		//! valid streams.
-		virtual void put_header( const Header& ) { throw MissingMethod(__FUNCTION__) ; }
+		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
 
 		//! \brief outputs one result
 		//! This method can only be called in state need_input, and it
 		//! will insert a result record into the stream.  Else the
 		//! behaviour is undefined.
-		virtual void put_result( const Result& ) { throw MissingMethod(__FUNCTION__) ; }
+		virtual void put_result( const Result& r ) { res_ = r ; state_ = have_output ; }
 
 		//! \brief sets the footer
 		//! This method can only be called in state need_input, and it
 		//! signals that no more input is available.  A filter will then
 		//! flush internal buffers and signal end_of_stream.
-		virtual void put_footer( const Footer& ) { throw MissingMethod(__FUNCTION__) ; }
+		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
 } ;
 
 void transfer( Stream& in, Stream& out ) ;
@@ -293,8 +293,8 @@ class AnfoWriter : public Stream
 		AnfoWriter( const char* fname, bool expensive = false ) ;
 
 
-		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; state_ = need_input ; } 
-		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; state_ = end_of_stream ; }
+		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; Stream::put_header( h ) ; } 
+		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
 		virtual void put_result( const Result& r ) ;
 } ;
 
@@ -307,12 +307,7 @@ class Filter : public Stream
 {
 	public:
 		virtual bool xform( Result& ) = 0 ;
-
-		virtual void put_header( const Header& hdr ) { hdr_ = hdr ; state_ = need_input ; }
-		virtual void put_footer( const Footer& foot ) { foot_ = foot ; state_ = end_of_stream ; }
-
-		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
-		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
+		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) Stream::put_result( res_ ) ; }
 } ;
 
 //! \brief stream that filters for a given score
@@ -498,8 +493,7 @@ class RmdupStream : public Stream
 		{
 			if( !h.has_is_sorted_by_coordinate() ) throw "RmdupStream: need sorted stream to remove duplicates" ;
 			g_ = h.is_sorted_by_coordinate().empty() ? 0 : strdup( h.is_sorted_by_coordinate().c_str() ) ;
-			hdr_ = h ;
-			state_ = need_input ;
+			Stream::put_header( h ) ;
 		}
 
 		virtual void put_result( const Result& ) ;

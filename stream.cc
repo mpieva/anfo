@@ -35,9 +35,17 @@ void transfer( Stream& in, Stream& out )
 
 int AnfoReader::num_files_ = 0 ;
 
+namespace {
+	string basename( const string& s )
+	{
+		string::size_type p = s.rfind( '/' ) ;
+		return p != string::npos ? s.substr(p+1) : s ;
+	}
+} ;
+
 AnfoReader::AnfoReader( const std::string& name )
 	: iis_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
-	, zis_( decompress( &iis_ ) ), name_( name ), read_(0), total_(0)
+	, zis_( decompress( &iis_ ) ), name_( basename( name ) ), read_(0), total_(0)
 {
 	struct stat st ;
 	if( 0 == stat( name.c_str(), &st ) ) total_ = st.st_size ;
@@ -45,7 +53,7 @@ AnfoReader::AnfoReader( const std::string& name )
 }
 
 AnfoReader::AnfoReader( int fd, const std::string& name )
-	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( name ), read_(0), total_(0)
+	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( basename( name ) ), read_(0), total_(0)
 {
 	struct stat st ;
 	if( 0 == fstat( fd, &st ) ) total_ = st.st_size ;
@@ -568,14 +576,13 @@ Result RmdupStream::fetch_result()
 //! and if so, we call a consensus and offer it as output.  Else we
 //! signal end of stream.
 void RmdupStream::put_footer( const Footer& f ) { 
-	foot_ = f ;
+	Stream::put_footer( f ) ;
 	if( cur_.IsInitialized() ) 
 	{
 		state_ = have_output ;
 		call_consensus() ;
 		swap( cur_, res_ ) ;
 	}
-	else state_ = end_of_stream ;
 }
 
 //! \brief receives a result record and merges it if appropriate

@@ -45,28 +45,32 @@ class DuctTaper : public Stream
 		// ask for it) and accumulated likelihoods for each base.
 		// Accumulated quantity is \f$ P(\omega | x) * P(y->x) * P(y)
 		// \f$, for we can easily calculate a probability from that.
-		// Order is A,C,T,G,- 
+		// Order is A,C,G,T,-.  Also tracks whether a column is inserted
+		// relative to the reference.  XXX Missing: a way to track how
+		// many reads span a given position.
 		struct Acc {
 			int seen[5] ;
-			Logdom lk[4] ; 
+			Logdom lk[10] ; 
+			bool is_ins ;
 
-			Acc() { seen[0] = seen[1] = seen[2] = seen[3] = seen[4] = 0 ; }
+			Acc( bool ins = false ) : is_ins(ins) { seen[0] = seen[1] = seen[2] = seen[3] = seen[4] = 0 ; }
 			bool pristine() const { for( int i = 0 ; i != 5 ; ++i ) if( seen[i] ) return false ; return true ; }
 		} ;
-		std::vector< Acc > observed_ ;
-
-		// Marks columns that are insertions.  If empty, no contig has
-		// been started yet.
-		std::vector< bool > is_ins_ ;
+		typedef std::vector< Acc > Accs ;
+		Accs observed_ ;
 
 		// for silly statistics
 		size_t nreads_ ; 
+
+		// for MAPQ -- GLF wants MAPQ to be the RMS of the MAPQs that
+		// went into a contig.
+		int mapq_accum_ ;
 
 		void flush_contig() ;
 
 	public:
 		DuctTaper( const char* g, int maxq ) 
-			: g_(g), maxq_(maxq), contig_start_(0), contig_end_(0), nreads_(0) {}
+			: g_(g), maxq_(maxq), contig_start_(0), contig_end_(0), nreads_(0), mapq_accum_(0) {}
 		virtual ~DuctTaper() {}
 
 		virtual void put_header( const Header& ) ;

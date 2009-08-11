@@ -250,6 +250,9 @@ message Result {
     // of mapping quality.
     optional sint32 diff_to_next_species = 5 ;
     optional sint32 diff_to_next_order = 6 ;
+
+	// if reads were joined into contigs, their number
+	optional int32 num_reads = 7 ;
 }
 
 // We store multiple best hits, one per genome (where something like the

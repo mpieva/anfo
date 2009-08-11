@@ -3,8 +3,9 @@
 #include "conffile.h"
 #include "output.pb.h"
 
-#include <google/protobuf/text_format.h>
+#include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/printer.h>
+#include <google/protobuf/text_format.h>
 #include <cmath>
 #include <iterator>
 #include <sstream>
@@ -272,13 +273,13 @@ const char *SamWriter::descr[] = { "were converted", "had no hit", "had multiple
 
 void SamWriter::put_footer( const Footer& f )
 {
+	Stream::put_footer( f ) ;
 	for( int b = 0 ; b != bad_stuff_max ; ++b )
 		if (discarded[b]) {
 			std::stringstream s ;
 			s << "SamWriter: " << discarded[b] << " reads " << descr[b] ;
 			console.output( Console::notice, s.str() ) ;
 		}
-	state_ = end_of_stream ;
 }
 
 void FastaWriter::put_result( const Result& r ) 
@@ -327,6 +328,41 @@ void TableWriter::put_result( const Result& r )
 	int diff = hit_to( r, g_ ).has_diff_to_next() ? hit_to( r, g_ ).diff_to_next() : 9999 ;
 
 	out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
+}
+
+
+void GlzWriter::put_result( const Result& rr )
+{
+	const Read& r = rr.read() ;
+	if( r.likelihoods_size() == 10 ) {
+		chan_( Console::info, r.seqid() ) ;
+		google::protobuf::io::CodedOutputStream c( &gos_ ) ;
+		// Per chromosome
+		// int   chrNameLen ;         /* includes terminating 0 */
+		// char* chrName ;            /* chrNamelen chars including 0 */
+		// int   chrLen ;
+		c.WriteLittleEndian32( r.seqid().size()+1 ) ;
+		c.WriteString( r.seqid() ) ;
+		c.WriteTag( 0 ) ;
+		c.WriteLittleEndian32( r.sequence().size() ) ;
+
+		for( unsigned i = 0 ; i != r.sequence().size() ; ++i ) {
+			// Per base
+			//   unsigned char ref:4, dummy:4 ; /* ref A=1,C=2,G=4,T=8,N=15 etc.  */
+			//   unsigned char max_mapQ ;       /* maximum mapping quality */
+			//   unsigned char lk[10] ;         /* log likelihood ratio, max 255 */
+			//   unsigned min_lk:8,             /* minimum lk capped at 255
+			//   depth:24 ;            			/* and the number of mapped reads */
+
+			char buf[12] ;
+			buf[0] = 15 ; // XXX need genome, meanwhile, this is an N
+			buf[1] = hit_to( rr, 0 ).has_diff_to_next() ? hit_to( rr, 0 ).diff_to_next() : 254 ;
+			for( int j = 0 ; j != 10 ; ++j )
+				buf[2+j] = r.likelihoods(j)[i] ;
+			c.WriteRaw( buf, 12 ) ;
+			c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (r.quality()[i] & 0xff) ) ;
+		}
+	}
 }
 
 } // namespace

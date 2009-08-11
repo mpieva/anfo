@@ -1,6 +1,7 @@
 #include "ducttape.h"
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 #include <sstream>
 
@@ -24,12 +25,10 @@ void DuctTaper::put_header( const Header& h )
 // result to return and change state accordingly.
 //
 // XXX: need a rule to decide whether sth. was inserted and how much
-//
-// We need to synthesize a 'Result' here including a 'Read' and a 'Hit'.
 
 void DuctTaper::flush_contig()
 {
-	if( is_ins_.empty() ) return ;
+	if( observed_.empty() ) return ;
 
 
 	// if the last column was added, but nothing was observed, leave it
@@ -37,58 +36,55 @@ void DuctTaper::flush_contig()
 	if( observed_.back().pristine() )
 	{
 		observed_.pop_back() ;
-		is_ins_.pop_back() ;
 		--contig_end_ ;
 	}
 
 	res_.Clear() ;
+	res_.set_num_reads( nreads_ ) ;
 
 	Read &rd = *res_.mutable_read() ;
-	std::stringstream ss1, ss2 ;
+	std::stringstream ss1 ;
 	ss1 << cur_genome_ << ':' << cur_sequence_ << ':' << contig_start_ ;
 	rd.set_seqid( ss1.str() ) ;
 	
-	ss2 << nreads_ << " reads joined" ;
-	rd.set_description( ss2.str() ) ;
+	// remove cols where sth. was inserted, but most reads show a gap
+	for( Accs::iterator i = observed_.begin() ; i != observed_.end() ; )
+	{
+		if( std::accumulate( i->seen, i->seen+4, 0 ) <= i->seen[4] && i->is_ins )
+			i = observed_.erase(i) ;
+		else ++i ;
+	}
 
-	// XXX remove columns where sth. was inserted, but most reads show a gap
-	
-	int eff_length = 0 ;
-	for( size_t i = 0 ; i != is_ins_.size() ; ++i )
-		if( std::accumulate( observed_[i].seen, observed_[i].seen+4, 0 ) > observed_[i].seen[4] )
-			++eff_length ;
-
-    for( int i = 0 ; i != 4 /*10*/ ; ++i ) rd.add_likelihoods() ;
+    for( int i = 0 ; i != 10 ; ++i ) rd.add_likelihoods() ;
 
 	std::vector<unsigned> cigar ;
-	for( size_t i = 0, ie = 0 ; i != is_ins_.size() ; ++i )
+	for( Accs::iterator i = observed_.begin() ; i != observed_.end() ; ++i )
 	{
-		int cov = std::accumulate( observed_[i].seen, observed_[i].seen+4, 0 ) ;
-		if( cov > observed_[i].seen[4] ) {
-			if( is_ins_[i] ) push_i( cigar, 1 ) ; else push_m( cigar, 1 ) ;
+		int cov = std::accumulate( i->seen, i->seen+4, 0 ) ;
+		if( cov > i->seen[4] ) {
+			if( i->is_ins ) push_i( cigar, 1 ) ; else push_m( cigar, 1 ) ;
 
-			Logdom lk_tot = observed_[i].lk[0] + observed_[i].lk[1] + observed_[i].lk[2] + observed_[i].lk[3] ;
+			Logdom lk_tot = std::accumulate( i->lk+1, i->lk+10, i->lk[0] ) ;
 			int maxlk = 0 ;
 			for( int j = 0 ; j != 4 ; ++j )
 			{
-				rd.add_seen_bases( observed_[i].seen[j] ) ;
-				if( observed_[i].lk[j] > observed_[i].lk[maxlk] ) maxlk = j ;
+				rd.add_seen_bases( i->seen[j] ) ;
+				if( i->lk[j] > i->lk[maxlk] ) maxlk = j ;
 			}
 
-			rd.add_depth( cov + observed_[i].seen[4] ) ;
-			rd.mutable_sequence()->push_back( "ACTG"[maxlk] ) ;
+			rd.add_depth( cov + i->seen[4] ) ;
+			rd.mutable_sequence()->push_back( "ACGTMRWSYK"[maxlk] ) ;
 
-			Logdom q = maxlk == 0 ? observed_[i].lk[1] : observed_[i].lk[0] ;
+			Logdom q = maxlk == 0 ? i->lk[1] : i->lk[0] ;
 			for( int j = maxlk == 0 ? 2 : 1 ; j != 4 ; ++j )
-				if( j != maxlk ) q += observed_[i].lk[j] ;
+				if( j != maxlk ) q += i->lk[j] ;
 
 			rd.mutable_quality()->push_back( (q / lk_tot).to_phred_byte() ) ;
 
-			for( int j = 0 ; j != 4 ; ++j )
+			for( int j = 0 ; j != 10 ; ++j )
 				rd.mutable_likelihoods(j)->push_back( 
-						(observed_[i].lk[j] / observed_[i].lk[maxlk]).to_phred_byte() ) ;
+						(i->lk[j] / i->lk[maxlk]).to_phred_byte() ) ;
 
-			++ie ;
 		}
 		else push_d( cigar, 1 ) ;
 	}
@@ -99,11 +95,10 @@ void DuctTaper::flush_contig()
 	hit.set_sequence( cur_sequence_ ) ;
 	hit.set_start_pos( contig_start_ ) ;
 	hit.set_aln_length( contig_end_ - contig_start_ ) ;
+	hit.set_diff_to_next( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ;
 	hit.set_score( 0 ) ; // XXX cannot calculate the friggen' score 
 	std::copy( cigar.begin(), cigar.end(), RepeatedFieldBackInserter( hit.mutable_cigar() ) ) ;
-	// set diff_to_next as RMS of all the diff_to_nexts that went in
 
-	is_ins_.clear() ;
 	observed_.clear() ;
 	nreads_ = 0 ;
 	state_ = have_output ;
@@ -136,6 +131,9 @@ void DuctTaper::put_result( const Result& r )
 	if( !has_hit_to( r, g_ ) ) return ;
 	const Hit& h = hit_to( r, g_ ) ;
 
+	int mapq = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
+	mapq_accum_ += mapq*mapq ;
+
 	++nreads_ ;
 	if( cur_genome_ != h.genome_name()
 				|| cur_sequence_ != h.sequence()
@@ -159,23 +157,23 @@ void DuctTaper::put_result( const Result& r )
 		for( size_t i = 0 ; i != seq.size() ; ++i )
 			seq[i] =
 				seq[i] == 'A' ? 2 : seq[i] == 'C' ? 3 : 
-				seq[i] == 'T' ? 0 : seq[i] == 'G' ? 1 : -1 ;
+				seq[i] == 'G' ? 0 : seq[i] == 'T' ? 1 : -1 ;
 	}
 	else for( size_t i = 0 ; i != seq.size() ; ++i )
 	{
 		seq[i] = 
 			seq[i] == 'A' ? 0 : seq[i] == 'C' ? 1 : 
-			seq[i] == 'T' ? 2 : seq[i] == 'G' ? 3 : -1 ;
+			seq[i] == 'G' ? 2 : seq[i] == 'T' ? 3 : -1 ;
 	}
 
 	std::string::const_iterator p_seq = seq.begin() ;
 	std::string::const_iterator q_seq = qual.begin() ;
-	size_t column = 0 ;
+	Accs::iterator column = observed_.begin() ;
 	size_t cigar_maj = 0 ;
 	size_t cigar_min = 0 ;
 
 	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
-		if( !is_ins_[column] ) --offs ;
+		if( !column->is_ins ) --offs ;
 
 	while( p_seq != seq.end() && cigar_maj != cigar.size() )
 	{
@@ -185,9 +183,8 @@ void DuctTaper::put_result( const Result& r )
 			cigar_min = 0 ;
 		}
 
-		if( column == is_ins_.size() ) {
-			is_ins_.push_back( false ) ;
-			observed_.push_back( Acc() ) ;
+		if( column == observed_.end() ) {
+			column = observed_.insert( column, Acc() ) ;
 			++contig_end_ ;
 		}
 
@@ -197,36 +194,32 @@ void DuctTaper::put_result( const Result& r )
 		{
 			case Hit::Match:
 			case Hit::Mismatch:
-				if( !is_ins_[column] ) {
-					if( *p_seq != -1 ) {
-						++observed_[column].seen[(int)*p_seq] ;
-						for( int k = 0 ; k != 4 ; ++k )
-						{
-							observed_[column].lk[k] *= 
-								k == *p_seq ? (Logdom::from_float(1) - Logdom::from_phred( *q_seq ))
-								            : Logdom::from_phred( *q_seq ) / Logdom::from_float(3) ;
-						}
-					}
-
-					++cigar_min ;
-					++p_seq ;
-					++q_seq ;
-				}
-				break ;
-
 			case Hit::Insert:
-				if( !is_ins_[column] ) {
-					is_ins_.insert( is_ins_.begin()+column, true ) ;
-					observed_.insert( observed_.begin()+column, Acc() ) ;
+				if( cigar_op( cigar[ cigar_maj ] ) == Hit::Insert )
+				{
+					if( !column->is_ins ) column = observed_.insert( column, Acc(true) ) ;
+				} 
+				else
+				{
+					if( column->is_ins ) break ;
 				}
+
 				if( *p_seq != -1 ) {
-					++observed_[column].seen[ (int)*p_seq ] ;
-					for( int k = 0 ; k != 4 ; ++k )
-					{
-						observed_[column].lk[k] *= 
-							k == *p_seq ? (Logdom::from_float(1) - Logdom::from_phred( *q_seq ))
-							: Logdom::from_phred( *q_seq ) / Logdom::from_float(3) ;
-					}
+					int base = *p_seq ;
+					++column->seen[ base ] ;
+
+					static const bool halfmat[4][10] = {
+						{ 1, 1, 1, 0, 0, 0 },
+						{ 1, 0, 0, 1, 1, 0 },
+						{ 0, 1, 0, 1, 0, 1 },
+						{ 0, 0, 1, 0, 1, 1 } } ;
+
+					Logdom l_mat = Logdom::from_float(1) - Logdom::from_phred( *q_seq ) ;
+					Logdom l_mismat = Logdom::from_phred( *q_seq ) / Logdom::from_float(3) ;
+					Logdom l_half = (l_mat + l_mismat) / Logdom::from_float(2) ;
+
+					for( int k = 0 ; k != 10 ; ++k )
+						column->lk[k] *= k == base ? l_mat : halfmat[base][k-4] ? l_half : l_mismat ;
 				}
 
 				++cigar_min ;
@@ -235,12 +228,11 @@ void DuctTaper::put_result( const Result& r )
 				break ;
 
 			case Hit::Delete:
-				++observed_[column].seen[4] ; // == gap
+				++column->seen[4] ; // == gap
 				++cigar_min ;
 				break ;
 
-			default:
-				// all unused
+			default: 	// all others are unused
 				throw "unexpected CIGAR operation" ;
 				break ;
 		}
