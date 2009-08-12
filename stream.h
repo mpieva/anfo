@@ -307,7 +307,7 @@ class Filter : public Stream
 {
 	public:
 		virtual bool xform( Result& ) = 0 ;
-		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) Stream::put_result( res_ ) ; }
+		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
 } ;
 
 //! \brief stream that filters for a given score

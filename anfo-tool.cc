@@ -753,11 +753,11 @@ void StatStream::put_result( const Result& r )
 void StatStream::put_footer( const Footer& f )
 {
 	Stream::put_footer( f ) ;
-	if( !fn_ || strcmp( fn_, "-" ) ) printout( cout, true ) ;
-	else if( strcmp( fn_, "+-" ) ) printout( cout, false ) ;
+	if( !fn_ || 0 == strcmp( fn_, "-" ) ) printout( cout, true ) ;
+	else if( 0 == strcmp( fn_, "+-" ) ) printout( cout, false ) ;
 	else if( *fn_ == '+' ) 
 	{
-		ofstream s( fn_, ios_base::app ) ;
+		ofstream s( fn_+1, ios_base::app ) ;
 		printout( s, false ) ;
 	}
 	else 
@@ -799,6 +799,32 @@ void StatStream::printout( ostream& s, bool h )
 	  << bases_m_ / (float)mapped_ << '\t'  						// avg. mapped length
 	  << std_dev( mapped_, bases_m_, bases_m_squared_ ) << endl ;   // std.dev. mapped length
 } 
+
+class IgnoreHit : public Filter
+{
+	private:
+		const char* g_ ;
+		const char* s_ ;
+
+	public:
+		IgnoreHit( const char* g, const char* s ) : g_(g), s_(s) {}
+		virtual ~IgnoreHit() {}
+		virtual bool xform( Result& r ) 
+		{
+			int j = 0 ;
+			for( int i = 0 ; i != r.hit_size() ; ++i )
+			{
+				if( (g_ && *g_ && r.hit(i).genome_name() != g_)
+						|| (s_ && *s_ && r.hit(i).sequence() != s_) )
+				{
+					swap( *r.mutable_hit(j), *r.mutable_hit(i) ) ;
+					++j ;
+				}
+			}
+			while( j != r.hit_size() ) r.mutable_hit()->RemoveLast() ;
+			return true ;
+		}
+} ;
 
 } // namespace
 
@@ -896,6 +922,16 @@ void desc_filter_by_hit( ostream& ss, float, float, const char* g, const char* a
 	ss << "remove sequences without hit" ;
 	if( a && *a ) ss << " to sequence " << a ;
 	if( g && *g ) ss << " in genome " << g ; 
+}
+
+Stream* mk_delete_hit( float, float, const char* g, const char* s )
+{ return new IgnoreHit( g, s ) ; }
+
+void desc_delete_hit( ostream& ss, float, float, const char* g, const char* s )
+{
+	ss << "delete hits" ;
+	if( s && *s ) ss << " to sequence " << s ;
+	if( g && *g ) ss << " in genome " << g ;
 }
 
 Stream* mk_filter_qual( float, float, const char*, const char* arg )
@@ -1037,31 +1073,31 @@ int main_( int argc, const char **argv )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
-		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
+		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_delete_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam, opt_output_glz,
 		opt_output_fasta, opt_output_fastq, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
-		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
+		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit, mk_delete_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
 		0, 0, mk_rmdup, 0, 0, 0, 0,
 		0, 0, 0, mk_duct_tape, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, mk_merge, mk_join,
+		0, 0, 0, 0, 0, 0, 0, 0, mk_merge, mk_join,
 		mk_mega_merge, mk_concat, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, mk_output, mk_output_text, mk_output_sam, mk_output_glz,
 		mk_output_fasta, mk_output_fastq, mk_output_table, 0, mk_stats, 0 } ;
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
-		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
+		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
 
@@ -1077,6 +1113,7 @@ int main_( int argc, const char **argv )
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
 		{ "filter-mapq",    0 , POPT_ARG_INT,    0, opt_filter_mapq,   "remove alignments with MAPQ below Q", "Q" },
 		{ "filter-hit",    'h', POPT_ARG_STRING, 0, opt_filter_hit,    "filter for hitting (in G) SEQ/anything", "SEQ" },
+		{ "delete-hit",     0 , POPT_ARG_STRING, 0, opt_delete_hit,    "delete hits (in G/anywhere) to SEQ/anything", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },

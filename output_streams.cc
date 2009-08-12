@@ -385,7 +385,12 @@ void GlzWriter::put_result( const Result& rr )
 			for( int j = 0 ; j != 10 ; ++j )
 				buf[2+j] = r.likelihoods(j)[i] ;
 			c.WriteRaw( buf, 12 ) ;
-			c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (r.quality()[i] & 0xff) ) ;
+
+			// I take min_lk to be (1-quality).  Hope that's at least
+			// approximately right, but the calculation will probably
+			// lose all precision.
+			Logdom min_lk = Logdom::from_float(1) - Logdom::from_phred( r.quality()[i] ) ;
+			c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (unsigned(min_lk.to_phred_byte()) & 0xff) ) ;
 		}
 	}
 }
