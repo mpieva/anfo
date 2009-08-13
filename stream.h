@@ -130,12 +130,6 @@ inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, outp
 
 //! @}
 
-struct MissingMethod : public Exception {
-	std::string n_ ;
-	MissingMethod( const std::string& n ) : n_(n) {}
-	virtual void print_to( std::ostream& s ) const { s << "missing method: " << n_ ; }
-} ;
-
 //! \brief stream of result messages
 //! Each stream is a header, followed by many results, followed by a
 //! single footer.  The header will be cached internally, so it can be
@@ -199,7 +193,7 @@ class Stream
 		//! \brief sets the stream header
 		//! Output streams and stream filters need the header to become
 		//! valid streams.
-		virtual void put_header( const Header& h ) { state_ = need_input ; hdr_ = h ; }
+		virtual void put_header( const Header& h ) { hdr_ = h ; state_ = need_input ; }
 
 		//! \brief outputs one result
 		//! This method can only be called in state need_input, and it
@@ -211,7 +205,7 @@ class Stream
 		//! This method can only be called in state need_input, and it
 		//! signals that no more input is available.  A filter will then
 		//! flush internal buffers and signal end_of_stream.
-		virtual void put_footer( const Footer& ) { state_ = end_of_stream ; }
+		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
 } ;
 
 void transfer( Stream& in, Stream& out ) ;

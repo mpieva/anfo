@@ -715,14 +715,11 @@ class StatStream : public Stream
 		StatStream( const char* fn, const char* g )
 			: fn_(fn), g_(g), total_(0), mapped_(0), mapped_u_(0), different_(0)
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
-		    , bases_squared_(0), bases_m_squared_(0)
-		{ state_ = need_input ; }
-
+		    , bases_squared_(0), bases_m_squared_(0) {}
 		virtual ~StatStream() {}
 
-		void put_header( const Header& ) {}
-		void put_result( const Result& ) ;
-		void put_footer( const Footer& ) ;
+		virtual void put_result( const Result& ) ;
+		virtual void put_footer( const Footer& ) ;
 } ;
 
 void StatStream::put_result( const Result& r )

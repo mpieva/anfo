@@ -96,7 +96,9 @@ Result AnfoReader::fetch_result()
 	swap( r, res_ ) ;
 	CodedInputStream cis( zis_.get() ) ;
 	read_next_message( cis ) ;
-	if( iis_.ByteCount() >> 16 != read_ >> 16 ) {
+	if( state_ == end_of_stream ) chan_.close() ;
+	else if( iis_.ByteCount() >> 16 != read_ >> 16 )
+	{
 		read_ = iis_.ByteCount() ;
 		stringstream s ;
 		s << name_ << ": " << read_ ;

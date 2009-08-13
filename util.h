@@ -227,7 +227,8 @@ class Chan
 
 	public:
 		Chan() : n_( console.alloc_chan() ) {}
-		~Chan() { console.free_chan( n_ ) ; }
+		~Chan() { close() ; }
+		void close() { console.free_chan( n_ ) ; }
 		void operator()( Console::Loglevel l, const std::string& s ) { console.progress( n_, l, s ) ; }
 } ;
 
