@@ -91,7 +91,7 @@ int main_( int argc, const char * argv[] )
 				{
 					uint32_t offset ;
 					const Sequence *sequ ;
-					mapper.translate_to_genome_coords( ol[i].reference, offset, &sequ ) ;
+					Metagenome::translate_to_genome_coords( ol[i].reference, offset, &sequ ) ;
 					if( sequ->name() == seq_name && orig_pos - offset < closest )
 						closest = orig_pos - offset ;
 					if( sequ->name() == seq_name && offset - orig_pos < closest )
@@ -124,7 +124,7 @@ int main_( int argc, const char * argv[] )
 				{
 					uint32_t offset ;
 					const Sequence *sequ ;
-					mapper.translate_to_genome_coords( ol[i].reference, offset, &sequ ) ;
+					Metagenome::translate_to_genome_coords( ol[i].reference, offset, &sequ ) ;
 
 					if( outputlevel >= 1 )
 						std::cout << sequ->name() << "+" << offset << ", " ;

@@ -400,7 +400,7 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::Stream* s, int level ) 
 {
 	Header h = s->fetch_header() ;
-	assert( h.is_sorted_by_coordinate() ) ;
+	assert( h.has_is_sorted_by_coordinate() ) ;
 	mergeable_queues_[ level ].push_back( s ) ;
 
 	if( AnfoReader::num_open_files() > max_que_size_ ) {

@@ -9,10 +9,13 @@
 #include <cassert>
 #include <iostream>
 #include <limits>
+#include <list>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <glob.h>
 
 //! \brief a genome as stored in a DNA file
 //! This class mmaps a DNA file and wraps it with a sensible interface.
@@ -28,6 +31,9 @@ class CompactGenome
 		int fd_ ;
 		ContigMap contig_map_ ;
 
+		CompactGenome( const CompactGenome& ) ; // not implemented
+		void operator = ( const CompactGenome& ) ; // not implemented
+
 	public:
 		config::Genome g_ ;
 
@@ -36,14 +42,14 @@ class CompactGenome
 		//! Genomes constructed in the default fashion are unusable;
 		//! however, this makes \c CompactGenome default constructible
 		//! for use in standard containers.
-		CompactGenome() : base_(0), file_size_(0), length_(0), fd_(0), contig_map_(), g_() {}
+		CompactGenome() : base_(0), file_size_(0), length_(0), fd_(-1), contig_map_(), g_() {}
 
 		//! \brief makes accessible a genome file
 		//! \param name file name of the genome
 		//! \param c program configuration, needed for the search path
 		//! \param adv advise passed to madvise(), if you anticipate
 		//!            specific use of the genome
-		CompactGenome( const std::string& name, const config::Config &c, int adv = MADV_NORMAL ) ;
+		CompactGenome( const std::string& name, int adv = MADV_NORMAL ) ;
 		~CompactGenome() ;
 
 		std::string name() const { return g_.name() ; }
@@ -362,8 +368,41 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 	v.erase( out, input_end ) ;
 }
 
-typedef std::map< std::string, CompactGenome > Genomes ; 
+typedef std::map< std::string, CompactGenome > Genomes ;
 typedef std::map< std::string, FixedIndex > Indices ;
+
+class Metagenome
+{
+	private:
+		typedef std::map< std::string, CompactGenome* > Genomes ;
+		typedef std::map< std::string, CompactGenome* > SeqMap1 ;
+		typedef std::map< std::string, SeqMap1 > SeqMap ;
+
+		Genomes genomes ;
+		SeqMap seq_map ;
+		std::list< std::string > path ;
+
+		static Metagenome the_metagenome ;
+
+	public:
+		Metagenome( const char* p ) ;
+		~Metagenome() { for( Genomes::iterator i = genomes.begin() ; i != genomes.end() ; ++i ) delete i->second ; }
+
+		static void add_path( const std::string& s ) { the_metagenome.path.push_front( s ) ; }
+
+		//! \brief finds a named sequence
+		//! If a genome is given, only genome files whose name starts with
+		//! the genome name are considered.  If genome is empty, all files
+		//! are searched.
+		static CompactGenome &find_sequence( const std::string& genome, const std::string& seq ) ;
+
+		static CompactGenome &find_genome( const std::string& genome ) ;
+
+		static glob_t glob_path( const std::string& genome ) ;
+
+		static bool translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out = 0, const config::Genome** g_out = 0 ) ; // , std::string* g_file )
+} ;
+
 
 #endif
 

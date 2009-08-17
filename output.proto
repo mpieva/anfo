@@ -63,11 +63,6 @@ message Footer {
 
 // deprecated, don't touch
 message OldHit {
-    // file name of the genome (can be used to locate the reference
-    // sequence) -- XXX: locating the stupid genome shouldn't be dealt
-    // with here, config files would serve fine for that
-    optional string genome_file = 1 ;
-
     // globally unique name of the genome (used when sorting hits be
     // coordinate, can be used to locate the reference sequence if
     // present; if absent, the sequence name should be globally unique)
@@ -321,13 +316,6 @@ message Hit {
     optional int32 taxid = 15 ;
     optional int32 taxid_species = 14 ;
     optional int32 taxid_order = 13 ;
-
-    // ---------------------------------------------
-
-    // file name of the genome (can be used to locate the reference
-    // sequence) -- XXX: locating the stupid genome shouldn't be dealt
-    // with here, config files would serve fine for that
-    optional string genome_file = 19 ;
 }
 
 // statistics about alignment, collected for debugging purposes

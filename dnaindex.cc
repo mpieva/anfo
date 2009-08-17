@@ -224,7 +224,7 @@ int main_( int argc, const char * argv[] )
 
 	if( !genome_file ) throw "missing --genome option" ;
 
-	CompactGenome genome( genome_file, mi, MADV_SEQUENTIAL ) ;
+	CompactGenome genome( genome_file, MADV_SEQUENTIAL ) ;
 
 	// XXX next line is correct, need to rebuild indexes afterwards
 	// uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;

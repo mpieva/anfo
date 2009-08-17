@@ -16,26 +16,20 @@ namespace {
 void show_alignment(
 		std::string::const_iterator qry,
 		const output::Hit &h,
-		const config::Config &conf,
-		Genomes &genomes,
 		bool for_fastq,
 		std::string& r,
 		std::string& q,
 		std::string& c ) 
 {
-	CompactGenome &g = genomes[ h.genome_file() ] ;
-	if( !g.get_base() ) 
-	{
-		// if creating FASTQ, we need the genome, else we can make do
-		// without it
-		try { CompactGenome( h.genome_file(), conf, MADV_RANDOM ).swap( g ) ; }
-		catch(...) { if( for_fastq ) throw ; }
-	}
+	CompactGenome *g = 0 ;
+	try { g = &Metagenome::find_sequence( h.genome_name(), h.sequence() ) ; }
+	// if creating FASTQ, we need the genome, else we can make do without it
+	catch(...) { if( for_fastq ) throw ; }
 
-	if( g.get_base() ) 
+	if( g )
 	{
 		r.clear() ; q.clear() ; c.clear() ;
-		DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ; 
+		DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
 		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 
 		for( int i = 0 ; i != h.cigar_size() ; ++i )
@@ -160,7 +154,7 @@ void TextWriter::put_result( const Result& r )
 	for( int i = 0 ; i != r.hit_size() ; ++i )
 	{
 		std::map< std::string, std::string > vars ;
-		show_alignment( r.read().sequence().begin(), r.hit(i), hdr_.config(), genomes_,
+		show_alignment( r.read().sequence().begin(), r.hit(i),
 				false, vars["ref"], vars["qry"], vars["con"] ) ;
 		p.Print( vars, "\nREF: `ref`\nQRY: `qry`\nCON: `con`\n" ) ;
 	}
@@ -210,10 +204,14 @@ std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end )
 {
 	unsigned len = 0, op = Hit::Match ;
 
-	for( ; begin != end ; ++begin )
+	for( Iter cur = begin ; cur != end ; )
 	{
 		unsigned o = cigar_op( *begin ), l = cigar_len( *begin ) ;
 		if( o == Hit::Mismatch ) o = Hit::Match ;
+		if( o == Hit::Insert && begin == cur ) o = Hit::SoftClip ;
+		++cur ;
+		if( o == Hit::Insert && end == cur ) o = Hit::SoftClip ;
+
 		if( o == op ) len += l ;
 		else {
 			if( len ) s << len << "MIDNSHP"[op] ;
@@ -238,7 +236,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 
 	output::Hit hit = hit_to(result,g_) ;
 
-	if (len_from_bin_cigar(hit.cigar()) != result.read().sequence().length()) return bad_cigar ;
+	if( len_from_bin_cigar( hit.cigar() ) != result.read().sequence().length() ) return bad_cigar ;
 
 	int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
 
@@ -313,7 +311,7 @@ void FastaWriter::put_result( const Result& r )
 	{
 		const Hit &h = hit_to( r, g_ ) ;
 		std::string ref, qry, con ;
-		show_alignment( r.read().sequence().begin(), h, hdr_.config(), genomes_, true, ref, qry, con ) ;
+		show_alignment( r.read().sequence().begin(), h, true, ref, qry, con ) ;
 		out_ << '>' << h.sequence() << ' '
 			<< h.start_pos()
 			<< "-+"[ h.aln_length() > 0 ]
@@ -355,6 +353,7 @@ void TableWriter::put_result( const Result& r )
 	out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 }
 
+uint8_t dna_to_glf[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
 
 void GlzWriter::put_result( const Result& rr )
 {
@@ -371,7 +370,11 @@ void GlzWriter::put_result( const Result& rr )
 		c.WriteTag( 0 ) ;
 		c.WriteLittleEndian32( r.sequence().size() ) ;
 
-		for( unsigned i = 0 ; i != r.sequence().size() ; ++i ) {
+		const Hit& h = rr.hit(0) ;
+		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+
+		// XXX: aww, crap, this is broken as it doesn't handle indels...
+		for( unsigned i = 0 ; i != r.sequence().size() ; ++i, ++ref ) {
 			// Per base
 			//   unsigned char ref:4, dummy:4 ; /* ref A=1,C=2,G=4,T=8,N=15 etc.  */
 			//   unsigned char max_mapQ ;       /* maximum mapping quality */
@@ -380,7 +383,7 @@ void GlzWriter::put_result( const Result& rr )
 			//   depth:24 ;            			/* and the number of mapped reads */
 
 			char buf[12] ;
-			buf[0] = 15 ; // XXX need genome, meanwhile, this is an N
+			buf[0] = dna_to_glf[ *ref ] ;
 			buf[1] = hit_to( rr, 0 ).has_diff_to_next() ? hit_to( rr, 0 ).diff_to_next() : 254 ;
 			for( int j = 0 ; j != 10 ; ++j )
 				buf[2+j] = r.likelihoods(j)[i] ;

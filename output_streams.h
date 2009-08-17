@@ -23,7 +23,6 @@ class TextWriter : public Stream
 {
 	private:
 		google::protobuf::io::FileOutputStream fos_ ;
-		Genomes genomes_ ;
 
 		void print_msg( const google::protobuf::Message& ) ;
 
@@ -122,7 +121,6 @@ class FastaWriter : public Stream
 	private:
 		std::auto_ptr< std::filebuf > buf_ ;
 		std::ostream out_ ;
-		Genomes genomes_ ;
 		const char* g_ ;
 
 	public:
@@ -184,7 +182,6 @@ class GlzWriter : public Stream
 	private:
 		google::protobuf::io::FileOutputStream fos_ ;
 		google::protobuf::io::GzipOutputStream gos_ ;
-		Genomes genomes_ ;
 		Chan chan_ ;
 
 	public:

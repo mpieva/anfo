@@ -43,10 +43,7 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 			if( !ix ) {
 				FixedIndex( ixs.name(), mi, MADV_WILLNEED ).swap( ix ) ;
 				const string& genome_name = ix.ci_.genome_name() ; 
-				CompactGenome &g = genomes[ genome_name ] ;
-				if( !g.get_base() ) {
-					CompactGenome( genome_name, mi, MADV_WILLNEED ).swap( g ) ;
-				}
+				Metagenome::find_genome( genome_name ) ;
 			}
 		}
 	}
@@ -111,7 +108,7 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
 		const FixedIndex &ix = indices[ cis.name() ] ;
-		const CompactGenome &g = genomes[ ix.ci_.genome_name() ] ;
+		const CompactGenome &g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
 		assert( ix ) ; assert( g.get_base() ) ;
 
 		vector<Seed> seeds ;
@@ -148,21 +145,6 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 	else return p.max_penalty_per_nuc() ;
 }
 
-bool Mapper::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out, const config::Genome** g_out, std::string* g_file )
-{
-	for( Genomes::const_iterator g = genomes.begin(), ge = genomes.end() ; g != ge ; ++g )
-	{
-		if( const Sequence *sequ = g->second.translate_back( pos, xpos ) )
-		{
-			if( s_out ) *s_out = sequ ;
-			if( g_file ) *g_file = g->first ;
-			if( g_out) *g_out = &g->second.g_ ;
-			return true ;
-		}
-	}
-	return false ;
-}
-
 void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r )
 {
 	uint32_t o, c, tt, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
@@ -192,13 +174,11 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 		output::Hit *h = r.add_hit() ;
 
 		uint32_t start_pos ;
-		std::string genome_file ;
 		const Sequence *sequ ;
 		const Genome *genome ;
 
-		if( translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome, &genome_file ) )
+		if( Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
 		{
-			h->set_genome_file( genome_file ) ;
 			if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
 			h->set_sequence( sequ->name() ) ;
 			if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;

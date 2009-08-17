@@ -4,18 +4,19 @@
 #include <cmath>
 
 #include <fcntl.h>
+#include <glob.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
 using namespace config ;
 using namespace std ; 
 
-CompactGenome::CompactGenome( const std::string &name, const config::Config &c, int adv )
+CompactGenome::CompactGenome( const std::string &name, int adv )
 	: base_(), file_size_(0), length_(0), fd_(-1), contig_map_(), g_()
 {
 	try
 	{
-		fd_ = path_open( name, "dna", "ANFO_PATH", c.genome_path().begin(), c.genome_path().end() ) ;
+		fd_ = throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening", name.c_str() ) ;
 
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
@@ -254,6 +255,104 @@ DnaP CompactGenome::find_pos( const std::string& seq, uint32_t pos ) const
 				    g_.sequence(i).contig(j).range_end() >= pos )
 					return base_ + g_.sequence(i).contig(j).offset() + (pos - g_.sequence(i).contig(j).range_start()) ;
 	return DnaP(0) ;
+}
+
+Metagenome Metagenome::the_metagenome( getenv("ANFO_PATH") ) ;
+
+Metagenome::Metagenome( const char* p )
+{
+	if( p ) 
+	{
+		const char* q = p ;
+		while( *p )
+		{
+			while( *q && *q != ':' ) ++q ;
+			path.push_back( std::string( p, q ) ) ;
+
+			if( *q ) ++q ;
+			p = q ;
+		}
+	}
+}
+
+glob_t Metagenome::glob_path( const std::string& genome ) 
+{
+	glob_t the_glob ;
+	int glob_append = 0 ;
+	for( std::list< std::string >::iterator j = the_metagenome.path.begin() ; j != the_metagenome.path.end() ; ++j )
+	{
+		std::string p = *j + "/" + genome + "*" ;
+		glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
+		glob_append = GLOB_APPEND ;
+	}
+	return the_glob ;
+}
+
+CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::string& seq )
+{
+	SeqMap1 &m = the_metagenome.seq_map[ genome ] ;
+
+	// check if we got the sequence somewhere already
+	SeqMap1::iterator i = m.find( seq ) ;
+	if( i == m.end() )
+	{
+		glob_t the_glob = glob_path( genome ) ;
+
+		// sequence missing.  load genomes until we find the sequence
+		for( size_t j = 0 ; j != the_glob.gl_pathc && i == m.end() ; ++j )
+		{
+			try
+			{
+				const char *n = the_glob.gl_pathv[j] ; 
+				if( the_metagenome.genomes.find( n ) == the_metagenome.genomes.end() )
+				{
+					console.output( Console::info, "[Metagenome] trying file " + std::string(n) ) ;
+
+					CompactGenome* g = new CompactGenome( n ) ;
+					the_metagenome.genomes[ n ] = g ;
+
+					console.output( Console::info, "[Metagenome] loaded (part of) genome " + g->name() ) ;
+
+					// map sequence names to new genome
+					for( int k = 0 ; k != g->g_.sequence_size() ; ++k )
+						m[ g->g_.sequence(k).name() ] = g ;
+					i = m.find( seq ) ;
+				}
+			}
+			catch( ... ) {}
+		}
+		globfree( &the_glob ) ;
+	}
+
+	if( i == m.end() )
+		throw "could not find " + genome + ( genome.empty() ? "" : ":" ) + seq ;
+
+	return *i->second ;
+}
+
+CompactGenome &Metagenome::find_genome( const std::string& genome )
+{
+	CompactGenome* &g = the_metagenome.genomes[ genome ] ;
+	if( !g ) {
+		glob_t the_glob = glob_path( genome ) ;
+		if( !the_glob.gl_pathc ) throw "genome file not found for " + genome ;
+		g = new CompactGenome( *the_glob.gl_pathv ) ;
+	}
+	return *g ;
+}
+
+bool Metagenome::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out, const config::Genome** g_out )
+{
+	for( Genomes::const_iterator g = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; g != ge ; ++g )
+	{
+		if( const Sequence *sequ = g->second->translate_back( pos, xpos ) )
+		{
+			if( s_out ) *s_out = sequ ;
+			if( g_out ) *g_out = &g->second->g_ ;
+			return true ;
+		}
+	}
+	return false ;
 }
 
 

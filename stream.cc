@@ -131,7 +131,7 @@ namespace {
 		if( o.has_taxid() ) h.set_taxid( o.taxid() ) ;
 		if( o.has_taxid_species() ) h.set_taxid_species( o.taxid_species() ) ;
 		if( o.has_taxid_order() ) h.set_taxid_order( o.taxid_order() ) ;
-		if( o.has_genome_file() ) h.set_genome_file( o.genome_file() ) ;
+		// if( o.has_genome_file() ) h.set_genome_file( o.genome_file() ) ;
 		upgrade_cigar( *h.mutable_cigar(), o.cigar() ) ;
 		return h ;
 	}

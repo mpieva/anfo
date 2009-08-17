@@ -72,7 +72,6 @@ int main_( int argc, const char * argv[] )
 		Result r = inp.fetch_result() ;
 		const Read& s = r.read() ;
 		QSequence ps( s.sequence().c_str(), (const uint8_t*)s.quality().c_str(), s.seqid(), s.description() ) ;
-		// XXX if( exit_with || !read_fastq( inp.get(), ps, solexa_scale, fastq_origin ) ) break ;
 
 		std::deque< alignment_type > ol ;
 		int pmax = mapper.index_sequence( ps, r, ol ) ;
