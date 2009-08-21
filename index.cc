@@ -277,7 +277,7 @@ Metagenome::Metagenome( const char* p )
 
 glob_t Metagenome::glob_path( const std::string& genome ) 
 {
-	glob_t the_glob ;
+	glob_t the_glob = { 0 } ;
 	int glob_append = 0 ;
 	for( std::list< std::string >::iterator j = the_metagenome.path.begin() ; j != the_metagenome.path.end() ; ++j )
 	{

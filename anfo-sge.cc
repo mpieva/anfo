@@ -127,8 +127,6 @@ int main_( int argc, const char * argv[] )
 	stride /= total_slices ;
 	Mapper mapper( conf ) ;
 
-	for( int i = conf.genome_path_size() ; i != 0 ; --i ) Metagenome::add_path( conf.genome_path(i-1) ) ;
-
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
 	poptFreeContext( pc ) ;

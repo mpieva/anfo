@@ -34,6 +34,9 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 	if( mi.has_aligner() ) simple_adna::configure( mi.aligner(), 0 ) ;
 	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
 
+    for( int i = mi.genome_path_size() ; i != 0 ; --i )
+        Metagenome::add_path( mi.genome_path(i-1) ) ;
+
 	for( int i = 0 ; i != mi.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )

@@ -92,7 +92,7 @@ void DuctTaper::flush_contig()
 	hit.set_sequence( cur_sequence_ ) ;
 	hit.set_start_pos( contig_start_ ) ;
 	hit.set_aln_length( contig_end_ - contig_start_ ) ;
-	hit.set_diff_to_next( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ;
+	hit.set_diff_to_next( int( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ) ;
 	std::copy( cigar.begin(), cigar.end(), RepeatedFieldBackInserter( hit.mutable_cigar() ) ) ;
 
 	observed_.clear() ;
