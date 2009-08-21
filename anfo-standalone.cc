@@ -68,7 +68,7 @@ struct CommonData
 {
 	Queue<output::Result*, 4> output_queue ;
 	Queue<AlignmentWorkload*, 4> intermed_queue ;
-	Queue<QSequence*, 4> input_queue ;
+	Queue<output::Result*, 4> input_queue ;
 	google::protobuf::io::CodedOutputStream output_stream ;
 	Mapper mapper ;
 
@@ -90,20 +90,14 @@ void* run_output_thread( void* p )
 void* run_indexer_thread( void* cd_ )
 {
 	CommonData *cd = (CommonData*)cd_ ;
-	while( QSequence *ps = cd->input_queue.dequeue() )
+	while( output::Result *r = cd->input_queue.dequeue() )
 	{
 		std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
-		w->ps.reset( ps ) ;
-		w->r.reset( new output::Result ) ;
-		w->pmax = cd->mapper.index_sequence( *w->ps, *w->r, w->ol ) ;
-		if( w->pmax!= INT_MAX ) 
-		{
-			cd->intermed_queue.enqueue( w.release() ) ;
-		}
-		else
-		{
-			cd->output_queue.enqueue( w->r.release() ) ;
-		}
+		w->r.reset( r ) ; // new output::Result ) ;
+		w->ps.reset( new QSequence() ) ;
+		w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
+		if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
+		else                    cd->output_queue.enqueue( w->r.release() ) ;
 	}
 	cd->input_queue.enqueue(0) ;
 	return 0 ;
@@ -218,7 +212,7 @@ int main_( int argc, const char * argv[] )
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
-	int64_t total_size = 0, total_done = 0 ;
+	int64_t total_size = 0 ; // XXX , total_done = 0 ;
 	for( size_t i = 0 ; i != files.size() && total_size != -1 ; ++i )
 	{
 		struct stat s ;
@@ -253,18 +247,18 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		int inp_fd = files.front().empty() || files.front() == "-" ? 0 :
-			throw_errno_if_minus1( open( files.front().c_str(), O_RDONLY ),
-					"opening ", files.front().c_str() ) ;
+		std::auto_ptr< streams::Stream > inp( 
+				files.front().empty() || files.front() == "-"
+				? streams::make_input_stream( dup( 0 ), "<stdin>" )
+				: streams::make_input_stream( files.front() ) ) ;
 
-		FileInputStream raw_inp( inp_fd ) ;
-		std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
-
-		for(;; ++total_count )
+		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{
-			std::auto_ptr<QSequence> ps( new QSequence ) ;
-			if( exit_with || !read_fastq( inp.get(), *ps, solexa_scale, fastq_origin ) ) break ;
+			// std::auto_ptr<QSequence> ps( new QSequence ) ;
+			// if( exit_with || !read_fastq( inp.get(), *ps, solexa_scale, fastq_origin ) ) break ;
 			
+			// XXX
+			/*
 			stringstream progress ;
 			progress << ps->get_name() << " (#" << total_count ;
 			if( total_size != -1 ) progress << ", " << (total_done + raw_inp.ByteCount()) * 100 / total_size << '%' ;
@@ -272,11 +266,12 @@ int main_( int argc, const char * argv[] )
 
 			clog << '\r' << progress.str() << "\33[K" << flush ;
 			set_proc_title( progress.str().c_str() ) ;
+			*/
 
-			common_data.input_queue.enqueue( ps.release() ) ;
+			common_data.input_queue.enqueue( new output::Result( inp->fetch_result() ) ) ; // ps.release() ) ;
 		}
-		if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
-		if( inp_fd ) close( inp_fd ) ;
+		// if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
+		// if( inp_fd ) close( inp_fd ) ;
 	}
 	
 	// no more input, wait for indexer(s)

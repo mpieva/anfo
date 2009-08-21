@@ -15,6 +15,7 @@
 
 #include "output.pb.h"
 #include <iostream>
+#include <memory>
 
 int main_( int argc, const char** argv )
 {
@@ -22,8 +23,8 @@ int main_( int argc, const char** argv )
 
 	config::Config conf ;
 	try {
-		streams::AnfoReader af( argv[1] ) ;
-		conf = af.fetch_header().config() ;
+		std::auto_ptr< streams::Stream > af( streams::make_input_stream( argv[1] ) ) ;
+		conf = af->fetch_header().config() ;
 	} 
 	catch( const streams::AnfoReader::ParseError& )
 	{

@@ -129,7 +129,7 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 			catch( ... ) { is_->BackUp( l  ) ; throw ; }
 		}
 
-		virtual ~InflateStream() { inflateEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; }
+		virtual ~InflateStream() { inflateEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; delete is_ ; }
 		virtual bool Next( const void **data, int *size ) { return next( data, size ) ; }
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual bool Skip( int count ) { return skip( count ) ; }
@@ -216,6 +216,26 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 		virtual bool Next( void **data, int *size ) { return next( data, size ) ; }
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual int64_t ByteCount() const { return total_ ; }
+} ;
+
+#else
+// libz is missing
+
+struct InflateStream : public google::protobuf::io::ZeroCopyInputStream
+{
+	InflateStream( google::protobuf::io::ZeroCopyInputStream* ) { throw "no libz available" ; }
+	virtual bool Next( const void**, int* ) { return false ; }
+	virtual void BackUp( int ) {}
+	virtual bool Skip( int ) { return false ; }
+	virtual int64_t ByteCount() const { return 0 ; } 
+} ;
+
+struct DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
+{
+	DeflateStream( google::protobuf::io::ZeroCopyOutputStream*, int lv=0 )  { throw "no libz available" ; }
+	virtual bool Next( void**, int* ) { return false ; }
+	virtual void BackUp( int ) {}
+	virtual int64_t ByteCount() const { return 0 ; }
 } ;
 
 #endif
@@ -313,7 +333,7 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 			catch( ... ) { is_->BackUp( l  ) ; throw ; }
 		}
 
-		virtual ~BunzipStream() { BZ2_bzDecompressEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; }
+		virtual ~BunzipStream() { BZ2_bzDecompressEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; delete is_ ; }
 		virtual bool Next( const void **data, int *size ) { return next( data, size ) ; }
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual bool Skip( int count ) { return skip( count ) ; }
@@ -327,7 +347,6 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 
 		bz_stream zs_ ;
 		char ibuf_[15500] ;
-		// int64_t total_ ;
 
 		bool next( void **data, int *size )
 		{
@@ -354,15 +373,13 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 
 			*data = (void*)ibuf_ ;
 			*size = zs_.avail_in ;
-			// total_ += zs_.avail_in ;
 			return true ;
 		}
 
 		void back_up( int count ) { zs_.avail_in -= count ; }
 
 	public:
-		BzipStream( google::protobuf::io::ZeroCopyOutputStream *os )
-			: os_(os) //, total_(0) 
+		BzipStream( google::protobuf::io::ZeroCopyOutputStream *os ) : os_(os)
 		{
 			zs_.bzalloc = 0 ;
 			zs_.bzfree = 0 ;
@@ -402,35 +419,43 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 		virtual int64_t ByteCount() const { return ((int64_t)zs_.total_in_hi32 << 32) | zs_.total_in_lo32 ; }
 } ;
 
+#else 
+// bzlib is missing
+struct BunzipStream : public google::protobuf::io::ZeroCopyInputStream
+{
+	BunzipStream( google::protobuf::io::ZeroCopyInputStream* ) { throw "no BZlib available" ; }
+	virtual bool Next( const void**, int* ) { return false ; }
+	virtual void BackUp( int ) {}
+	virtual bool Skip( int ) { return false ; }
+	virtual int64_t ByteCount() const { return 0 ; }
+} ;
+
+struct BzipStream : public google::protobuf::io::ZeroCopyOutputStream
+{
+	BzipStream( google::protobuf::io::ZeroCopyOutputStream* ) { throw "no BZlib available" ; }
+	virtual bool Next( void**, int* ) { return false ; }
+	virtual void BackUp( int ) {}
+	virtual int64_t ByteCount() const { return 0 ; }
+} ;
 #endif
 
 inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::io::ZeroCopyInputStream *s )
 {
-#if HAVE_LIBBZ2
 	try { return new BunzipStream( s ) ; } catch( ... ) {}
-#endif
-#if HAVE_LIBZ
 	try { return new InflateStream( s ) ; } catch( ... ) {}
-#endif
 	return new IdInputStream( s ) ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::protobuf::io::ZeroCopyOutputStream *s )
 {
-#if HAVE_LIBBZ2
 	try { return new BzipStream( s ) ; } catch( ... ) {}
-#endif
-#if HAVE_LIBZ
 	try { return new DeflateStream( s, Z_BEST_COMPRESSION ) ; } catch( ... ) {}
-#endif
 	return new IdOutputStream( s ) ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_fast( google::protobuf::io::ZeroCopyOutputStream *s )
 {
-#if HAVE_LIBZ
 	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) {}
-#endif
 	return new IdOutputStream( s ) ;
 }
 

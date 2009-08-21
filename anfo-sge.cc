@@ -132,7 +132,7 @@ int main_( int argc, const char * argv[] )
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
-	int64_t total_size = 0, total_done = 0 ;
+	int64_t total_size = 0 ; // XXX , total_done = 0 ;
 	for( size_t i = 0 ; i != files.size() && total_size != -1 ; ++i )
 	{
 		struct stat s ;
@@ -171,35 +171,45 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		int inp_fd = files.front().empty() || files.front() == "-" ? 0 :
-			throw_errno_if_minus1( open( files.front().c_str(), O_RDONLY ),
-					"opening ", files.front().c_str() ) ;
+		// XXX bool is_stdin = 
+		// int inp_fd = is_stdin ? dup( 0 ) :
+			// throw_errno_if_minus1( open( files.front().c_str(), O_RDONLY ),
+					// "opening ", files.front().c_str() ) ;
 
-		FileInputStream raw_inp( inp_fd ) ;
-		std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
+		std::auto_ptr< streams::Stream > inp(
+			files.front().empty() || files.front() == "-"
+			? streams::make_input_stream( dup( 0 ), "<stdin>" )
+			: streams::make_input_stream( files.front() ) ) ;
 
-		for(;; ++total_count )
+		// FileInputStream raw_inp( inp_fd ) ;
+		// std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
+
+		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{
-			QSequence ps ;
-			if( exit_with || !read_fastq( inp.get(), ps, solexa_scale, fastq_origin ) ) break ;
+			output::Result r = inp->fetch_result() ;
+
+			// if( exit_with || !read_fastq( inp.get(), ps, solexa_scale, fastq_origin ) ) break ;
 			
+			// XXX
+			/*
 			stringstream progress ;
-			progress << ps.get_name() << " (#" << total_count ;
+			progress << r.seqid() << " (#" << total_count ;
 			if( total_size != -1 ) progress << ", " << (total_done + raw_inp.ByteCount()) * 100 / total_size << '%' ;
 			progress << ')' ;
 
 			set_proc_title( progress.str().c_str() ) ;
+			*/
 
 			if( total_count % stride == slicenum ) {
-				output::Result r ;
+				// output::Result r ;
+				QSequence ps ;
 				std::deque< alignment_type > ol ;
-				int pmax = mapper.index_sequence( ps, r, ol ) ;
+				int pmax = mapper.index_sequence( r, ps, ol ) ;
 				if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
 				streams::write_delimited_message( cos, 4, r ) ;
 			}
 		}
-		if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
-		if( inp_fd ) close( inp_fd ) ;
+		// XXX if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
 	}
 
 	output::Footer ofoot ;

@@ -27,6 +27,7 @@
 #include <cstring>
 #include <csignal>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -67,14 +68,12 @@ int main_( int argc, const char * argv[] )
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
 	streams::write_delimited_message( cos, 1, ohdr ) ;
 
-	for( AnfoReader inp( input_file ) ; inp.get_state() == Stream::have_output ; )
+	for( auto_ptr<Stream> inp( make_input_stream( input_file ) ) ; inp->get_state() == Stream::have_output ; )
 	{
-		Result r = inp.fetch_result() ;
-		const Read& s = r.read() ;
-		QSequence ps( s.sequence().c_str(), (const uint8_t*)s.quality().c_str(), s.seqid(), s.description() ) ;
-
+		Result r = inp->fetch_result() ;
 		std::deque< alignment_type > ol ;
-		int pmax = mapper.index_sequence( ps, r, ol ) ;
+		QSequence ps ;
+		int pmax = mapper.index_sequence( r, ps, ol ) ;
 		if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
 		streams::write_delimited_message( cos, 4, r ) ;
 	}

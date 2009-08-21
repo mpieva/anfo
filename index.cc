@@ -193,7 +193,7 @@ unsigned FixedIndex::lookup1m( Oligo o, vector<Seed>& v, uint32_t cutoff, int32_
 //! \param cutoff disregard oligos more frequent than this
 //! \return number of seeds found
 
-unsigned FixedIndex::lookupS( const QSequence& dna, std::vector<Seed>& v,
+unsigned FixedIndex::lookupS( const std::string& /*QSequence&*/ dna, std::vector<Seed>& v,
 		bool near_perfect, int *num_useless, uint32_t cutoff ) const
 {
 	Oligo o_f = 0, o_r = 0 ;
@@ -210,12 +210,12 @@ unsigned FixedIndex::lookupS( const QSequence& dna, std::vector<Seed>& v,
 		o_r = (o_r << 2) & mask ;
 		++filled ;
 
-		switch( dna[offset].ambicode )
+		switch( dna[offset] ) // .ambicode )
 		{
-			case 1: o_f |= 0 << s ; o_r |= 2 ; break ;
-			case 2: o_f |= 1 << s ; o_r |= 3 ; break ;
-			case 4: o_f |= 2 << s ; o_r |= 0 ; break ;
-			case 8: o_f |= 3 << s ; o_r |= 1 ; break ;
+			case 'a': case 'A': /*case 1:*/ o_f |= 0 << s ; o_r |= 2 ; break ;
+			case 'c': case 'C': /*case 2:*/ o_f |= 1 << s ; o_r |= 3 ; break ;
+			case 't': case 'T': /*case 4:*/ o_f |= 2 << s ; o_r |= 0 ; break ;
+			case 'g': case 'G': /*case 8:*/ o_f |= 3 << s ; o_r |= 1 ; break ;
 			default: filled = 0 ; break ;
 		}
 		if( filled >= ci_.wordsize() ) 

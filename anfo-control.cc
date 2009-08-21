@@ -16,6 +16,8 @@
 
 static const int max_timeouts = 8 ;
 
+// XXX
+#if 0
 void qs_to_read( const QSequence& qs, output::Read& rd ) 
 {
 	rd.set_seqid( qs.get_name() ) ;
@@ -29,6 +31,7 @@ void qs_to_read( const QSequence& qs, output::Read& rd )
 		rd.mutable_quality( )->push_back(                qs[i].qscore     ) ;
 	}
 }
+#endif
 
 int main_( int argc, const char**argv )
 {

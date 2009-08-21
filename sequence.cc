@@ -94,41 +94,49 @@ QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
 	}
 }
 
+/* XXX
 QSequence::QSequence( const char* p, int q_score ) 
-		: seq_(), name_(), description_(), validity_( bases_only )
+		// : seq_() //, name_(), description_(), validity_( bases_only )
 {
 	seq_.push_back( Base() ) ;
 	for( ; *p ; ++p )
 		if( encodes_nuc( *p ) ) 
+		{
 			seq_.push_back( Base( to_ambicode( *p ), q_score ) ) ;
+			read_.mutable_sequence()->push_back( *p ) ;
+		}
 	seq_.push_back( Base() ) ;
 }
+*/
 
-QSequence::QSequence( const char* p, const uint8_t* q, const std::string& name, const std::string &descr )
-		: seq_(), name_(name), description_(descr), validity_( bases_with_quality )
+//QSequence::QSequence( const char* p, const uint8_t* q, const std::string& name, const std::string &descr )
+		// : seq_(), name_(name), description_(descr), validity_( bases_with_quality )
+QSequence::QSequence( const output::Read& r, int default_q )
 {
 	seq_.push_back( Base() ) ;
-	for( ; *p ; ++p, ++q )
-		if( encodes_nuc( *p ) ) 
+	if( r.has_quality() ) 
+		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end() ; p != pe ; ++p )
+			seq_.push_back( Base( to_ambicode( *p ), default_q ) ) ;
+	else
+		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end(),
+				q = r.quality().begin(), qe = r.quality().end() ; p != pe && q != qe ; ++p, ++q )
 			seq_.push_back( Base( to_ambicode( *p ), *q ) ) ;
 	seq_.push_back( Base() ) ;
 }
 					
-bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, bool solexa_scores, char origin )
+bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r, bool solexa_scores, char origin )
 {
 	Reader s( zis ) ;
-	bool got_seq = false, got_qual = false, got_quals = false ;
 
-	qs.seq_.clear() ;
-	qs.seq_.push_back( QSequence::Base() ) ;
 	// skip junk before sequence header
 	while( seq_continues(s) ) skipline(s) ;
 
 	// header follows, don't care for the delimiter, read name and
 	// description
 	s.get() ;
-	getword( s, qs.name_ ) ;
-	getline( s, qs.description_ ) ;
+	getword( s, *r.mutable_seqid() ) ;
+	getline( s, *r.mutable_description() ) ;
+	r.clear_sequence() ;
 
 	// If at this point we have a valid stream, we definitely have a
 	// sequence.  Bail out iff reading of the header failed.
@@ -140,8 +148,8 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 		s.get() ;
 		string line ;
 		getline( s, line ) ;
-		qs.description_.push_back( '\n' ) ;
-		qs.description_ += line ;
+		r.mutable_description()->push_back( '\n' ) ;
+		*r.mutable_description() += line ;
 	}
 
 	// read sequence while it continues
@@ -156,12 +164,10 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 		{
 			if( encodes_nuc( line[i] ) )
 			{
-				got_seq = true ;
-				qs.seq_.push_back( QSequence::Base( to_ambicode( line[i] ), 30 ) ) ;
+				r.mutable_sequence()->push_back( line[i] ) ; // QSequence::Base( to_ambicode( line[i] ), 30 ) ) ;
 			}
 		}
 	}
-	qs.seq_.push_back( QSequence::Base() ) ;
 
 	// if quality follows...
 	if( s && s.peek() == '+' )
@@ -171,10 +177,8 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 		skipline(s) ;
 
 		// Q-scores must follow unless the sequence was empty or the stream ends
-		if( s && qs.length() )
+		if( s && r.sequence().length() )
 		{
-			got_qual = true ;
-
 			string line ;
 			getline( s, line ) ;
 
@@ -188,9 +192,10 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 				{
 					stringstream ss( line ) ;
 					for( int q = 0 ; ss >> q ; ++ix )
-						qs.seq_[ix] = QSequence::Base(
-								qs.seq_[ix].ambicode, solexa_scores ? sol_to_phred(q) : q
-								) ; 
+						r.mutable_quality()->push_back( solexa_scores ? sol_to_phred(q) : q ) ;
+						// XXX qs.seq_[ix] = QSequence::Base(
+								// XXX qs.seq_[ix].ambicode, 
+								// XXX ) ; 
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
 				}
@@ -200,7 +205,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 			// ignoring LF and CR.
 			else
 			{
-				size_t total = qs.length(), ix = 0 ; 
+				size_t total = r.sequence().length(), ix = 0 ; 
 				while( ix != total && s )
 				{
 					for( size_t j = 0 ; ix != total && j != line.size() ; ++j )
@@ -208,8 +213,9 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 						int q = line[j] ;
 						if( q != 13 ) // skip CRs
 						{
-							qs.seq_[ix+1] = QSequence::Base(
-									qs.seq_[ix+1].ambicode, solexa_scores ? sol_to_phred( q-origin ) : q-origin ) ; 
+							r.mutable_quality()->push_back( solexa_scores ? sol_to_phred( q-origin ) : q-origin ) ; 
+							// XXX qs.seq_[ix+1] = QSequence::Base(
+									// XXX qs.seq_[ix+1].ambicode, 
 							++ix ;
 						}
 					}
@@ -263,28 +269,10 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, QSequence& qs, 
 	}
 #endif
 
-	qs.validity_ = got_quals ? got_seq ? QSequence::bases_with_qualities : QSequence::qualities_only
-		                     : got_qual ? QSequence::bases_with_quality : QSequence::bases_only ;
+	// XXX qs.validity_ = got_quals ? got_seq ? QSequence::bases_with_qualities : QSequence::qualities_only
+		   // XXX                   : got_qual ? QSequence::bases_with_quality : QSequence::bases_only ;
 	// We did get a sequence, no matter the stream state now, so no
 	// failure.
 	return true ;
 }
-
-#if BUILD_TEST_HARNESS
-// very stupid test harness, not normally compiled
-
-#include <iostream>
-
-int main()
-{
-	QSequence qs ;
-	while( read_fastq( cin, qs ) ) {
-		cout << qs.get_name() << endl 
-			<< qs.get_descr() << endl ;
-		for( int i = 0 ; i != qs.length() ; ++i )
-			cout << (int)qs.qual(i) << ' ' ;
-		cout << endl ;
-	}
-}
-#endif
 

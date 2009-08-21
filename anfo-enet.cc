@@ -103,11 +103,11 @@ class Worker
 					output::Read read ;
 					read.ParseFromArray( packet->data+1, packet->dataLength-1 ) ;
 
-					QSequence ps( read.sequence().c_str(), (const uint8_t*)read.quality().c_str(),
-							read.seqid(), read.description() ) ;
+					QSequence ps ; // XXX ( read.sequence().c_str(), (const uint8_t*)read.quality().c_str(),
+							// read.seqid(), read.description() ) ;
 					output::Result res ;
 					std::deque< alignment_type > ol ;
-					int pmax = mapper->index_sequence( ps, res, ol ) ;
+					int pmax = mapper->index_sequence( res, ps, ol ) ;
 					if( pmax != INT_MAX ) mapper->process_sequence( ps, pmax, ol, res ) ;
 
 					ENetPacket *p = enet_packet_create( 0, 1+res.ByteSize(), ENET_PACKET_FLAG_RELIABLE ) ;

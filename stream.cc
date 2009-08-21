@@ -43,6 +43,10 @@ namespace {
 	}
 } ;
 
+FastqReader::FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total ) 
+	: is_( is ), name_( basename( name ) ), read_(0), total_(total) { read_next_message() ; }
+
+#if 0
 AnfoReader::AnfoReader( const std::string& name )
 	: iis_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
 	, zis_( decompress( &iis_ ) ), name_( basename( name ) ), read_(0), total_(0)
@@ -51,25 +55,13 @@ AnfoReader::AnfoReader( const std::string& name )
 	if( 0 == stat( name.c_str(), &st ) ) total_ = st.st_size ;
 	initialize() ;
 }
+#endif
 
-AnfoReader::AnfoReader( int fd, const std::string& name )
-	: iis_( fd ), zis_( decompress( &iis_ ) ), name_( basename( name ) ), read_(0), total_(0)
+AnfoReader::AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total )
+	: is_( is ), name_( basename( name ) ), read_(0), total_(total)
 {
-	struct stat st ;
-	if( 0 == fstat( fd, &st ) ) total_ = st.st_size ;
-	initialize() ;
-}
-
-void AnfoReader::ParseError::print_to( std::ostream& s ) const
-{
-	s << "AnfoReader: " << msg_ ;
-}
-
-void AnfoReader::initialize()
-{
-	iis_.SetCloseOnDelete( true ) ;
 	std::string magic ;
-	CodedInputStream cis( zis_.get() ) ;
+	CodedInputStream cis( is_.get() ) ;
 
 	if( !cis.ReadString( &magic, 4 ) || magic != "ANFO" ) {
 		throw ParseError( name_ + " is not an ANFO file" ) ;
@@ -90,16 +82,21 @@ void AnfoReader::initialize()
 	foot_.set_exit_code(1) ;
 }
 
+void AnfoReader::ParseError::print_to( std::ostream& s ) const
+{
+	s << "AnfoReader: " << msg_ ;
+}
+
 Result AnfoReader::fetch_result()
 {
 	Result r ;
 	swap( r, res_ ) ;
-	CodedInputStream cis( zis_.get() ) ;
+	CodedInputStream cis( is_.get() ) ;
 	read_next_message( cis ) ;
 	if( state_ == end_of_stream ) chan_.close() ;
-	else if( iis_.ByteCount() >> 16 != read_ >> 16 )
+	else if( is_->ByteCount() >> 16 != read_ >> 16 )
 	{
-		read_ = iis_.ByteCount() ;
+		read_ = is_->ByteCount() ;
 		stringstream s ;
 		s << name_ << ": " << read_ ;
 		if( total_ ) s << '/' << total_ ;
@@ -719,5 +716,41 @@ bool QualFilter::xform( Result& r )
 	return true ;
 }
 
+
+Stream* make_input_stream( const std::string& name )
+{
+	return make_input_stream( throw_errno_if_minus1(
+				open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ),
+			name ) ;
+}
+
+Stream* make_input_stream( int fd, const std::string& name )
+{
+	struct stat st ;
+	google::protobuf::io::FileInputStream *s = new google::protobuf::io::FileInputStream( fd ) ;
+	s->SetCloseOnDelete( true ) ;
+	return make_input_stream( s, name, fstat( fd, &st ) ? -1 : st.st_size ) ;
+}
+
+Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total )
+{
+	/// check magic numbers, then create the right stream
+	const void* p ; int l ;
+	if( !is->Next( &p, &l ) ) return new Stream ;
+	try {
+		const uint8_t* q = (const uint8_t*)p ;
+		if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == 'O' )
+			return new AnfoReader( is, name, total ) ;
+
+		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
+			return make_input_stream( new BunzipStream( is ), name, total ) ;
+
+		else if( l >= 2 && q[0] == 31 && q[1] == 139 )
+			return make_input_stream( new InflateStream( is ), name, total ) ;
+
+		else return new FastqReader( is, name, total ) ;
+	}
+	catch( ... ) { is->BackUp( l  ) ; throw ; }
+}
 
 } ; // namespace

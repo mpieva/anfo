@@ -390,7 +390,7 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 		transfer( sa, out ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
-	enqueue_stream( new AnfoReader( fd, tempname.c_str() ), 1 ) ;
+	enqueue_stream( make_input_stream( /*new AnfoReader(*/ fd, tempname.c_str() ), 1 ) ;
 
 	for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 	scratch_space_.clear() ;
@@ -436,7 +436,7 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 				transfer( ms, out ) ;
 			}
 			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
-			enqueue_stream( new streams::AnfoReader( fd, fname.c_str() ), max_bin + 1 ) ;
+			enqueue_stream( make_input_stream( /*new streams::AnfoReader(*/ fd, fname.c_str() ), max_bin + 1 ) ;
 		}
 	}
 }
@@ -1284,7 +1284,7 @@ int main_( int argc, const char **argv )
 		for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 		{
 			Compose *c = new Compose ;
-			c->add_stream( new AnfoReader( *arg ) ) ;
+			c->add_stream( make_input_stream( *arg ) ) ; // new AnfoReader( *arg ) ) ;
 			for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
 				c->add_stream( (i->maker)( i->intercept, i->slope, i->genome, i->arg ) ) ;
 			cs.push_back( c ) ;
@@ -1292,7 +1292,7 @@ int main_( int argc, const char **argv )
 		for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
 			merging_stream->add_stream( *i ) ;
 	}
-	else merging_stream->add_stream( new AnfoReader( 0, "<stdin>" ) ) ;
+	else merging_stream->add_stream( make_input_stream( /*new AnfoReader( 0,*/ dup( 0 ), "<stdin>" ) ) ;
 
 	FanOut out ;
 	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )

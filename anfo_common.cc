@@ -15,15 +15,15 @@ using namespace config ;
 using namespace output ;
 using namespace std; 
 
-Policy select_policy( const Config &c, const QSequence &ps )
+Policy select_policy( const Config &c, const Read &r )
 {
 	Policy p ;
 	for( int i = 0 ; i != c.policy_size() ; ++i )
 	{
 		const Policy &pi = c.policy(i) ;
-		if( ( !pi.has_minlength() || pi.minlength() <= ps.length() ) &&
-			( !pi.has_maxlength() || pi.maxlength() >= ps.length() ) &&
-			( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), ps.get_name().c_str(), 0 ) ) )
+		if( ( !pi.has_minlength() || pi.minlength() <= r.sequence().length() ) &&
+			( !pi.has_maxlength() || pi.maxlength() >= r.sequence().length() ) &&
+			( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), r.seqid().c_str(), 0 ) ) )
 			p.MergeFrom( pi ) ;
 	}
 	return p ;
@@ -55,9 +55,10 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 static const int maxd = 32 ;
 static const int minscore = 4 ;
 
-int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignment_type >& ol )
+int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol )
 {
-	r.mutable_read()->set_seqid( ps.get_name() ) ;
+	// *r.mutable_read() = ps.get_read() ; 
+	/* XXX ->set_seqid( ps.get_name() ) ;
 	if( !ps.get_descr().empty() ) r.mutable_read()->set_description( ps.get_descr() ) ;
 	switch( ps.get_validity() ) 
 	{
@@ -67,7 +68,7 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 			r.mutable_read()->set_quality( ps.qualities() ) ;
 		case QSequence::bases_only:
 			r.mutable_read()->set_sequence( ps.as_string() ) ;
-	}
+	} */
 
 	// trim adapters, set trim points
 	// How does this work?  We create an overlap alignment, then
@@ -76,35 +77,47 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
 	// score is good enough, we trim.
 
-	if( mi.trim_right_size() || mi.trim_left_size() ) ps.drop_trailing_ns() ;
+	if( mi.trim_right_size() || mi.trim_left_size() ) 
+	{
+		unsigned n = r.read().sequence().length() ; 
+		while( n && ( r.read().sequence()[n-1] == 'n' || r.read().sequence()[n-1] == 'N') ) --n ;
+		r.mutable_read()->set_trim_right( n ) ;
+	}
 
 	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
 	{
 		int ymax, xmax = mi.trim_right(i).size() ;
-		int diff = align( ps.rbegin(), ps.rend(), mi.trim_right(i).rbegin(), mi.trim_right(i).rend(),
-				          maxd, overlap, 0, &ymax ) ;
+		// XXX: already got a trim point
+		int diff = align(
+				r.read().sequence().rbegin(), r.read().sequence().rend(),
+				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(),
+				maxd, overlap, 0, &ymax ) ;
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
 		{
-			r.mutable_read()->set_trim_right( ps.length() - ymax ) ;
-			ps.trim_right( ps.length() - ymax ) ;
+			r.mutable_read()->set_trim_right( r.read().sequence().length() - ymax ) ;
+			// XXX ps.trim_right( ps.length() - ymax ) ;
 		}
 	}
 
 	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
 	{
 		int ymax, xmax = mi.trim_left(i).size() ;
-		int diff = align( ps.begin(), ps.end(), mi.trim_left(i).begin(), mi.trim_left(i).end(),
-				          maxd, overlap, 0, &ymax ) ;
+		// XXX already got trim points
+		int diff = align(
+				r.read().sequence().begin(), r.read().sequence().end(),
+				mi.trim_left(i).begin(), mi.trim_left(i).end(),
+				maxd, overlap, 0, &ymax ) ;
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
 		{
 			r.mutable_read()->set_trim_left( r.read().trim_left() + ymax ) ;
-			ps.trim_left( ymax ) ;
+			// XXX ps.trim_left( ymax ) ;
 		}
 	}
 
-	Policy p = select_policy( mi, ps ) ;
+	Policy p = select_policy( mi, r.read() ) ;
+	QSequence( r.read() ).swap( qs ) ;
 
 	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
@@ -116,13 +129,13 @@ int Mapper::index_sequence( QSequence &ps, output::Result &r, std::deque< alignm
 
 		vector<Seed> seeds ;
 		num_raw += ix.lookupS( 
-				ps, seeds, cis.allow_near_perfect(), &num_useless,
+				r.read().sequence(), seeds, cis.allow_near_perfect(), &num_useless,
 				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
 		num_comb += seeds.size() ;
 		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
 		num_clumps += seeds.size() ;
 
-		setup_alignments( g, ps, seeds.begin(), seeds.end(), ol ) ;
+		setup_alignments( g, qs, seeds.begin(), seeds.end(), ol ) ;
 	}
 	AlnStats *as = r.mutable_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;

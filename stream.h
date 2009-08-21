@@ -4,6 +4,7 @@
 #include "compress_stream.h"
 #include "logdom.h"
 #include "output.pb.h"
+#include "sequence.h"
 #include "util.h"
 
 #include <google/protobuf/io/coded_stream.h>
@@ -157,7 +158,7 @@ class Stream
 		state state_ ;
 
 	public:
-		Stream() : state_( invalid ) {}
+		Stream() : state_( end_of_stream ) {}
 		virtual ~Stream() {}
 
 		//! \brief returns stream state
@@ -234,13 +235,12 @@ class StreamBundle : public Stream
 class AnfoReader : public Stream
 {
 	private:
-		google::protobuf::io::FileInputStream iis_ ;
-		std::auto_ptr<google::protobuf::io::ZeroCopyInputStream> zis_ ;
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
 		Chan chan_ ;
 		int64_t read_, total_ ;
 
-		void initialize() ;
+		// XXX void initialize() ;
 		void read_next_message( google::protobuf::io::CodedInputStream& ) ;
 
 		//! \internal
@@ -255,13 +255,15 @@ class AnfoReader : public Stream
 			virtual void print_to( std::ostream& ) const ;
 		} ;
 
+		AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total ) ;
+
 		//! \brief opens the named file
-		AnfoReader( const std::string& name ) ;
+		// XXX AnfoReader( const std::string& name ) ;
 
 		//! \brief uses a given name and filedescriptor
 		//! No actual file is touched, the name is for informational
 		//! purposes only.
-		AnfoReader( int fd, const std::string& name = "<pipe>" ) ;
+		// XXX AnfoReader( int fd, const std::string& name = "<pipe>" ) ;
 
 		virtual ~AnfoReader() { --num_files_ ; }
 		virtual Result fetch_result() ;
@@ -269,6 +271,7 @@ class AnfoReader : public Stream
 		//! \internal
 		static unsigned num_open_files() { return num_files_ ; }
 } ;
+
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
 class AnfoWriter : public Stream
@@ -506,6 +509,29 @@ class ConcatStream : public StreamBundle
 	public:
 		virtual void add_stream( Stream* ) ;
 		virtual Result fetch_result() ;
+} ;
+
+Stream* make_input_stream( const std::string& name ) ;
+Stream* make_input_stream( int fd, const std::string& name = "<pipe>" ) ;
+Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name = "<pipe>", int64_t total = -1 ) ;
+
+
+class FastqReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		std::string name_ ;
+		Chan chan_ ;
+		int64_t read_, total_ ;
+
+		void read_next_message() {
+			state_ = read_fastq( is_.get(), *res_.mutable_read(), /* XXX */ false, 33 ) 
+				? have_output : end_of_stream ;
+		}
+
+	public: 
+		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total ) ;
+		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 } ;
 
 } // namespace streams
