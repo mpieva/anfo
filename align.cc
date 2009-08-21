@@ -78,13 +78,13 @@ void simple_adna::configure( const config::Aligner& conf, std::ostream *out )
 	if( conf.has_mean_overhang_length() )
 	{
 		double p_comp = 1 - 1 / (2*conf.mean_overhang_length() + 1) ;
-		overhang_enter_penalty = Logdom::from_float( 1 ) ;
+		overhang_enter_penalty = Logdom::one() ;
 		overhang_ext_penalty = Logdom::from_float( p_comp ) ;
 	}
 	else
 	{
-		overhang_enter_penalty = Logdom::from_float( -INFINITY ) ;
-		overhang_ext_penalty = Logdom::from_float( 1 ) ;
+		overhang_enter_penalty = Logdom::null() ;
+		overhang_ext_penalty = Logdom::one() ;
 	}
 
 	double tv = conf.rate_of_transversions() ;

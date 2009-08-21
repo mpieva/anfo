@@ -135,18 +135,21 @@ class count_word {
 	public:
 		uint32_t *base_ ;
 		uint32_t cutoff_ ;
+		uint32_t stride_ ;
 		uint64_t &total_ ;
 
-		count_word( uint32_t *b, uint32_t c, uint64_t &t ) : base_(b), cutoff_(c), total_(t) {}
+		count_word( uint32_t *b, uint32_t c, uint32_t s, uint64_t &t ) : base_(b), cutoff_(c), stride_(s), total_(t) {}
 		void operator()( uint32_t off, uint32_t ix ) const {
-			uint32_t x = ++base_[ix] ; 
-			if( x <= cutoff_ ) {
-				++total_ ;
-				if( x == cutoff_ ) total_ -= cutoff_ ;
-			}
+			if( off % stride_ == 0 ) {
+				uint32_t x = ++base_[ix] ; 
+				if( x <= cutoff_ ) {
+					++total_ ;
+					if( x == cutoff_ ) total_ -= cutoff_ ;
+				}
 
-			if( std::numeric_limits<size_t>::max() / 4 <= total_ ) 
-				throw "Sorry, but a bigger machine is needed for this kind of index." ;
+				if( std::numeric_limits<size_t>::max() / 4 <= total_ ) 
+					throw "Sorry, but a bigger machine is needed for this kind of index." ;
+			}
 		}
 } ;
 
@@ -159,13 +162,16 @@ class store_word {
 	private:
 		uint32_t *index_1l_ ;
 		uint32_t *index_2l_ ;
+		uint32_t stride_ ;
 
 	public:
-		store_word( uint32_t *i1, uint32_t *i2 ) : index_1l_(i1), index_2l_(i2) {}
+		store_word( uint32_t s, uint32_t *i1, uint32_t *i2 ) : index_1l_(i1), index_2l_(i2), stride_(s) {}
 		void operator()( uint32_t off, uint32_t ix )
 		{ 
-			uint32_t& p = index_1l_[ (uint64_t)ix ] ;
-			if( p ) index_2l_[ (uint64_t)(--p) ] = off ;
+			if( off % stride_ == 0 ) {
+				uint32_t& p = index_1l_[ (uint64_t)ix ] ;
+				if( p ) index_2l_[ (uint64_t)(--p) ] = off ;
+			}
 		}
 } ;
 
@@ -180,8 +186,9 @@ int main_( int argc, const char * argv[] )
 	const char* description = 0 ;
 	const char* genome_file = 0 ;
 
-	unsigned wordsize  = 10 ;
+	unsigned wordsize  = 12 ;
 	unsigned cutoff    = std::numeric_limits<unsigned>::max() ;
+	unsigned stride    = 8 ;
 	int      verbose   = 0 ;
 	int 	 histogram = 0 ;
 
@@ -195,6 +202,7 @@ int main_( int argc, const char * argv[] )
 		{ "genome-dir",  'G', POPT_ARG_STRING, 0,            opt_path,    "Add DIR to genome search path", "DIR" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
 		{ "wordsize",    's', POPT_ARG_INT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
+		{ "stride",      'S', POPT_ARG_INT,    &stride,      opt_none,    "Index every Nth word", "N" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
 		{ "histogram",   'h', POPT_ARG_NONE,   &histogram,   opt_none,    "Produce histogram of word frequencies", 0 },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
@@ -242,7 +250,7 @@ int main_( int argc, const char * argv[] )
 	// First scan: only count words.  We'll have to go over the whole
 	// table again to convert counts into offsets.
 	uint64_t total0 = 0;
-	genome.scan_words( wordsize, make_dense_word( count_word( base, cutoff, total0 ) ), "Counting" ) ;
+	genome.scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, total0 ) ), "Counting" ) ;
 	std::clog << "Need to store " << total0 << " pointers." << std::endl ;
 
 	// Histogram of word frequencies.
@@ -288,7 +296,7 @@ int main_( int argc, const char * argv[] )
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 
 	// Second scan: we actually store the offsets now.
-	genome.scan_words( wordsize, make_dense_word( store_word( base, lists ) ), "Indexing" ) ;
+	genome.scan_words( wordsize, make_dense_word( store_word( stride, base, lists ) ), "Indexing" ) ;
 
 	// need to fix 0-entries in 1L index
 	uint32_t last = total ;
@@ -302,6 +310,7 @@ int main_( int argc, const char * argv[] )
 	config::CompactIndex ci ;
 	ci.set_genome_name( genome_file ) ;
 	ci.set_wordsize( wordsize ) ;
+	ci.set_stride( stride ) ;
 	ci.set_indexsize( total ) ;
 	if( cutoff != std::numeric_limits<unsigned>::max() ) ci.set_cutoff( cutoff ) ;
 	std::string metainfo ;

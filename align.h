@@ -281,8 +281,8 @@ struct flat_alignment : public gen_alignment<flat_alignment> {
 } ;
 
 //! \brief checks whether an alignment is finished
-//! The typical alignment is finished iff  the query sequence hit a gap ! while
-//doing the second half of an alignment.
+//! The typical alignment is finished iff the query sequence hit a gap
+//! while doing the second half of an alignment.
 //! \param s alignment state
 //! \return true iff the alignment is finished
 template< typename A > bool finished( const gen_alignment<A>& s )
@@ -390,13 +390,12 @@ struct simple_adna : public gen_alignment<simple_adna> {
 		Ambicode r = state & mask_dir ? get_ref() : complement( get_ref() ) ;
 		if( !r ) r = 15 ; // if reference has a gap, pretend it was an N
 
-		Logdom prob ;
+		Logdom prob = Logdom::null() ;
 		for( uint8_t p = 0 ; p != 4 ; ++p )
 		{
 			Ambicode q = state & mask_dir ? (1<<p) : complement(1<<p) ;
-			Logdom pr0 = ( state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] )
+			prob += ( state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] )
 				* Logdom::from_phred( get_qry().qscores[p] ) ;
-			if( p ) prob += pr0 ; else prob = pr0 ;
 		}
 		return prob ;
 	}

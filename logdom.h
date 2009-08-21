@@ -2,6 +2,7 @@
 #define INCLUDED_LOGDOM_H
 
 #include <math.h>
+#include <stdint.h>
 
 //! \brief representation of floating point number in log domain
 //! This class is supposed to behave like ordinary floating point
@@ -13,6 +14,11 @@
 //!
 //! \f[ q_s = q_1 - \frac{10}{\ln 10} \ln \left( 1 + \exp \left( \frac{\ln 10}{10} (q_1-q_2) \right) \right) \f]
 //!
+//! It turns out that IEEE floating point handles corner cases well:
+//! from_float(0) gives an internal representation of \f$ -\inf \f$,
+//! which works fine in calculations, except that adding two such
+//! numbers gives NaN (so don't do that).
+
 class Logdom {
 	private:
 		double v_ ;
@@ -38,6 +44,9 @@ class Logdom {
 		//! \brief calculates log( 1 - exp x )
 		//! \see ld1pexp10()
 		static double ld1mexp10( double x ) { return -10.0 / log(10.0) * log1p( -exp( -log(10.0)/10.0*x ) ) ; }
+
+		static Logdom null() { return from_float( 0 ) ; }
+		static Logdom one() { return from_float( 1 ) ; }
 
 		//! \brief converts an ordinary number to log domain
 		static Logdom from_float( double v ) { return Logdom( -10 * log(v) / log(10.0) ) ; }

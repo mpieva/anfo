@@ -62,7 +62,7 @@ void DuctTaper::flush_contig()
 		if( cov > i->seen[4] ) {
 			if( i->is_ins ) push_i( cigar, 1 ) ; else push_m( cigar, 1 ) ;
 
-			Logdom lk_tot = std::accumulate( i->lk+1, i->lk+10, i->lk[0] ) ;
+			Logdom lk_tot = std::accumulate( i->lk, i->lk+10, Logdom::null() ) ;
 			int maxlk = 0 ;
 			for( int j = 0 ; j != 4 ; ++j )
 			{
@@ -73,9 +73,8 @@ void DuctTaper::flush_contig()
 			rd.add_depth( cov + i->seen[4] ) ;
 			rd.mutable_sequence()->push_back( "ACGTMRWSYK"[maxlk] ) ;
 
-			Logdom q = maxlk == 0 ? i->lk[1] : i->lk[0] ;
-			for( int j = maxlk == 0 ? 2 : 1 ; j != 4 ; ++j )
-				if( j != maxlk ) q += i->lk[j] ;
+			Logdom q = Logdom::null() ;
+			for( int j = 0 ; j != 4 ; ++j ) if( j != maxlk ) q += i->lk[j] ;
 
 			rd.mutable_quality()->push_back( (q / lk_tot).to_phred_byte() ) ;
 
@@ -114,13 +113,24 @@ void DuctTaper::put_footer( const Footer& f )
 	flush_contig() ;
 }
 
-// Strategy:
-// Walk along both cigar strings, observed_ and the sequence of r.  If
-// both cigars match, update observed_.  If both cigars insert, update
-// observed.  If only r inserts, insert in observed_ and cigar_.  If r
-// deletes, update observed_.  That means, we can properly call
-// deletions by majority vote, and all inserts are forced to overlap and
-// will lead to a majority vote, too (probably wreaking havoc).
+//! Strategy:  Walk along both cigar strings, observed_ and the sequence
+//! of r.  If both cigars match, update observed_.  If both cigars
+//! insert, update observed.  If only r inserts, insert in observed_ and
+//! cigar_.  If r deletes, update observed_.  That means, we can
+//! properly call deletions by majority vote, and all inserts are forced
+//! to overlap and will lead to a majority vote, too (probably wreaking
+//! havoc in the rare case of apparently polymorphic inserts).
+//!
+//! In observed_ we store likelihoods for observations assuming a given
+//! base.  The final base call inverts this by dividing by the total
+//! likelihood.  Incorporation of the BJ model is quite easy: we just
+//! multiply the likelihood of a C becoming a T onto whatever the
+//! quality scores yield where appropriate.  The likelihood depends on
+//! how likely we are to be in a single stranded region, so we need to
+//! sum over all possible overhang lengths.  The likelihood of the
+//! alignment with a given overhang length is simply the alignment
+//! score, by dividing by the total likelihood, we get a likelihood for
+//! that overhang length.
 //
 // XXX likelihoods do not regard BJ model
 void DuctTaper::put_result( const Result& r )
@@ -163,16 +173,25 @@ void DuctTaper::put_result( const Result& r )
 			seq[i] == 'G' ? 2 : seq[i] == 'T' ? 3 : -1 ;
 	}
 
-	std::string::const_iterator p_seq = seq.begin() ;
-	std::string::const_iterator q_seq = qual.begin() ;
 	Accs::iterator column = observed_.begin() ;
-	size_t cigar_maj = 0 ;
-	size_t cigar_min = 0 ;
-
 	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
 		if( !column->is_ins ) --offs ;
 
-	while( p_seq != seq.end() && cigar_maj != cigar.size() )
+	// Calculate likelihoods for being in single stranded part.
+	// Likelihood for being ss is alignment score assuming single
+	// strandedness divided by (logarithmic) sum of alignment scores
+	// assuming single stranded and assuming double stranded.  We can
+	// calculate incrementally.
+
+	// Forward: alignment score (ss) is zero, alignment score (ds) is
+	// overhang_enter_penalty initialy.  Each step, we increment by
+	// appropriate match scores and overhang_ext_penalty.  Ratio is
+	// likelihood for overhang being at least x long.
+	
+
+	size_t cigar_maj = 0, cigar_min = 0 ;
+	for( std::string::iterator p_seq = seq.begin(), q_seq = qual.begin() ;
+			p_seq != seq.end() && cigar_maj != cigar.size() ; )
 	{
 		if( cigar_len( cigar[ cigar_maj ] ) == cigar_min )
 		{

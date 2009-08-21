@@ -306,12 +306,12 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 				const char *n = the_glob.gl_pathv[j] ; 
 				if( the_metagenome.genomes.find( n ) == the_metagenome.genomes.end() )
 				{
-					console.output( Console::info, "[Metagenome] trying file " + std::string(n) ) ;
+					console.output( Console::info, "Metagenome: trying file " + std::string(n) ) ;
 
 					CompactGenome* g = new CompactGenome( n ) ;
 					the_metagenome.genomes[ n ] = g ;
 
-					console.output( Console::info, "[Metagenome] loaded (part of) genome " + g->name() ) ;
+					console.output( Console::info, "Metagenome: loaded (part of) genome " + g->name() ) ;
 
 					// map sequence names to new genome
 					for( int k = 0 ; k != g->g_.sequence_size() ; ++k )

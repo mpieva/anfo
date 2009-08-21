@@ -667,13 +667,12 @@ void RmdupStream::call_consensus()
 		// but calculate the error probability from _all_others_ to
 		// retain precision
 
-		Logdom denom = quals_[0].at(i) ;
-		for( size_t j = 1 ; j != 4 ; ++j )
+		Logdom denom = Logdom::null(), num = Logdom::null() ;
+		for( size_t j = 0 ; j != 4 ; ++j )
+		{
 			denom += quals_[j].at( i ) ;
-
-		Logdom num = quals_[m?0:1].at(i) ;
-		for( size_t j = (m?1:2) ; j != 4 ; ++j )
 			if( j != m ) num += quals_[j].at( i ) ;
+		}
 
 		int qscore = (num/denom).to_phred() ;
 		if( qscore > 127 ) qscore = 127 ;
