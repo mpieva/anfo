@@ -178,16 +178,16 @@ void DuctTaper::put_result( const Result& r )
 		if( !column->is_ins ) --offs ;
 
 	// Calculate likelihoods for being in single stranded part.
-	// Likelihood for being ss is alignment score assuming single
-	// strandedness divided by (logarithmic) sum of alignment scores
-	// assuming single stranded and assuming double stranded.  We can
-	// calculate incrementally.
-
-	// Forward: alignment score (ss) is zero, alignment score (ds) is
-	// overhang_enter_penalty initialy.  Each step, we increment by
-	// appropriate match scores and overhang_ext_penalty.  Ratio is
-	// likelihood for overhang being at least x long.
-	
+	// Likelihood for having an ss overhang of at least n is sum of
+	// match scores in first n positions; therefore probability is
+	// L_ss(n) / (L_ss(n)+L_ds(n)) * P_ss(n), the latter being the prior
+	// of overhang_ext_penalty*n + overhang_enter_penalty.   Incremental
+	// calculation is therfore easy in forward direction.  C->T
+	// probabilty is weighted sum of the two deamination rates.
+	//
+	// Backward direction:  same calculation, but we need to initialize
+	// to the sum of all the match scores, which requires a preliminary
+	// pass over everything.
 
 	size_t cigar_maj = 0, cigar_min = 0 ;
 	for( std::string::iterator p_seq = seq.begin(), q_seq = qual.begin() ;

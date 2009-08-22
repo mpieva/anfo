@@ -28,10 +28,6 @@ ifneq (,$(findstring -lpthread,$(LDLIBS)))
 PROGS += anfo-standalone
 endif
 
-ifneq (,$(findstring -lenet,$(LDLIBS)))
-PROGS += anfo-enet anfo-control 
-endif
-
 TARGETS := $(PROGS) index-test file-info dump-params
 
 ifeq (@SIZEOF_INT_P@,4)
@@ -63,8 +59,6 @@ index.o: config.pb.h
 output_streams.o: config.pb.h output.pb.h
 stream.o: config.pb.h output.pb.h
 
-anfo-control.o: output.pb.h config.pb.h
-anfo-enet.o: output.pb.h config.pb.h
 anfo-sge.o: config.pb.h output.pb.h
 anfo-standalone.o: config.pb.h output.pb.h
 anfo-tool.o: output.pb.h config.pb.h

@@ -277,7 +277,6 @@ class AnfoReader : public Stream
 class AnfoWriter : public Stream
 {
 	private:
-		std::auto_ptr< google::protobuf::io::FileOutputStream > fos_ ;
 		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos_ ;
 		google::protobuf::io::CodedOutputStream o_ ;
 		Chan chan_ ;
@@ -511,9 +510,9 @@ class ConcatStream : public StreamBundle
 		virtual Result fetch_result() ;
 } ;
 
-Stream* make_input_stream( const std::string& name ) ;
-Stream* make_input_stream( int fd, const std::string& name = "<pipe>" ) ;
-Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name = "<pipe>", int64_t total = -1 ) ;
+Stream* make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
+Stream* make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
+Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
 
 
 class FastqReader : public Stream
@@ -523,14 +522,17 @@ class FastqReader : public Stream
 		std::string name_ ;
 		Chan chan_ ;
 		int64_t read_, total_ ;
+		bool sol_scores_ ;
+		char origin_ ;
 
 		void read_next_message() {
-			state_ = read_fastq( is_.get(), *res_.mutable_read(), /* XXX */ false, 33 ) 
+			state_ = read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ )
 				? have_output : end_of_stream ;
 		}
 
 	public: 
-		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total ) ;
+		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total,
+				bool solexa_scores, char origin ) ;
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 } ;
 

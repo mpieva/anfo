@@ -43,8 +43,9 @@ namespace {
 	}
 } ;
 
-FastqReader::FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total ) 
-	: is_( is ), name_( basename( name ) ), read_(0), total_(total) { read_next_message() ; }
+FastqReader::FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total,
+		bool solexa_scores, char origin ) 
+	: is_( is ), name_( basename( name ) ), read_(0), total_(total), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
 
 #if 0
 AnfoReader::AnfoReader( const std::string& name )
@@ -223,19 +224,17 @@ AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos, const c
 }
 
 AnfoWriter::AnfoWriter( int fd, const char* fname, bool expensive )
-	: fos_( new FileOutputStream( fd ) )
-	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
+	: zos_( compress_any( expensive, new FileOutputStream( fd ) ) )
 	, o_( zos_.get() ), name_( fname ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
 
 AnfoWriter::AnfoWriter( const char* fname, bool expensive )
-	: fos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) )
-	, zos_( expensive ? compress_small( fos_.get() ) : compress_fast(  fos_.get() ) )
+	: zos_( compress_any( expensive, new FileOutputStream(
+					throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) ) )
 	, o_( zos_.get() ), name_( fname ), wrote_(0)
 {
-	fos_->SetCloseOnDelete( true ) ;
 	o_.WriteRaw( "ANFO", 4 ) ;
 }
 
@@ -717,22 +716,24 @@ bool QualFilter::xform( Result& r )
 }
 
 
-Stream* make_input_stream( const std::string& name )
+Stream* make_input_stream( const char *name, bool solexa_scores, char origin )
 {
-	return make_input_stream( throw_errno_if_minus1(
-				open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ),
-			name ) ;
+	return name && *name && strcmp( name, "-" ) 
+		? make_input_stream( throw_errno_if_minus1(
+				open( name, O_RDONLY ), "opening ", name ), name, solexa_scores, origin ) 
+		: make_input_stream( dup( 0 ), "<stdin>", solexa_scores, origin ) ;
 }
 
-Stream* make_input_stream( int fd, const std::string& name )
+Stream* make_input_stream( int fd, const char *name, bool solexa_scores, char origin )
 {
 	struct stat st ;
 	google::protobuf::io::FileInputStream *s = new google::protobuf::io::FileInputStream( fd ) ;
 	s->SetCloseOnDelete( true ) ;
-	return make_input_stream( s, name, fstat( fd, &st ) ? -1 : st.st_size ) ;
+	return make_input_stream( s, name, fstat( fd, &st ) ? -1 : st.st_size, solexa_scores, origin ) ;
 }
 
-Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total )
+Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const char *name,
+		int64_t total, bool solexa_scores, char origin )
 {
 	/// check magic numbers, then create the right stream
 	const void* p ; int l ;
@@ -743,12 +744,12 @@ Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const 
 			return new AnfoReader( is, name, total ) ;
 
 		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
-			return make_input_stream( new BunzipStream( is ), name, total ) ;
+			return make_input_stream( new BunzipStream( is ), name, total, solexa_scores, origin ) ;
 
 		else if( l >= 2 && q[0] == 31 && q[1] == 139 )
-			return make_input_stream( new InflateStream( is ), name, total ) ;
+			return make_input_stream( new InflateStream( is ), name, total, solexa_scores, origin ) ;
 
-		else return new FastqReader( is, name, total ) ;
+		else return new FastqReader( is, name, total, solexa_scores, origin ) ;
 	}
 	catch( ... ) { is->BackUp( l  ) ; throw ; }
 }

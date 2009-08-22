@@ -50,23 +50,18 @@ int main_( int argc, const char * argv[] )
 	Config conf = get_default_config( config_file ) ;
 	Mapper mapper( conf ) ;
 
-	std::string output_file_ = output_file ;
-	output_file_ += ".#new#" ;
-
-	google::protobuf::io::FileOutputStream fos( strcmp( output_file, "-" ) ?
-			throw_errno_if_minus1( open( output_file_.c_str(), O_WRONLY | O_CREAT, 0666 ),
-				                   "opening", output_file_.c_str() ) : 1 ) ;
-	if( strcmp( output_file, "-" ) ) fos.SetCloseOnDelete( true ) ;
-	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
+	AnfoWriter os( output_file ) ;
+	// XXX std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos(
+			// compress_fast( make_output_stream( output_file ) ) ) ;
 
 	Header ohdr ;
-	CodedOutputStream cos( zos.get() ) ;
-	cos.WriteRaw( "ANFO", 4 ) ; // signature
+	// CodedOutputStream cos( zos.get() ) ;
+	// cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	streams::write_delimited_message( cos, 1, ohdr ) ;
+	os.put_header( ohdr ) ; // streams::write_delimited_message( cos, 1, ohdr ) ;
 
 	for( auto_ptr<Stream> inp( make_input_stream( input_file ) ) ; inp->get_state() == Stream::have_output ; )
 	{
@@ -75,17 +70,12 @@ int main_( int argc, const char * argv[] )
 		QSequence ps ;
 		int pmax = mapper.index_sequence( r, ps, ol ) ;
 		if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-		streams::write_delimited_message( cos, 4, r ) ;
+		os.put_result( r ) ; // streams::write_delimited_message( cos, 4, r ) ;
 	}
 
 	Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	streams::write_delimited_message( cos, 3, ofoot ) ;
-
-	if( !exit_with && strcmp( output_file, "-" ) )
-		throw_errno_if_minus1(
-				rename( output_file_.c_str(), output_file ),
-				"renaming output" ) ;
+	os.put_footer( ofoot ) ; // streams::write_delimited_message( cos, 3, ofoot ) ;
 	return 0 ;
 }
 

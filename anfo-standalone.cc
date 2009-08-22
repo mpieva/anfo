@@ -69,11 +69,12 @@ struct CommonData
 	Queue<output::Result*, 4> output_queue ;
 	Queue<AlignmentWorkload*, 4> intermed_queue ;
 	Queue<output::Result*, 4> input_queue ;
-	google::protobuf::io::CodedOutputStream output_stream ;
+	// google::protobuf::io::CodedOutputStream output_stream ;
+	streams::AnfoWriter output_stream ;
 	Mapper mapper ;
 
-	CommonData( const Config& conf, google::protobuf::io::ZeroCopyOutputStream *zos )
-		: output_stream( zos ), mapper( conf ) {}
+	CommonData( const Config& conf, const char* fn ) // XXX google::protobuf::io::ZeroCopyOutputStream *zos )
+		: output_stream( fn ), mapper( conf ) {}
 } ;
 
 void* run_output_thread( void* p )
@@ -81,7 +82,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		streams::write_delimited_message( q->output_stream, 4, *r ) ;
+		q->output_stream.put_result( *r ) ; // streams::write_delimited_message( q->output_stream, 4, *r ) ;
 		delete r ;
 	}
 	return 0 ;
@@ -195,17 +196,11 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "no output file" ;
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
-	std::string output_file_ = output_file ;
-	output_file_ += ".#new#" ;
-
-	google::protobuf::io::FileOutputStream fos( strcmp( output_file, "-" ) ?
-			throw_errno_if_minus1( open( output_file_.c_str(), O_WRONLY | O_CREAT, 0666 ),
-				                   "opening", output_file_.c_str() ) : 1 ) ;
-	if( strcmp( output_file, "-" ) ) fos.SetCloseOnDelete( true ) ;
-	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
+	// std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos(
+			// compress_fast( make_output_stream( output_file ) ) ) ;
 
 	Config conf = get_default_config( config_file ) ;
-	CommonData common_data( conf, zos.get() ) ;
+	CommonData common_data( conf, output_file ) ; // zos.get() ) ;
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
@@ -221,13 +216,13 @@ int main_( int argc, const char * argv[] )
 	}
 
 	output::Header ohdr ;
-	common_data.output_stream.WriteRaw( "ANFO", 4 ) ; // signature
+	// XXX common_data.output_stream.WriteRaw( "ANFO", 4 ) ; // signature
 
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	streams::write_delimited_message( common_data.output_stream, 1, ohdr ) ;
+	common_data.output_stream.put_header( ohdr ) ; // XXX streams::write_delimited_message( common_data.output_stream, 1, ohdr ) ;
 
 	// Running in multiple threads.  The main thread will read the
 	// input and enqueue it, then signal end of input by adding a null
@@ -248,9 +243,7 @@ int main_( int argc, const char * argv[] )
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
 		std::auto_ptr< streams::Stream > inp( 
-				files.front().empty() || files.front() == "-"
-				? streams::make_input_stream( dup( 0 ), "<stdin>" )
-				: streams::make_input_stream( files.front() ) ) ;
+				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{
@@ -291,12 +284,7 @@ int main_( int argc, const char * argv[] )
 	clog << endl ;
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	streams::write_delimited_message( common_data.output_stream, 3, ofoot ) ;
-
-	if( !exit_with && strcmp( output_file, "-" ) )
-		throw_errno_if_minus1(
-				rename( output_file_.c_str(), output_file ),
-				"renaming output" ) ;
+	common_data.output_stream.put_footer( ofoot ) ; // XXX streams::write_delimited_message( common_data.output_stream, 3, ofoot ) ;
 	return 0 ;
 }
 

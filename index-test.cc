@@ -9,6 +9,7 @@
 #include "compress_stream.h"
 #include "conffile.h"
 #include "index.h"
+#include "stream.h"
 #include "util.h"
 
 #include <popt.h>
@@ -62,29 +63,24 @@ int main_( int argc, const char * argv[] )
 	unsigned total_seeded = 0, total_failures = 0 ;
 	while( const char* arg = poptGetArg( pc ) ) 
 	{
-		int inp_fd = !strcmp( arg, "-" ) ? 0 :
-			throw_errno_if_minus1( open( arg, O_RDONLY ), "opening ", arg ) ;
-
-		FileInputStream raw_inp( inp_fd ) ;
-		std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
-
-		QSequence ps ;
-		while( read_fastq( inp.get(), ps ) ) 
+		std::auto_ptr<streams::Stream> inp( streams::make_input_stream( arg ) ) ;
+		while( inp->get_state() == streams::Stream::have_output )
 		{
-			output::Result r ;
+			QSequence ps ;
+			output::Result r = inp->fetch_result() ;
 			std::deque< alignment_type > ol ;
-			mapper.index_sequence( ps, r, ol ) ;
+			mapper.index_sequence( r, ps, ol ) ;
 
 			uint32_t closest = UINT_MAX ;
 			uint32_t seq_len = ps.length() ;
 			if( simulation )
 			{
-				size_t p0 = ps.get_name().find( '-', 4 ) ;
-				size_t p1 = ps.get_name().find( '_', p0 ) ;
+				size_t p0 = r.read().seqid().find( '-', 4 ) ;
+				size_t p1 = r.read().seqid().find( '_', p0 ) ;
 
-				std::string seq_name = ps.get_name().substr( 4, p0-4 ) ;
-				uint32_t orig_pos = atoi( ps.get_name().substr( p0+1, p1-p0-1 ).c_str() ) ;
-				if( ps.get_name()[p1+1] == '+' ) orig_pos += seq_len / 2 ;
+				std::string seq_name = r.read().seqid().substr( 4, p0-4 ) ;
+				uint32_t orig_pos = atoi( r.read().seqid().substr( p0+1, p1-p0-1 ).c_str() ) ;
+				if( r.read().seqid()[p1+1] == '+' ) orig_pos += seq_len / 2 ;
 				else orig_pos += seq_len / 2 ;
 
 				for( size_t i = 0 ; i != ol.size() ; ++i )
@@ -102,7 +98,7 @@ int main_( int argc, const char * argv[] )
 			if( r.has_aln_stats() )
 			{
 				++total_seeded ;
-				cout << setw(27) << ps.get_name()
+				cout << setw(27) << r.read().seqid()
 					<< setw(5) << seq_len
 					<< setw(10) << r.aln_stats().num_raw_seeds()
 					<< setw(10) << r.aln_stats().num_useless()
@@ -133,7 +129,6 @@ int main_( int argc, const char * argv[] )
 					std::cout << std::dec << std::endl ;
 			}
 		}
-		if( inp_fd ) close( inp_fd ) ;
 	}
 	if( simulation )
 		cout << total_failures << " failures in " << total_seeded << " attempts." << endl ;

@@ -140,18 +140,13 @@ int main_( int argc, const char * argv[] )
 		if( good ) total_size += s.st_size ; else total_size = -1 ;
 	}
 
-	std::string output_file_ = output_file ;
-	output_file_ += ".#new#" ;
-
-	google::protobuf::io::FileOutputStream fos( strcmp( output_file, "-" ) ?
-			throw_errno_if_minus1( open( output_file_.c_str(), O_WRONLY | O_CREAT, 0666 ),
-				                   "opening", output_file_.c_str() ) : 1 ) ;
-	if( strcmp( output_file, "-" ) ) fos.SetCloseOnDelete( true ) ;
-	std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos( compress_fast( &fos ) ) ;
+	streams::AnfoWriter os( output_file ) ;
+	// std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos(
+			// compress_fast( make_output_stream( output_file ) ) ) ;
 
 	output::Header ohdr ;
-	google::protobuf::io::CodedOutputStream cos( zos.get() ) ;
-	cos.WriteRaw( "ANFO", 4 ) ; // signature
+	// google::protobuf::io::CodedOutputStream cos( zos.get() ) ;
+	// cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
 	if( stride > 1 ) 
@@ -162,7 +157,8 @@ int main_( int argc, const char * argv[] )
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
 	if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
 	if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
-	streams::write_delimited_message( cos, 1, ohdr ) ;
+	os.put_header( ohdr ) ; 
+	// streams::write_delimited_message( cos, 1, ohdr ) ;
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
@@ -177,9 +173,7 @@ int main_( int argc, const char * argv[] )
 					// "opening ", files.front().c_str() ) ;
 
 		std::auto_ptr< streams::Stream > inp(
-			files.front().empty() || files.front() == "-"
-			? streams::make_input_stream( dup( 0 ), "<stdin>" )
-			: streams::make_input_stream( files.front() ) ) ;
+			streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		// FileInputStream raw_inp( inp_fd ) ;
 		// std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
@@ -206,7 +200,7 @@ int main_( int argc, const char * argv[] )
 				std::deque< alignment_type > ol ;
 				int pmax = mapper.index_sequence( r, ps, ol ) ;
 				if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-				streams::write_delimited_message( cos, 4, r ) ;
+				os.put_result( r ) ; // streams::write_delimited_message( cos, 4, r ) ;
 			}
 		}
 		// XXX if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
@@ -214,12 +208,7 @@ int main_( int argc, const char * argv[] )
 
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	streams::write_delimited_message( cos, 3, ofoot ) ;
-
-	if( !exit_with && strcmp( output_file, "-" ) )
-		throw_errno_if_minus1(
-				rename( output_file_.c_str(), output_file ),
-				"renaming output" ) ;
+	os.put_footer( ofoot ) ; // streams::write_delimited_message( cos, 3, ofoot ) ;
 	return 0 ;
 }
 

@@ -5,6 +5,7 @@
 #include "util.h"
 
 #include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <memory>
 #include <ostream>
 
@@ -211,6 +212,7 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 			// give back leftover output buffer, free resources
 			if( zs_.avail_out ) os_->BackUp( zs_.avail_out ) ;
 			deflateEnd( &zs_ ) ;
+			delete os_ ;
 		}
 
 		virtual bool Next( void **data, int *size ) { return next( data, size ) ; }
@@ -412,6 +414,7 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 			// give back leftover output buffer, free resources
 			if( zs_.avail_out ) os_->BackUp( zs_.avail_out ) ;
 			BZ2_bzCompressEnd( &zs_ ) ;
+			delete os_ ;
 		}
 
 		virtual bool Next( void **data, int *size ) { return next( data, size ) ; }
@@ -446,6 +449,17 @@ inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::
 	return new IdInputStream( s ) ;
 }
 
+inline google::protobuf::io::FileOutputStream *make_output_stream( const char *name )
+{
+	std::auto_ptr< google::protobuf::io::FileOutputStream > fos(
+			new google::protobuf::io::FileOutputStream(
+				!name || 0 == strcmp( name, "-" ) ? dup( 1 ) :
+				throw_errno_if_minus1( open( name, O_WRONLY | O_CREAT, 0666 ),
+					"opening", name ) ) ) ;
+	fos->SetCloseOnDelete( true ) ;
+	return fos.release() ;
+}
+
 inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::protobuf::io::ZeroCopyOutputStream *s )
 {
 	try { return new BzipStream( s ) ; } catch( ... ) {}
@@ -458,5 +472,11 @@ inline google::protobuf::io::ZeroCopyOutputStream *compress_fast( google::protob
 	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) {}
 	return new IdOutputStream( s ) ;
 }
+
+inline google::protobuf::io::ZeroCopyOutputStream *compress_any( bool expensive, google::protobuf::io::ZeroCopyOutputStream *s )
+{
+	return expensive ? compress_small( s ) : compress_fast( s ) ;
+}
+
 
 #endif

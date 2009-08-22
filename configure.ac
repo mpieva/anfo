@@ -24,7 +24,6 @@ AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
 AC_CHECK_LIB([popt], [poptGetContext])
 AC_CHECK_LIB([protobuf], [main])
-AC_CHECK_LIB([enet], [enet_initialize])
 
 # Checks for header files.
 AC_HEADER_STDC
