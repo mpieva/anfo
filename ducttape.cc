@@ -1,5 +1,8 @@
 #include "ducttape.h"
 
+#include "align.h"
+#include "index.h"
+
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -14,20 +17,22 @@ void DuctTaper::put_header( const Header& h )
 		throw "need sorted input for duct taping" ;
 
 	hdr_ = h ;
+	simple_adna::configure( h.config().aligner(), 0 ) ;
 	state_ = need_input ;
 }
 
-// Strategy:
-// If a gap is more likely than a base, we call a deletion and do not
-// output anything else.  Else we call the most likely base and a
-// quality score.  (We can also call an ambiguity code, choosing it so
-// the highest amount of information is retained.)  Then synthesize a
-// result to return and change state accordingly.
+//! \brief generates an actual contig from accumulated data
+//! \internal
+//! The strategy: If a gap is more likely than a base, we call a
+//! deletion and do not output anything else.  Else we compute
+//! likelihoods for all possible dialleles.  From that we call the most
+//! likely base or an ambiguity code if a heterozygote is more likely.
+//! Finally store the new contig as an \c output::Result and update
+//! internal state.
 
 void DuctTaper::flush_contig()
 {
 	if( observed_.empty() ) return ;
-
 
 	// if the last column was added, but nothing was observed, leave it
 	// out
@@ -113,25 +118,116 @@ void DuctTaper::put_footer( const Footer& f )
 	flush_contig() ;
 }
 
-//! Strategy:  Walk along both cigar strings, observed_ and the sequence
-//! of r.  If both cigars match, update observed_.  If both cigars
-//! insert, update observed.  If only r inserts, insert in observed_ and
-//! cigar_.  If r deletes, update observed_.  That means, we can
-//! properly call deletions by majority vote, and all inserts are forced
-//! to overlap and will lead to a majority vote, too (probably wreaking
-//! havoc in the rare case of apparently polymorphic inserts).
+
+// A bit annoying:  we need to treat RC'd RC'd alignments differently.
+class AlnIter
+{
+	private:
+		bool fwd_ ;
+		bool has_qual_ ;
+		google::protobuf::RepeatedField<unsigned>::const_iterator cigar_ ;
+		size_t cigar_minor_ ;
+		std::string::const_iterator seq_, qual_ ;
+
+		void norm_cigar()
+		{
+			if( fwd_ ) while( cigar_len( *cigar_ ) == cigar_minor_ )
+			{
+				++cigar_ ;
+				cigar_minor_ = 0 ;
+			}
+			else while( cigar_len( cigar_[-1] ) == cigar_minor_ )
+			{
+				--cigar_ ;
+				cigar_minor_ = 0 ;
+			}
+		}
+
+
+	public:
+		AlnIter( const output::Read& r, const output::Hit& h ) :
+			fwd_( h.aln_length() >= 0 ), has_qual_( r.has_quality() ),
+			cigar_( fwd_ ? h.cigar().begin() : h.cigar().end() ), cigar_minor_( 0 ),
+			seq_( fwd_ ? r.sequence().begin() : r.sequence().end() )
+		{
+			if( has_qual_ ) qual_ = fwd_ ? r.quality().begin() : r.quality().end() ;
+			norm_cigar() ;
+		}
+
+		AlnIter( const output::Read& r, const output::Hit& h, int ) :
+			fwd_( h.aln_length() >= 0 ), has_qual_( r.has_quality() ),
+			cigar_( fwd_ ? h.cigar().end() : h.cigar().begin() ), cigar_minor_( 0 ),
+			seq_( fwd_ ? r.sequence().end() : r.sequence().begin() )
+		{
+			if( has_qual_ ) qual_ = fwd_ ? r.quality().end() : r.quality().begin() ;
+		}
+
+		bool operator != ( const AlnIter& rhs )
+		{
+			return seq_ != rhs.seq_ && qual_ != rhs.qual_ && 
+				( cigar_ != rhs.cigar_ || cigar_minor_ != rhs.cigar_minor_ ) ;
+		}
+
+		AlnIter& operator ++ ()
+		{
+			if( cigar_op() != Hit::Delete ) 
+			{
+				if( fwd_ ) { ++seq_ ; ++qual_ ; }
+				else       { --seq_ ; --qual_ ; }
+			}
+			++cigar_minor_ ;
+			norm_cigar() ;
+			return *this ;
+		}
+
+		Hit::Operation cigar_op() const { return streams::cigar_op( fwd_ ? cigar_[0] : cigar_[-1] ) ; }
+	
+		int base() const { 
+			return fwd_ ? ( seq_[ 0] == 'A' ? 0 : seq_[ 0] == 'C' ? 1 : 
+			                seq_[ 0] == 'G' ? 3 : seq_[ 0] == 'T' ? 2 : -1 )
+						: ( seq_[-1] == 'A' ? 2 : seq_[-1] == 'C' ? 3 : 
+				            seq_[-1] == 'G' ? 1 : seq_[-1] == 'T' ? 0 : -1 ) ;
+		}
+
+		Logdom qual() const { return Logdom::from_phred( fwd_ ? qual_[0] : qual_[-1] ) ; }
+} ;
+
+//! \brief updates likelihood information
+//! The strategy:  Walk along both cigar strings, observed_ and the
+//! sequence of r.  If both cigars do a match, update observed_.  If
+//! both cigars insert, update observed_.  If only r inserts, insert in
+//! observed_ and cigar_.  If r deletes, update observed_.  That means,
+//! we can properly call deletions by majority vote, and all inserts are
+//! forced to overlap and will lead to a majority vote, too (probably
+//! wreaking havoc in the rare case of apparently polymorphic inserts).
 //!
 //! In observed_ we store likelihoods for observations assuming a given
 //! base.  The final base call inverts this by dividing by the total
 //! likelihood.  Incorporation of the BJ model is quite easy: we just
 //! multiply the likelihood of a C becoming a T onto whatever the
-//! quality scores yield where appropriate.  The likelihood depends on
-//! how likely we are to be in a single stranded region, so we need to
-//! sum over all possible overhang lengths.  The likelihood of the
+//! quality scores yield where appropriate.  (That also means we need to
+//! multiply the probability of a C staying a C onto the appropriate
+//! likelihoods.)  The likelihood depends on how likely we are to be in
+//! a single stranded region.
+//!
+//! The likelihood of the
 //! alignment with a given overhang length is simply the alignment
 //! score, by dividing by the total likelihood, we get a likelihood for
 //! that overhang length.
+//!
+
+//! Likelihood for having an ss overhang of at least n is just the sum
+//! of match scores in first n positions; therefore probability is
+//! L_ss(n) / (L_ss(n)+L_ds(n)) * P_ss(n), the latter being the prior of
+//! overhang_ext_penalty*n + overhang_enter_penalty.   Incremental
+//! calculation is therfore easy in the forward direction.  C->T
+//! probabilty is then the weighted sum of the two deamination rates, C
+//! staying C is the converse.
 //
+//! Backward direction:  same calculation, but we need to initialize
+//! to the sum of all the match scores, which requires a preliminary
+//! pass over everything.
+
 // XXX likelihoods do not regard BJ model
 void DuctTaper::put_result( const Result& r )
 {
@@ -152,53 +248,31 @@ void DuctTaper::put_result( const Result& r )
 		contig_start_ = contig_end_ = h.start_pos() ;
 	}
 
-	// Damn, need to treat RC'd alignments differently.
-	bool rev = h.aln_length() < 0 ;
-	std::vector< int > cigar( h.cigar().begin(), h.cigar().end() ) ;
-	std::string qual = r.read().has_quality() ? r.read().quality() : std::string( r.read().sequence().size(), 30 ) ;
-	std::string seq = r.read().sequence() ;
-	if( rev ) {
-		std::reverse( cigar.begin(), cigar.end() ) ;
-		std::reverse( qual.begin(), qual.end() ) ;
-		std::reverse( seq.begin(), seq.end() ) ;
-		for( size_t i = 0 ; i != seq.size() ; ++i )
-			seq[i] =
-				seq[i] == 'A' ? 2 : seq[i] == 'C' ? 3 : 
-				seq[i] == 'G' ? 0 : seq[i] == 'T' ? 1 : -1 ;
-	}
-	else for( size_t i = 0 ; i != seq.size() ; ++i )
-	{
-		seq[i] = 
-			seq[i] == 'A' ? 0 : seq[i] == 'C' ? 1 : 
-			seq[i] == 'G' ? 2 : seq[i] == 'T' ? 3 : -1 ;
-	}
-
 	Accs::iterator column = observed_.begin() ;
 	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
 		if( !column->is_ins ) --offs ;
 
-	// Calculate likelihoods for being in single stranded part.
-	// Likelihood for having an ss overhang of at least n is sum of
-	// match scores in first n positions; therefore probability is
-	// L_ss(n) / (L_ss(n)+L_ds(n)) * P_ss(n), the latter being the prior
-	// of overhang_ext_penalty*n + overhang_enter_penalty.   Incremental
-	// calculation is therfore easy in forward direction.  C->T
-	// probabilty is weighted sum of the two deamination rates.
-	//
-	// Backward direction:  same calculation, but we need to initialize
-	// to the sum of all the match scores, which requires a preliminary
-	// pass over everything.
+	Logdom lk_ss_5 = simple_adna::overhang_enter_penalty, lk_ds_5 ;
+	Logdom lk_ss_3 = simple_adna::overhang_enter_penalty, lk_ds_3 ;
 
-	size_t cigar_maj = 0, cigar_min = 0 ;
-	for( std::string::iterator p_seq = seq.begin(), q_seq = qual.begin() ;
-			p_seq != seq.end() && cigar_maj != cigar.size() ; )
+	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+	for( AlnIter aln_i( r.read(), h ), aln_e( r.read(), h, 1 ) ; aln_i != aln_e ; ++aln_i )
 	{
-		if( cigar_len( cigar[ cigar_maj ] ) == cigar_min )
+		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
 		{
-			++cigar_maj ;
-			cigar_min = 0 ;
+			lk_ss_3 *= simple_adna::ss_mat[ *ref ][ aln_i.base() ] ;
+			lk_ds_3 *= simple_adna::ds_mat[ *ref ][ aln_i.base() ] ;
 		}
+		if( aln_i.cigar_op() != Hit::Insert && aln_i.cigar_op() != Hit::SoftClip )
+			++ref ;
+		if( aln_i.cigar_op() != Hit::Delete )
+			lk_ds_3 *= simple_adna::overhang_ext_penalty ;
+	}
 
+	ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+	for( AlnIter aln_b( r.read(), h ), aln_i( aln_b ), aln_e( r.read(), h, 1 ) ;
+			aln_i != aln_e ; ++column )
+	{
 		if( column == observed_.end() ) {
 			column = observed_.insert( column, Acc() ) ;
 			++contig_end_ ;
@@ -206,57 +280,69 @@ void DuctTaper::put_result( const Result& r )
 
 		// XXX: likelihood calculation doesn't take BJ model into
 		// account
-		switch( cigar_op( cigar[ cigar_maj ] ) )
+		switch( aln_i.cigar_op() )
 		{
+			case Hit::SoftClip:
+			case Hit::Insert:
+				if( !column->is_ins ) column = observed_.insert( column, Acc(true, column->crossed ) ) ;
+				goto no_match ;
+
 			case Hit::Match:
 			case Hit::Mismatch:
-			case Hit::Insert:
-				if( cigar_op( cigar[ cigar_maj ] ) == Hit::Insert )
-				{
-					if( !column->is_ins ) column = observed_.insert( column, Acc(true, column->crossed ) ) ;
-				} 
-				else
-				{
-					if( column->is_ins ) {
-						++column->gapped ;
-						break ;
-					}
+				if( column->is_ins ) {
+					++column->gapped ;
+					break ;
 				}
+				++ref ;
 
-				if( *p_seq != -1 ) {
-					int base = *p_seq ;
-					++column->seen[ base ] ;
+				lk_ss_5 *= simple_adna::ss_mat[ complement(*ref) ][ complement(aln_i.base()) ] ;
+				lk_ds_5 *= simple_adna::ds_mat[ complement(*ref) ][ complement(aln_i.base()) ] ;
+				lk_ss_3 /= simple_adna::ss_mat[ *ref ][ aln_i.base() ] ;
+				lk_ds_3 /= simple_adna::ds_mat[ *ref ][ aln_i.base() ] ;
 
+no_match:
+				lk_ds_3 /= simple_adna::overhang_ext_penalty ;
+				lk_ds_5 /= simple_adna::overhang_ext_penalty ;
+
+				if( aln_i.base() != -1 ) {
+					++column->seen[ aln_i.base() ] ;
+
+					Logdom prob_ss_5 = lk_ss_5 / (lk_ss_5 + lk_ds_5) ;
+					Logdom prob_ss_3 = lk_ss_3 / (lk_ss_3 + lk_ds_3) ;
+
+					// XXX: mapping to indices is all wrong (note
+					// different numbering of bases), and we need
+					// to update (potentially) _all_ likelihoods.  (Or
+					// is it worthwhile to code for C/T and G/A
+					// separately?)
 					static const bool halfmat[4][10] = {
 						{ 1, 1, 1, 0, 0, 0 },
 						{ 1, 0, 0, 1, 1, 0 },
 						{ 0, 1, 0, 1, 0, 1 },
 						{ 0, 0, 1, 0, 1, 1 } } ;
 
-					Logdom l_mat = Logdom::from_float(1) - Logdom::from_phred( *q_seq ) ;
-					Logdom l_mismat = Logdom::from_phred( *q_seq ) / Logdom::from_float(3) ;
+					Logdom l_mat = Logdom::from_float(1) - aln_i.qual() ;
+					Logdom l_mismat = aln_i.qual() / Logdom::from_float(3) ;
 					Logdom l_half = (l_mat + l_mismat) / Logdom::from_float(2) ;
 
 					for( int k = 0 ; k != 10 ; ++k )
-						column->lk[k] *= k == base ? l_mat : halfmat[base][k-4] ? l_half : l_mismat ;
+						column->lk[k] *= k == aln_i.base() ? l_mat : halfmat[ aln_i.base() ][k-4] ? l_half : l_mismat ;
 				}
 
-				++cigar_min ;
-				++p_seq ;
-				++q_seq ;
+				++aln_i ;
 				break ;
 
 			case Hit::Delete:
 				++column->gapped ;
-				++cigar_min ;
+				++aln_i ;
+				++ref ;
 				break ;
 
 			default: 	// all others are unused
 				throw "unexpected CIGAR operation" ;
 				break ;
 		}
-		if( p_seq != seq.begin() ) ++column->crossed ;
-		++column ;
+		if( aln_i != aln_b ) ++column->crossed ;
 	}
 } 
 

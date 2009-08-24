@@ -19,8 +19,10 @@ LDFLAGS ?= @LDFLAGS@
 CXXFLAGS ?= @CXXFLAGS@
 DEFS ?= @DEFS@
 
-# CXXFLAGS += -ggdb 
-CXXFLAGS += -MMD -DNDEBUG -Wall -Werror
+CXXFLAGS += -MMD -Wall -Werror
+
+CXXFLAGS += -DNDEBUG
+CXXFLAGS += -ggdb -O0
 
 PROGS := fa2dna dnaindex anfo-sge anfo-tool 
 
@@ -52,23 +54,6 @@ install_doc: doc/html/index.html
 	$(INSTALL_DATA) doc/html/* @htmldir@/html
 
 
-align.o: config.pb.h output.pb.h
-anfo_common.o: output.pb.h config.pb.h
-ducttape.o: output.pb.h config.pb.h
-index.o: config.pb.h
-output_streams.o: config.pb.h output.pb.h
-stream.o: config.pb.h output.pb.h
-
-anfo-sge.o: config.pb.h output.pb.h
-anfo-standalone.o: config.pb.h output.pb.h
-anfo-tool.o: output.pb.h config.pb.h
-
-dnaindex.o: config.pb.h
-dump-params.o: output.pb.h config.pb.h
-fa2dna.o: config.pb.h
-file-info.o: config.pb.h output.pb.h
-index-test.o: output.pb.h config.pb.h
-
 ../data/hg18.dna: fa2dna
 	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -O ${@D} -v \
 	    	/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr*.fa
@@ -86,7 +71,7 @@ index-test.o: output.pb.h config.pb.h
 %: %.o $(OBJECTS)
 	$(CXX) $(DEFS) $(LDFLAGS) $^ -o $@ $(LDLIBS) 
  
-%.o: %.cc
+%.o: %.cc config.pb.h output.pb.h
 	$(CXX) $(DEFS) $(CXXFLAGS) -c $< -o $@
 
 %.pb.cc %.pb.h: %.proto
