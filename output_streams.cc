@@ -16,21 +16,38 @@ namespace {
 void show_alignment(
 		std::string::const_iterator qry,
 		const output::Hit &h,
-		bool for_fastq,
+		bool for_fasta,
 		std::string& r,
 		std::string& q,
-		std::string& c ) 
+		std::string& c,
+		int context = 0 ) 
 {
 	CompactGenome *g = 0 ;
-	try { g = &Metagenome::find_sequence( h.genome_name(), h.sequence() ) ; }
-	// if creating FASTQ, we need the genome, else we can make do without it
-	catch(...) { if( for_fastq ) throw ; }
+	DnaP ref( 0 ) ;
 
-	if( g )
+	try {
+		g = &Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
+		if( g ) ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
+		if( ref && h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
+		if( !ref ) throw "sequence not found: " + h.sequence() ;
+	}
+	// if creating FASTA, we need the genome, else we can make do without it
+	catch(...) { if( for_fasta ) throw ; }
+
+	if( ref )
 	{
 		r.clear() ; q.clear() ; c.clear() ;
-		DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
-		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
+		if( context ) 
+		{
+			DnaP ref1 = ref ;
+			for( int i = 0 ; i != context ; ++i )
+			{
+				r = from_ambicode( ref1[-1] ) + r ;
+				if( ref1[-1] ) --ref1 ;
+			}
+			q = std::string( context, '-' ) ;
+			c = std::string( context, ' ' ) ;
+		}
 
 		for( int i = 0 ; i != h.cigar_size() ; ++i )
 		{
@@ -38,7 +55,7 @@ void show_alignment(
 			switch( cigar_op( h.cigar(i) ) )
 			{
 				case output::Hit::Match:
-					if( !l && !for_fastq ) {
+					if( !l && !for_fasta ) {
 						r.push_back('~') ;
 						q.push_back('~') ;
 						c.push_back('~') ;
@@ -74,6 +91,14 @@ void show_alignment(
 				case output::Hit::Pad: break ; // ???
 			}
 		}
+
+		for( int i = 0 ; i != context ; ++i )
+		{
+			r.push_back( from_ambicode( *ref ) ) ;
+			if( *ref ) ++ref ;
+		}
+		q += std::string( context, '-' ) ;
+		c += std::string( context, ' ' ) ;
 	}
 	else
 	{
@@ -85,7 +110,7 @@ void show_alignment(
 			switch( cigar_op( h.cigar(i) ) )
 			{
 				case output::Hit::Match:
-					if( !l && !for_fastq ) {
+					if( !l && !for_fasta ) {
 						r.push_back('~') ;
 						q.push_back('~') ;
 						c.push_back('~') ;
@@ -305,13 +330,13 @@ void SamWriter::put_footer( const Footer& f )
 		}
 }
 
-void FastaWriter::put_result( const Result& r ) 
+void FastaAlnWriter::put_result( const Result& r ) 
 {
 	if( has_hit_to( r, g_ ) )
 	{
 		const Hit &h = hit_to( r, g_ ) ;
 		std::string ref, qry, con ;
-		show_alignment( r.read().sequence().begin(), h, true, ref, qry, con ) ;
+		show_alignment( r.read().sequence().begin(), h, true, ref, qry, con, c_ ) ;
 		out_ << '>' << h.sequence() << ' '
 			<< h.start_pos()
 			<< "-+"[ h.aln_length() > 0 ]

@@ -116,21 +116,22 @@ class SamWriter : public Stream
 //! query last.  Score, coordinates and whether an adapter was trimmed
 //! are encoded in the header.  This is considered a legacy format,
 //! mostly useful to make substitution graphs from.
-class FastaWriter : public Stream
+class FastaAlnWriter : public Stream
 {
 	private:
 		std::auto_ptr< std::filebuf > buf_ ;
 		std::ostream out_ ;
 		const char* g_ ;
+		int c_ ;
 
 	public:
-		FastaWriter( const char* fn, const char* g ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g)
+		FastaAlnWriter( const char* fn, const char* g, int c ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g), c_(c)
 		{
 			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
 		}
 
-		FastaWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
-		virtual ~FastaWriter() {}
+		FastaAlnWriter( std::streambuf *s, const char* g, int c ) : buf_(), out_( s ), g_(g), c_(c) { }
+		virtual ~FastaAlnWriter() {}
 
 		virtual void put_result( const Result& ) ;
 } ;

@@ -22,7 +22,18 @@
 class CompactGenome
 {
 	public:
+		// Why are we using indices here instead of pointers?  Because
+		// pointers would be internal and make copying of this object a
+		// lot harder.
+
+		// the pair is (index of sequence, index of contig)
 		typedef std::map< uint32_t, std::pair< int, int > > ContigMap ;
+		
+		// value is index of contig
+		typedef std::map< uint32_t, int > PosnMap1 ;
+
+		// first half of value is index of sequence
+		typedef std::map< std::string, std::pair< int, PosnMap1 > > PosnMap ;
 
 	private:
 		DnaP base_ ;
@@ -30,6 +41,7 @@ class CompactGenome
 		uint32_t length_ ;
 		int fd_ ;
 		ContigMap contig_map_ ;
+		PosnMap posn_map_ ;
 
 		CompactGenome( const CompactGenome& ) ; // not implemented
 		void operator = ( const CompactGenome& ) ; // not implemented
@@ -42,7 +54,7 @@ class CompactGenome
 		//! Genomes constructed in the default fashion are unusable;
 		//! however, this makes \c CompactGenome default constructible
 		//! for use in standard containers.
-		CompactGenome() : base_(0), file_size_(0), length_(0), fd_(-1), contig_map_(), g_() {}
+		CompactGenome() : base_(0), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_() {}
 
 		//! \brief makes accessible a genome file
 		//! \param name file name of the genome
@@ -93,6 +105,7 @@ class CompactGenome
 			std::swap( length_, g.length_ ) ;
 			std::swap( fd_, g.fd_ ) ;
 			std::swap( contig_map_, g.contig_map_ ) ;
+			std::swap( posn_map_, g.posn_map_ ) ;
 			std::swap( g_, g.g_ ) ;
 		}
 

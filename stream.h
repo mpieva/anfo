@@ -237,10 +237,7 @@ class AnfoReader : public Stream
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
-		Chan chan_ ;
-		int64_t read_, total_ ;
 
-		// XXX void initialize() ;
 		void read_next_message( google::protobuf::io::CodedInputStream& ) ;
 
 		//! \internal
@@ -255,15 +252,7 @@ class AnfoReader : public Stream
 			virtual void print_to( std::ostream& ) const ;
 		} ;
 
-		AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total ) ;
-
-		//! \brief opens the named file
-		// XXX AnfoReader( const std::string& name ) ;
-
-		//! \brief uses a given name and filedescriptor
-		//! No actual file is touched, the name is for informational
-		//! purposes only.
-		// XXX AnfoReader( int fd, const std::string& name = "<pipe>" ) ;
+		AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name ) ;
 
 		virtual ~AnfoReader() { --num_files_ ; }
 		virtual Result fetch_result() ;
@@ -519,9 +508,6 @@ class FastqReader : public Stream
 {
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
-		std::string name_ ;
-		Chan chan_ ;
-		int64_t read_, total_ ;
 		bool sol_scores_ ;
 		char origin_ ;
 
@@ -531,8 +517,7 @@ class FastqReader : public Stream
 		}
 
 	public: 
-		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total,
-				bool solexa_scores, char origin ) ;
+		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, bool solexa_scores, char origin ) ;
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 } ;
 

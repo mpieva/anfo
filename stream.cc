@@ -43,23 +43,10 @@ namespace {
 	}
 } ;
 
-FastqReader::FastqReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total,
-		bool solexa_scores, char origin ) 
-	: is_( is ), name_( basename( name ) ), read_(0), total_(total), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
+FastqReader::FastqReader( google::protobuf::io::ZeroCopyInputStream *is, bool solexa_scores, char origin ) 
+	: is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
 
-#if 0
-AnfoReader::AnfoReader( const std::string& name )
-	: iis_( throw_errno_if_minus1( open( name.c_str(), O_RDONLY ), "opening ", name.c_str() ) )
-	, zis_( decompress( &iis_ ) ), name_( basename( name ) ), read_(0), total_(0)
-{
-	struct stat st ;
-	if( 0 == stat( name.c_str(), &st ) ) total_ = st.st_size ;
-	initialize() ;
-}
-#endif
-
-AnfoReader::AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name, int64_t total )
-	: is_( is ), name_( basename( name ) ), read_(0), total_(total)
+AnfoReader::AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name ) : is_( is ), name_( name )
 {
 	std::string magic ;
 	CodedInputStream cis( is_.get() ) ;
@@ -94,17 +81,6 @@ Result AnfoReader::fetch_result()
 	swap( r, res_ ) ;
 	CodedInputStream cis( is_.get() ) ;
 	read_next_message( cis ) ;
-	if( state_ == end_of_stream ) chan_.close() ;
-	else if( is_->ByteCount() >> 16 != read_ >> 16 )
-	{
-		read_ = is_->ByteCount() ;
-		stringstream s ;
-		s << name_ << ": " << read_ ;
-		if( total_ ) s << '/' << total_ ;
-		s << " Bytes" ;
-		if( total_ ) s << " (" << read_*100/total_ << "%)" ;
-		chan_( Console::info, s.str() ) ;
-	}
 	return r ;
 }
 
@@ -715,6 +691,64 @@ bool QualFilter::xform( Result& r )
 	return true ;
 }
 
+namespace {
+	class StreamWithProgress : public google::protobuf::io::ZeroCopyInputStream 
+	{
+		private:
+			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+			std::string name_ ;
+			int64_t total_, read_ ;
+			Chan out_ ;
+
+			bool check( bool p ) {
+				if( !p ) out_.close() ;
+				else if( is_->ByteCount() >> 16 != read_ >> 16 )
+				{
+					read_ = is_->ByteCount() ;
+					stringstream s ;
+					s << name_ << ": " << read_ ;
+					if( total_ ) s << '/' << total_ ;
+					s << " Bytes" ;
+					if( total_ ) s << " (" << read_*100/total_ << "%)" ;
+					out_( Console::info, s.str() ) ;
+				}
+				return p ;
+			}
+
+		public:
+			StreamWithProgress( google::protobuf::io::ZeroCopyInputStream *is, const char* name, int64_t total )
+				: is_( is ), name_( basename( name ) ), total_( total ), read_( 0 ) {}
+
+			virtual bool Next( const void **data, int *size ) { return check( is_->Next( data, size ) ) ; }
+			virtual void BackUp( int count ) { is_->BackUp( count ) ; }
+			virtual bool Skip( int count ) { return check( is_->Skip( count ) ) ; }
+			virtual int64_t ByteCount() const { return is_->ByteCount() ; }
+
+
+	} ;
+
+	Stream* make_input_stream_( google::protobuf::io::ZeroCopyInputStream *is, const char* name, bool solexa_scores, char origin )
+	{
+		// peek into stream, but put it back.  then check magic numbers and
+		// create the right stream
+		const void* p ; int l ;
+		if( !is->Next( &p, &l ) ) return new Stream ;
+		is->BackUp( l ) ;
+
+		const uint8_t* q = (const uint8_t*)p ;
+		if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == 'O' )
+			return new AnfoReader( is, name ) ;
+
+		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
+			return make_input_stream_( new BunzipStream( is ), name, solexa_scores, origin ) ;
+
+		else if( l >= 2 && q[0] == 31 && q[1] == 139 )
+			return make_input_stream_( new InflateStream( is ), name, solexa_scores, origin ) ;
+
+		else return new FastqReader( is, solexa_scores, origin ) ;
+	}
+} ;
+
 
 Stream* make_input_stream( const char *name, bool solexa_scores, char origin )
 {
@@ -735,23 +769,7 @@ Stream* make_input_stream( int fd, const char *name, bool solexa_scores, char or
 Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const char *name,
 		int64_t total, bool solexa_scores, char origin )
 {
-	// peek into stream, but put it back.  then check magic numbers and
-	// create the right stream
-	const void* p ; int l ;
-	if( !is->Next( &p, &l ) ) return new Stream ;
-	is->BackUp( l ) ;
-
-	const uint8_t* q = (const uint8_t*)p ;
-	if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == 'O' )
-		return new AnfoReader( is, name, total ) ;
-
-	else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
-		return make_input_stream( new BunzipStream( is ), name, total, solexa_scores, origin ) ;
-
-	else if( l >= 2 && q[0] == 31 && q[1] == 139 )
-		return make_input_stream( new InflateStream( is ), name, total, solexa_scores, origin ) ;
-
-	else return new FastqReader( is, name, total, solexa_scores, origin ) ;
+	return make_input_stream_( new StreamWithProgress( is, name, total ), name, solexa_scores, origin ) ;
 }
 
 } ; // namespace

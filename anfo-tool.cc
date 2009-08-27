@@ -840,21 +840,38 @@ class IgnoreHit : public Filter
 
 using namespace streams ;
 
-typedef void (*G)( ostream&, float, float, const char*, const char* ) ;
-
-template< typename S > struct FilterParams {
-	typedef S* (*F)( float, float, const char*, const char* ) ;
-
+struct ParamBlock {
 	float slope ;
 	float intercept ;
+	int context ;
 	const char* genome ;
 	const char* arg ;
+
+	ParamBlock( float s, float i, int c, const char* g, const char* a )
+		: slope(s), intercept(i), context(c), genome(g), arg(a) {}
+} ;
+
+typedef void (*G)( ostream&, const ParamBlock& ) ;
+
+template< typename S > struct FilterParams : public ParamBlock {
+	typedef S* (*F)( const ParamBlock& ) ;
+
 	F maker ;
 	G describe ;
+
+	FilterParams( const ParamBlock& p, const char* a, F m, G d )
+		: ParamBlock(p.slope, p.intercept, p.context, p.genome, a), maker(m), describe(d) {}
 } ;
 
 typedef std::vector< FilterParams< Stream > > FilterStack ;
 
+float parse_float( const char* a )
+{ 
+	char *e ;
+	float f = strtod( a, &e ) ;
+	if( a && *a && !*e ) return f ;
+	throw "expected real number, but found \"" + string(a) + "\"" ;
+}
 int parse_int( const char* a )
 { 
 	char *e ;
@@ -874,187 +891,199 @@ int parse_int( const char* a, int d )
 bool is_stdout( const char* a ) { return !a || 0 == strcmp( a, "-" ) ; }
 const char* parse_fn( const char* a ) { return is_stdout( a ) ? "<stdout>" : a ; }
 
-Stream* mk_sort_by_pos( float, float, const char* genome, const char* arg )
-{ return new SortingStream<by_genome_coordinate>( parse_int( arg, 1024 ) * 1024 * 1024, 256, by_genome_coordinate(genome) ) ; }
+Stream* mk_sort_by_pos( const ParamBlock& p )
+{ return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ) * 1024 * 1024, 256, by_genome_coordinate(p.genome) ) ; }
 
-void desc_sort_by_pos( ostream& ss, float, float, const char* g, const char* a )
-{ ss << "sort by position on " << (g?g:"any genome") << ", using " << + parse_int( a, 1024 ) <<  " MB" ; }
-
-Stream* mk_sort_by_name( float, float, const char*, const char* arg )
-{ return new SortingStream<by_seqid>( parse_int( arg, 1024 ) * 1024 * 1024 ) ; }
-
-void desc_sort_by_name( ostream& ss, float, float, const char*, const char* a )
-{ ss << "sort by sequence id, using " << parse_int( a, 1024 ) << " MB" ; }
-
-Stream* mk_filter_by_length( float, float, const char*, const char* arg )
-{ return new LengthFilter( parse_int( arg ) ) ; }
-
-void desc_filter_by_length( ostream& ss, float, float, const char*, const char* arg )
-{ ss << "remove alignments shorter than " << parse_int( arg ) ; }
-
-Stream* mk_filter_by_score( float i, float s, const char* g, const char* )
-{ return new ScoreFilter( s, i, g ) ; }
-
-void desc_filter_by_score( ostream& ss, float i, float s, const char* g, const char* )
-{
-	ss << "remove alignments to " << (g?g:"any genome") 
-		<< " scoring worse than ( " << s << " * ( L - " << i << " ) )" ;
+void desc_sort_by_pos( ostream& ss, const ParamBlock& p )
+{ 
+	ss << "sort by position on " << ( p.genome ? p.genome : "any genome") 
+	   << ", using " << + parse_int( p.arg, 1024 ) <<  " MB" ;
 }
 
-Stream* mk_filter_by_mapq( float, float, const char* g, const char* arg )
-{ return new MapqFilter( g, parse_int( arg ) ) ; }
+Stream* mk_sort_by_name( const ParamBlock& p )
+{ return new SortingStream<by_seqid>( parse_int( p.arg, 1024 ) * 1024 * 1024 ) ; }
 
-void desc_filter_by_mapq( ostream& ss, float, float, const char* g, const char* arg )
+void desc_sort_by_name( ostream& ss, const ParamBlock& p )
+{ ss << "sort by sequence id, using " << parse_int( p.arg, 1024 ) << " MB" ; }
+
+Stream* mk_filter_by_length( const ParamBlock& p )
+{ return new LengthFilter( parse_int( p.arg ) ) ; }
+
+void desc_filter_by_length( ostream& ss, const ParamBlock& p )
+{ ss << "remove alignments shorter than " << parse_int( p.arg ) ; }
+
+Stream* mk_filter_by_score( const ParamBlock& p )
+{ return new ScoreFilter( p.slope, p.intercept, p.genome ) ; }
+
+void desc_filter_by_score( ostream& ss, const ParamBlock& p )
+{
+	ss << "remove alignments to " << (p.genome?p.genome:"any genome") 
+		<< " scoring worse than ( " << p.slope << " * ( L - " << p.intercept << " ) )" ;
+}
+
+Stream* mk_filter_by_mapq( const ParamBlock& p )
+{ return new MapqFilter( p.genome, parse_int( p.arg ) ) ; }
+
+void desc_filter_by_mapq( ostream& ss, const ParamBlock& p )
 {
 	ss << "remove alignments where MAPQ" ;
-	if( g ) ss << " on genome " << g ;
-	ss << " is below " << parse_int( arg ) ;
+	if( p.genome ) ss << " on genome " << p.genome ;
+	ss << " is below " << parse_int( p.arg ) ;
 }
 
-Stream* mk_filter_by_hit( float, float, const char* genome, const char* arg )
-{ return new HitFilter( genome, arg ) ; }
+Stream* mk_filter_by_hit( const ParamBlock& p )
+{ return new HitFilter( p.genome, p.arg ) ; }
 
-void desc_filter_by_hit( ostream& ss, float, float, const char* g, const char* a )
+void desc_filter_by_hit( ostream& ss, const ParamBlock& p )
 {
 	ss << "remove sequences without hit" ;
-	if( a && *a ) ss << " to sequence " << a ;
-	if( g && *g ) ss << " in genome " << g ; 
+	if( p.arg && *p.arg ) ss << " to sequence " << p.arg ;
+	if( p.genome && *p.genome ) ss << " in genome " << p.genome ; 
 }
 
-Stream* mk_delete_hit( float, float, const char* g, const char* s )
-{ return new IgnoreHit( g, s ) ; }
+Stream* mk_delete_hit( const ParamBlock& p )
+{ return new IgnoreHit( p.genome, p.arg ) ; }
 
-void desc_delete_hit( ostream& ss, float, float, const char* g, const char* s )
+void desc_delete_hit( ostream& ss, const ParamBlock& p )
 {
 	ss << "delete hits" ;
-	if( s && *s ) ss << " to sequence " << s ;
-	if( g && *g ) ss << " in genome " << g ;
+	if( p.arg && *p.arg ) ss << " to sequence " << p.arg ;
+	if( p.genome && *p.genome ) ss << " in genome " << p.genome ;
 }
 
-Stream* mk_filter_qual( float, float, const char*, const char* arg )
-{ return new QualFilter( parse_int( arg ) ) ; }
+Stream* mk_filter_qual( const ParamBlock& p )
+{ return new QualFilter( parse_int( p.arg ) ) ; }
 
-void desc_filter_qual( ostream& ss, float, float, const char*, const char* arg )
-{ ss << "mask bases with quality below " << parse_int( arg ) ; }
+void desc_filter_qual( ostream& ss, const ParamBlock& p )
+{ ss << "mask bases with quality below " << parse_int( p.arg ) ; }
 
-Stream* mk_filter_multi( float, float, const char*, const char* arg )
-{ return new MultiFilter( parse_int( arg, 2 ) ) ; }
+Stream* mk_filter_multi( const ParamBlock& p )
+{ return new MultiFilter( parse_int( p.arg, 2 ) ) ; }
 
-void desc_filter_multi( ostream& ss, float, float, const char*, const char* arg )
-{ ss << "retain only sequences that were seen at least " << parse_int( arg, 2 ) << " times" ; }
+void desc_filter_multi( ostream& ss, const ParamBlock& p )
+{ ss << "retain only sequences that were seen at least " << parse_int( p.arg, 2 ) << " times" ; }
 
-Stream* mk_subsample( float, float, const char*, const char* arg )
-{ return new Subsample( atof( arg ) ) ; }
+Stream* mk_subsample( const ParamBlock& p )
+{ return new Subsample( parse_float( p.arg ) ) ; }
 
-void desc_subsample( ostream& ss, float, float, const char*, const char* arg )
-{ ss << "subsample a " << atof(arg) << " fraction of sequences" ; }
+void desc_subsample( ostream& ss, const ParamBlock& p )
+{ ss << "subsample a " << parse_float(p.arg) << " fraction of sequences" ; }
 
-Stream* mk_edit_header( float, float, const char*, const char* arg )
-{ return new RepairHeaderStream( arg ) ; }
+Stream* mk_edit_header( const ParamBlock& p )
+{ return new RepairHeaderStream( p.arg ) ; }
 
-void desc_edit_header( ostream& ss, float, float, const char*, const char* arg )
-{ ss << "invoke " << (arg?arg:" text editor ") << " on stream's header" ; }
+void desc_edit_header( ostream& ss, const ParamBlock& p )
+{ ss << "invoke " << (p.arg?p.arg:" text editor ") << " on stream's header" ; }
 
-Stream* mk_rmdup( float i, float s, const char*, const char* )
-{ return new RmdupStream( s, i ) ; }
+Stream* mk_rmdup( const ParamBlock& p )
+{ return new RmdupStream( p.slope, p.intercept ) ; }
 
-void desc_rmdup( ostream& ss, float i, float s, const char*, const char* )
-{ ss << "coalesce duplicates as long as score is no worse than ( " << s << " * ( L - " << i << " ) )" ; }
+void desc_rmdup( ostream& ss, const ParamBlock& p )
+{
+	ss << "coalesce duplicates as long as score is no worse than ( "
+		<< p.slope << " * ( L - " << p.intercept << " ) )" ;
+}
 
-StreamBundle* mk_merge( float, float, const char*, const char* )
+StreamBundle* mk_merge( const ParamBlock& )
 { return new MergeStream() ; }
 
-void desc_merge( ostream& ss, float, float, const char*, const char* )
+void desc_merge( ostream& ss, const ParamBlock& )
 { ss << "merge sorted streams" ; }
 
-StreamBundle* mk_join( float, float, const char*, const char* )
+StreamBundle* mk_join( const ParamBlock& )
 { return new BestHitStream() ; }
 
-void desc_join( ostream& ss, float, float, const char*, const char* )
+void desc_join( ostream& ss, const ParamBlock& )
 { ss << "join near-sorted streams and retain best hits to each genome" ; }
 
-StreamBundle* mk_mega_merge( float, float, const char*, const char* )
+StreamBundle* mk_mega_merge( const ParamBlock& )
 { return new MegaMergeStream() ; }
 
-void desc_mega_merge( ostream& ss, float, float, const char*, const char* )
+void desc_mega_merge( ostream& ss, const ParamBlock& )
 { ss << "join fragments from grid jobs and retain best hits" ; }
 
-StreamBundle* mk_concat( float, float, const char*, const char* )
+StreamBundle* mk_concat( const ParamBlock& )
 { return new ConcatStream() ; }
 
-void desc_concat( ostream& ss, float, float, const char*, const char* )
+void desc_concat( ostream& ss, const ParamBlock& )
 { ss << "concatenate streams" ; }
 
-Stream* mk_output      ( float, float, const char*, const char* fn )
-{ return is_stdout( fn ) ? new AnfoWriter( 1, "<stdout>", true ) : new AnfoWriter( fn, true ) ; } 
+Stream* mk_output( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new AnfoWriter( 1, "<stdout>", true ) : new AnfoWriter( p.arg, true ) ; } 
 
-void desc_output( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write native output to " << parse_fn( fn ) ; }
+void desc_output( ostream& ss, const ParamBlock& p )
+{ ss << "write native output to " << parse_fn( p.arg ) ; }
 
-Stream* mk_output_text ( float, float, const char*, const char* fn )
-{ return is_stdout( fn ) ? new TextWriter( 1 ) : new TextWriter( fn ) ; } 
+Stream* mk_output_text( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new TextWriter( 1 ) : new TextWriter( p.arg ) ; } 
 
-void desc_output_text( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write in text format to " << parse_fn( fn ) ; }
+void desc_output_text( ostream& ss, const ParamBlock& p )
+{ ss << "write in text format to " << parse_fn( p.arg ) ; }
 
-Stream* mk_output_sam  ( float, float, const char* g, const char* fn )
-{ return is_stdout( fn ) ? new SamWriter( cout.rdbuf(), g ) : new SamWriter( fn, g ) ; } 
+Stream* mk_output_sam( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new SamWriter( cout.rdbuf(), p.genome ) : new SamWriter( p.arg, p.genome ) ; } 
 
-void desc_output_sam( ostream& ss, float, float, const char* g, const char* fn )
+void desc_output_sam( ostream& ss, const ParamBlock& p )
 { 
 	ss << "write alignments" ;
-	if( g ) ss << " to genome " << g ;
-	ss << " in SAM format to " << parse_fn( fn ) ;
+	if( p.genome ) ss << " to genome " << p.genome ;
+	ss << " in SAM format to " << parse_fn( p.arg ) ;
 }
 
-Stream* mk_output_glz  ( float, float, const char*, const char* fn )
-{ return is_stdout( fn ) ? new GlzWriter( 1 ) : new GlzWriter( fn ) ; } 
+Stream* mk_output_glz  ( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new GlzWriter( 1 ) : new GlzWriter( p.arg ) ; } 
 
-void desc_output_glz( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write contigs in GLZ format to " << parse_fn( fn ) ; }
+void desc_output_glz( ostream& ss, const ParamBlock& p )
+{ ss << "write contigs in GLZ format to " << parse_fn( p.arg ) ; }
 
-Stream* mk_output_fasta( float, float, const char* g, const char* fn )
-{ return is_stdout( fn ) ? new FastaWriter( cout.rdbuf(), g ) : new FastaWriter( fn, g ) ; } 
+Stream* mk_output_fasta( const ParamBlock& p )
+{
+	return is_stdout( p.arg ) ? new FastaAlnWriter( cout.rdbuf(), p.genome, p.context )
+	                          : new FastaAlnWriter( p.arg, p.genome, p.context ) ; 
+} 
 
-void desc_output_fasta( ostream& ss, float, float, const char* g, const char* fn )
+void desc_output_fasta( ostream& ss, const ParamBlock& p )
 { 
-	ss << "write alignments(!) to " << (g?g:"any genome") 
-	   << " in FASTA format to " << parse_fn( fn ) ;
+	ss << "write alignments(!) to " << (p.genome?p.genome:"any genome") 
+	   << " in FASTA format to " << parse_fn( p.arg ) ;
+	if( p.context ) ss << " with " << p.context << "nt of context" ;
 }
 
-Stream* mk_output_fastq( float, float, const char*, const char* fn )
-{ return is_stdout( fn ) ? new FastqWriter( cout.rdbuf() ) : new FastqWriter( fn ) ; } 
+Stream* mk_output_fastq( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new FastqWriter( cout.rdbuf() ) : new FastqWriter( p.arg ) ; } 
 
-void desc_output_fastq( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write sequences(!) in FASTQ format to " << parse_fn( fn ) ; }
+void desc_output_fastq( ostream& ss, const ParamBlock& p )
+{ ss << "write sequences(!) in FASTQ format to " << parse_fn( p.arg ) ; }
 
-Stream* mk_output_table( float, float, const char* g, const char* fn )
-{ return is_stdout( fn ) ? new TableWriter( cout.rdbuf(), g ) : new TableWriter( fn, g ) ; }
+Stream* mk_output_table( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new TableWriter( cout.rdbuf(), p.genome ) : new TableWriter( p.arg, p.genome ) ; }
 
-void desc_output_table( ostream& ss, float, float, const char*, const char* fn )
-{ ss << "write useless table to " << parse_fn( fn ) ; }
+void desc_output_table( ostream& ss, const ParamBlock& p )
+{ 
+	ss << "write useless table" ;
+	if( p.genome ) ss << " about genome " << p.genome ;
+	ss << " to " << parse_fn( p.arg ) ;
+}
 
-Stream* mk_duct_tape  ( float, float, const char* g, const char* arg )
-{ return new DuctTaper( g, parse_int( arg ) ) ; }
+Stream* mk_duct_tape( const ParamBlock& p )
+{ return new DuctTaper( p.genome, parse_int( p.arg ) ) ; }
 
-void desc_duct_tape( ostream& ss, float, float, const char* g, const char* arg )
+void desc_duct_tape( ostream& ss, const ParamBlock& p )
 { 
 	ss << "mock-assemble hits" ;
-	if( g ) ss << " to genome " << g ;
-	ss << " and clamp Q-score to no more than " << parse_int( arg ) ;
+	if( p.genome ) ss << " to genome " << p.genome ;
+	ss << " and clamp Q-score to no more than " << parse_int( p.arg ) ;
 }
 
-// { ss << "write mock assembly in GLZ format to " << parse_fn( fn ) ; }
+Stream* mk_stats( const ParamBlock& p )
+{ return new StatStream( p.arg, p.genome ) ; }
 
-Stream* mk_stats       ( float, float, const char* g, const char* arg )
-{ return new StatStream( arg, g ) ; }
-
-void desc_stats( ostream& ss, float, float, const char*, const char* fn )
+void desc_stats( ostream& ss, const ParamBlock& p )
 { 
-	if( fn && *fn == '+' )
-		ss << "append statistics to " << parse_fn( fn+1 ) ;
+	if( p.arg && *p.arg == '+' )
+		ss << "append statistics to " << parse_fn( p.arg+1 ) ;
 	else
-		ss << "write statistics to " << parse_fn( fn ) ;
+		ss << "write statistics to " << parse_fn( p.arg ) ;
 }
 
 const char *poptGetOptArg1( poptContext con )
@@ -1062,8 +1091,8 @@ const char *poptGetOptArg1( poptContext con )
 	const char *p = poptGetOptArg( con ) ;
 	if( !p || *p != '-' || !p[1] ) return p ;
 
-	console.output( Console::warning, string("poptGetOptArg: ") + p + " not treated as parameter" ) ;
-	return 0 ;
+	console.output( Console::warning, string("poptGetOptArg: ") + p + " treated as parameter" ) ;
+	return p ;
 }
 
 int main_( int argc, const char **argv )
@@ -1098,10 +1127,9 @@ int main_( int argc, const char **argv )
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
 
-	float param_slope = 7.5, param_intercept = 20.0 ;
-	const char *param_genome = 0 ;
-
+	ParamBlock param( 7.5, 20.0, 0, 0, 0 ) ;
 	int POPT_ARG_DFLT = POPT_ARG_FLOAT | POPT_ARGFLAG_SHOW_DEFAULT ;
+	int POPT_ARG_DINT = POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT ;
 
 	struct poptOption options[] = {
 		{ "sort-pos",      's', POPT_ARG_INT,    0, opt_sort_pos,      "sort by alignment position [using <n MiB memory]", "n" },
@@ -1123,17 +1151,18 @@ int main_( int argc, const char **argv )
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
-		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write alignments in sam format to FILE", "FILE" },
-		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments in fasta format to FILE", "FILE" },
+		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write contigs in GLZ format to FILE", "FILE" },
+		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments(!) in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble while clamping Q-scores to Q", "Q" },
 		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
-		{ "set-slope",      0 , POPT_ARG_DFLT,   &param_slope,      0, "set slope parameter to S", "S" },
-		{ "set-intercept",  0 , POPT_ARG_DFLT,   &param_intercept,  0, "set length discount parameter to L", "L" },
-		{ "set-genome",     0 , POPT_ARG_STRING, &param_genome,     0, "set interesting genome parameter to G", "G" },
-		{ "clear-genome",   0 , POPT_ARG_VAL,    &param_genome,     0, "clear interesting genome parameter", 0 },
+		{ "set-slope",      0 , POPT_ARG_DFLT,   &param.slope,      0, "set slope parameter to S", "S" },
+		{ "set-intercept",  0 , POPT_ARG_DFLT,   &param.intercept,  0, "set length discount parameter to L", "L" },
+		{ "set-context",    0 , POPT_ARG_DINT,   &param.context,    0, "set context parameter to C", "C" },
+		{ "set-genome",     0 , POPT_ARG_STRING, &param.genome,     0, "set interesting genome parameter to G", "G" },
+		{ "clear-genome",   0 , POPT_ARG_VAL,    &param.genome,     0, "clear interesting genome parameter", 0 },
 
 		{ "quiet",         'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
 		{ "verbose",       'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
@@ -1144,7 +1173,7 @@ int main_( int argc, const char **argv )
 
 	FilterStack filters_initial ;
 	FilterStack *filters_current = &filters_initial ;
-	FilterParams< StreamBundle > merging_filter = { 0, 0, 0, 0, mk_concat, desc_concat } ;
+	FilterParams< StreamBundle > merging_filter( ParamBlock(0,0,0,0,0), 0, mk_concat, desc_concat ) ;
 
 	typedef std::deque< FilterStack > FilterStacks ;
 	FilterStacks filters_terminal ;
@@ -1163,12 +1192,9 @@ int main_( int argc, const char **argv )
 		}
 		else if( rc >= 0 && filter_makers[rc] )
 		{
-			FilterParams< Stream > fp = {
-				param_slope, param_intercept, param_genome, 
-				poptGetOptArg1( pc ), filter_makers[rc],
-				descriptions[rc]
-			} ;
-			filters_current->push_back( fp ) ;
+			filters_current->push_back( FilterParams< Stream >(
+						param, poptGetOptArg1( pc ), filter_makers[rc],
+						descriptions[rc] ) );
 		}
 		else if( rc >= 0 && merge_makers[rc] )
 		{
@@ -1176,12 +1202,8 @@ int main_( int argc, const char **argv )
 			if( filters_current != &filters_initial )
 				throw "merge-like commands cannot not follow merge- or output-like commands" ;
 
-			FilterParams< StreamBundle > fp = {
-				param_slope, param_intercept, param_genome,
-				poptGetOptArg1( pc ), merge_makers[rc],
-				descriptions[rc]
-			} ;
-			merging_filter = fp ;
+			merging_filter = FilterParams< StreamBundle >(
+				param, poptGetOptArg1( pc ), merge_makers[rc], descriptions[rc] ) ;
 
 			// from now on we build output filters
 			filters_current = &filters_terminal.back() ;
@@ -1193,12 +1215,8 @@ int main_( int argc, const char **argv )
 				filters_current = &filters_terminal.back() ;
 
 			// create filter
-			FilterParams< Stream > fp = {
-				param_slope, param_intercept, param_genome,
-				poptGetOptArg( pc ), output_makers[rc],
-				descriptions[rc]
-			} ;
-			filters_current->push_back( fp ) ;
+			filters_current->push_back( FilterParams< Stream >(
+				param, poptGetOptArg( pc ), output_makers[rc], descriptions[rc] ) ) ;
 
 			// start new output stream
 			filters_terminal.push_back( FilterStack() ) ;
@@ -1238,15 +1256,13 @@ int main_( int argc, const char **argv )
 		for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
 		{
 			stringstream s ;
-			(i->describe)( s << "  ", i->intercept, i->slope, i->genome, i->arg ) ;
+			(i->describe)( s << "  ", *i ) ;
 			console.output( Console::notice, s.str() ) ;
 		}
 	}
 	{
 		stringstream s ;
-		merging_filter.describe( s,
-				merging_filter.intercept, merging_filter.slope,
-				merging_filter.genome, merging_filter.arg ) ;
+		merging_filter.describe( s, merging_filter ) ;
 		console.output( Console::notice, s.str() ) ;
 	}
 
@@ -1254,14 +1270,10 @@ int main_( int argc, const char **argv )
 	// one filter stack (== no output at all)?  --> add a writer for
 	// stdout to last filter.  else remove the empty one
 	if( !filters_terminal.back().empty() || filters_terminal.size() == 1 )
-	{
-		FilterParams< Stream > fp = {
-			param_slope, param_intercept, param_genome,
-			0, mk_output_text, desc_output_text
-		} ;
-		filters_terminal.back().push_back( fp ) ;
-	}
-	else filters_terminal.pop_back() ;
+		filters_terminal.back().push_back( FilterParams< Stream >(
+			param, 0, mk_output_text, desc_output_text ) ) ;
+	else
+		filters_terminal.pop_back() ;
 
 	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
 	{
@@ -1269,13 +1281,12 @@ int main_( int argc, const char **argv )
 		for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
 		{
 			stringstream s ;
-			(j->describe)( s << "  ", j->intercept, j->slope, j->genome, j->arg ) ;
+			(j->describe)( s << "  ", *j ) ;
 			console.output( Console::notice, s.str() ) ;
 		}
 	}
 
-	std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( 
-				merging_filter.intercept, merging_filter.slope, merging_filter.genome, merging_filter.arg ) ) ;
+	std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( merging_filter ) ) ;
 
 	// iterate over glob results
 	if( the_glob.gl_pathc )
@@ -1286,7 +1297,7 @@ int main_( int argc, const char **argv )
 			Compose *c = new Compose ;
 			c->add_stream( make_input_stream( *arg ) ) ; // new AnfoReader( *arg ) ) ;
 			for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
-				c->add_stream( (i->maker)( i->intercept, i->slope, i->genome, i->arg ) ) ;
+				c->add_stream( (i->maker)( *i ) ) ;
 			cs.push_back( c ) ;
 		}
 		for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
@@ -1299,7 +1310,7 @@ int main_( int argc, const char **argv )
 	{
 		auto_ptr< Compose > c( new Compose ) ;
 		for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
-			c->add_stream( (j->maker)( j->intercept, j->slope, j->genome, j->arg ) ) ;
+			c->add_stream( (j->maker)( *j ) ) ;
 		out.add_stream( c.release() ) ;
 	}
 
