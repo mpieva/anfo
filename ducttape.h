@@ -83,6 +83,19 @@ class DuctTaper : public Stream
 		virtual Result fetch_result() ;
 } ;
 
+class GlzWriter : public Stream
+{
+	private:
+		DeflateStream gos_ ;
+		Chan chan_ ;
+
+	public:
+		GlzWriter( int fd ) ;
+		GlzWriter( const char* fn ) ;
+		virtual ~GlzWriter() {}
+		virtual void put_result( const Result& ) ;
+} ;
+
 } // namespace
 
 #endif

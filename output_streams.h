@@ -178,23 +178,6 @@ class TableWriter : public Stream
 		virtual void put_result( const Result& ) ;
 } ;
 
-class GlzWriter : public Stream
-{
-	private:
-		google::protobuf::io::FileOutputStream fos_ ;
-		google::protobuf::io::GzipOutputStream gos_ ;
-		Chan chan_ ;
-
-	public:
-		GlzWriter( int fd ) : fos_( fd ), gos_( &fos_ ) {}
-		GlzWriter( const char* fn ) 
-			: fos_( throw_errno_if_minus1( creat( fn, 0666 ), "creating", fn ) ), gos_( &fos_ )
-		{ fos_.SetCloseOnDelete( true ) ; }
-		virtual ~GlzWriter() {}
-
-		virtual void put_result( const Result& ) ;
-} ;
-
 } // namespace
 
 #endif

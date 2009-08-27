@@ -367,5 +367,80 @@ no_match:
 	}
 } 
 
+namespace {
+	template< typename T > T *with_close( T* t )
+	{ t->SetCloseOnDelete( true ) ; return t ; }
+} ;
+
+GlzWriter::GlzWriter( int fd ) : gos_( with_close( new google::protobuf::io::FileOutputStream( fd ) ) ) {}
+GlzWriter::GlzWriter( const char* fn ) : gos_( with_close(
+			new google::protobuf::io::FileOutputStream(
+				throw_errno_if_minus1( creat( fn, 0666 ), "creating", fn ) ) ) ) {}
+
+void GlzWriter::put_result( const Result& rr )
+{
+	static uint8_t dna_to_glf_base[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
+
+	const Read& r = rr.read() ;
+	if( r.likelihoods_size() == 10 && has_hit_to( rr, 0 ) ) {
+		chan_( Console::info, r.seqid() ) ;
+		google::protobuf::io::CodedOutputStream c( &gos_ ) ;
+		// Per chromosome
+		// int   chrNameLen ;         /* includes terminating 0 */
+		// char* chrName ;            /* chrNamelen chars including 0 */
+		// int   chrLen ;
+		c.WriteLittleEndian32( r.seqid().size()+1 ) ;
+		c.WriteString( r.seqid() ) ;
+		c.WriteTag( 0 ) ;
+		c.WriteLittleEndian32( r.sequence().size() ) ;
+
+		const Hit& h = hit_to( rr, 0 ) ;
+		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+		char buf[12] ;
+		int i = 0 ;
+		Logdom min_lk ;
+
+		for( AlnIter beg( r, h ), end( r, h, 1 ) ; beg != end ; ++beg )
+		{
+			switch( beg.cigar_op() )
+			{
+				case Hit::Match:
+				case Hit::Mismatch:
+					// Per base
+					//   unsigned char ref:4, dummy:4 ; /* ref A=1,C=2,G=4,T=8,N=15 etc.  */
+					//   unsigned char max_mapQ ;       /* maximum mapping quality */
+					//   unsigned char lk[10] ;         /* log likelihood ratio, max 255 */
+					//   unsigned min_lk:8,             /* minimum lk capped at 255
+					//   depth:24 ;            			/* and the number of mapped reads */
+					buf[0] = dna_to_glf_base[ *ref ] ;
+					buf[1] = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
+					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = r.likelihoods(j)[i] ;
+					c.WriteRaw( buf, 12 ) ;
+
+					// I take min_lk to be (1-quality).  Hope that's at least
+					// approximately right, but the calculation will probably
+					// lose all precision.
+					min_lk = 1 - Logdom::from_phred( r.quality()[i] ) ;
+					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (unsigned(min_lk.to_phred_byte()) & 0xff) ) ;
+					++ref ;
+					++i ;
+					break ;
+
+				case Hit::Delete:
+					++ref ;
+					break ;
+
+				case Hit::Insert:
+				case Hit::SoftClip:
+					++i ;
+					break ;
+
+				default:
+					break ;
+			}
+		}
+	}
+}
+
 } // namespace
 

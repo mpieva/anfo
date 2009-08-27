@@ -378,50 +378,5 @@ void TableWriter::put_result( const Result& r )
 	out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 }
 
-uint8_t dna_to_glf[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
-
-void GlzWriter::put_result( const Result& rr )
-{
-	const Read& r = rr.read() ;
-	if( r.likelihoods_size() == 10 ) {
-		chan_( Console::info, r.seqid() ) ;
-		google::protobuf::io::CodedOutputStream c( &gos_ ) ;
-		// Per chromosome
-		// int   chrNameLen ;         /* includes terminating 0 */
-		// char* chrName ;            /* chrNamelen chars including 0 */
-		// int   chrLen ;
-		c.WriteLittleEndian32( r.seqid().size()+1 ) ;
-		c.WriteString( r.seqid() ) ;
-		c.WriteTag( 0 ) ;
-		c.WriteLittleEndian32( r.sequence().size() ) ;
-
-		const Hit& h = rr.hit(0) ;
-		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
-
-		// XXX: aww, crap, this is broken as it doesn't handle indels...
-		for( unsigned i = 0 ; i != r.sequence().size() ; ++i, ++ref ) {
-			// Per base
-			//   unsigned char ref:4, dummy:4 ; /* ref A=1,C=2,G=4,T=8,N=15 etc.  */
-			//   unsigned char max_mapQ ;       /* maximum mapping quality */
-			//   unsigned char lk[10] ;         /* log likelihood ratio, max 255 */
-			//   unsigned min_lk:8,             /* minimum lk capped at 255
-			//   depth:24 ;            			/* and the number of mapped reads */
-
-			char buf[12] ;
-			buf[0] = dna_to_glf[ *ref ] ;
-			buf[1] = hit_to( rr, 0 ).has_diff_to_next() ? hit_to( rr, 0 ).diff_to_next() : 254 ;
-			for( int j = 0 ; j != 10 ; ++j )
-				buf[2+j] = r.likelihoods(j)[i] ;
-			c.WriteRaw( buf, 12 ) ;
-
-			// I take min_lk to be (1-quality).  Hope that's at least
-			// approximately right, but the calculation will probably
-			// lose all precision.
-			Logdom min_lk = 1 - Logdom::from_phred( r.quality()[i] ) ;
-			c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (unsigned(min_lk.to_phred_byte()) & 0xff) ) ;
-		}
-	}
-}
-
 } // namespace
 
