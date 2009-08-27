@@ -527,9 +527,7 @@ void RmdupStream::add_read( const Result& rhs )
 		Logdom qual = Logdom::from_phred( rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ;
 		for( int j = 0 ; j != 4 ; ++j )
 			// XXX distribute errors sensibly
-			quals_[j].at(i) *= j != base 
-				? qual / Logdom::from_float( 3 ) 
-				: Logdom::from_float( 1 ) - qual ;
+			quals_[j].at(i) *= j != base ? qual / 3 : 1 - qual ;
 	}
 }
 

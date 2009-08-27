@@ -260,13 +260,11 @@ void DuctTaper::put_result( const Result& r )
 	{
 		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
 		{
-			lk_ss_3 *= simple_adna::ss_mat[ *ref ][ aln_i.base() ] ;
-			lk_ds_3 *= simple_adna::ds_mat[ *ref ][ aln_i.base() ] ;
+			lk_ss_3 *= simple_adna::ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+			lk_ds_3 *= simple_adna::ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
 		}
-		if( aln_i.cigar_op() != Hit::Insert && aln_i.cigar_op() != Hit::SoftClip )
-			++ref ;
-		if( aln_i.cigar_op() != Hit::Delete )
-			lk_ds_3 *= simple_adna::overhang_ext_penalty ;
+		if( aln_i.cigar_op() != Hit::Insert && aln_i.cigar_op() != Hit::SoftClip ) ++ref ;
+		if( aln_i.cigar_op() != Hit::Delete ) lk_ds_3 *= simple_adna::overhang_ext_penalty ;
 	}
 
 	ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
@@ -295,10 +293,10 @@ void DuctTaper::put_result( const Result& r )
 				}
 				++ref ;
 
-				lk_ss_5 *= simple_adna::ss_mat[ complement(*ref) ][ complement(aln_i.base()) ] ;
-				lk_ds_5 *= simple_adna::ds_mat[ complement(*ref) ][ complement(aln_i.base()) ] ;
-				lk_ss_3 /= simple_adna::ss_mat[ *ref ][ aln_i.base() ] ;
-				lk_ds_3 /= simple_adna::ds_mat[ *ref ][ aln_i.base() ] ;
+				lk_ss_5 *= simple_adna::ss_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
+				lk_ds_5 *= simple_adna::ds_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
+				lk_ss_3 /= simple_adna::ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+				lk_ds_3 /= simple_adna::ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
 
 no_match:
 				lk_ds_3 /= simple_adna::overhang_ext_penalty ;
@@ -309,24 +307,47 @@ no_match:
 
 					Logdom prob_ss_5 = lk_ss_5 / (lk_ss_5 + lk_ds_5) ;
 					Logdom prob_ss_3 = lk_ss_3 / (lk_ss_3 + lk_ds_3) ;
+					Logdom l_mat = 1 - aln_i.qual(), l_mismat = aln_i.qual() / 3 ;
 
-					// XXX: mapping to indices is all wrong (note
-					// different numbering of bases), and we need
-					// to update (potentially) _all_ likelihoods.  (Or
-					// is it worthwhile to code for C/T and G/A
-					// separately?)
-					static const bool halfmat[4][10] = {
-						{ 1, 1, 1, 0, 0, 0 },
-						{ 1, 0, 0, 1, 1, 0 },
-						{ 0, 1, 0, 1, 0, 1 },
-						{ 0, 0, 1, 0, 1, 1 } } ;
+					// lk_base[x] is probability of seeing aln_i.base()
+					// given that an x was in the real sequence.  It is
+					// the products of the probability of x being
+					// modified to y times the probability of y being
+					// seen as aln_i.base() summed over all possible y.
+					// The former comes directly from blended subst
+					// matrices, the latter is l_mat or l_mismat.
+					// Probabilities for dialleles are simply the
+					// average of probabilities for the constituents.
+					
+					Logdom lk_base[4] ;
+					for( int k = 0 ; k != 4 ; ++k )
+					{
+						lk_base[k] = Logdom::null() ;
+						for( int l = 0 ; l != 4 ; ++l )
+						{
+							lk_base[k] += 
+								( prob_ss_3 > prob_ss_5 
+								  ? lerp( prob_ss_3, simple_adna::ss_mat[1<<k][1<<l], simple_adna::ds_mat[1<<k][1<<l] )
+								  : lerp( prob_ss_3, simple_adna::ss_mat[complement(1<<k)][complement(1<<l)],
+									  simple_adna::ds_mat[complement(1<<k)][complement(1<<l)] ) ) *
+								( l == aln_i.base() ? l_mat : l_mismat ) ;
+						}
+					}
 
-					Logdom l_mat = Logdom::from_float(1) - aln_i.qual() ;
-					Logdom l_mismat = aln_i.qual() / Logdom::from_float(3) ;
-					Logdom l_half = (l_mat + l_mismat) / Logdom::from_float(2) ;
+					// Translation of indices and calculation of het
+					// likelihoods.  A bit irregular, so spelled out in
+					// full.
+					column->lk[0] *= lk_base[0] ; // A
+					column->lk[1] *= lk_base[1] ; // C
+					column->lk[2] *= lk_base[3] ; // G(!)
+					column->lk[3] *= lk_base[2] ; // T(!)
 
-					for( int k = 0 ; k != 10 ; ++k )
-						column->lk[k] *= k == aln_i.base() ? l_mat : halfmat[ aln_i.base() ][k-4] ? l_half : l_mismat ;
+					column->lk[4] *= lerp( 0.5, lk_base[0], lk_base[1] ) ; // AC
+					column->lk[5] *= lerp( 0.5, lk_base[0], lk_base[3] ) ; // AG
+					column->lk[6] *= lerp( 0.5, lk_base[0], lk_base[2] ) ; // AT
+					column->lk[7] *= lerp( 0.5, lk_base[1], lk_base[3] ) ; // CG
+					column->lk[8] *= lerp( 0.5, lk_base[1], lk_base[2] ) ; // CT
+					column->lk[9] *= lerp( 0.5, lk_base[3], lk_base[2] ) ; // GT
 				}
 
 				++aln_i ;

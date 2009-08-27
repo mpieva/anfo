@@ -104,4 +104,17 @@ class Logdom {
 		bool operator <= ( Logdom b ) { return b.v_ <= v_ ; }
 } ;
 
+inline Logdom operator + ( double a, Logdom b ) { return Logdom::from_float( a ) + b ; }
+inline Logdom operator + ( Logdom a, double b ) { return a + Logdom::from_float( b ) ; }
+inline Logdom operator - ( double a, Logdom b ) { return Logdom::from_float( a ) - b ; }
+inline Logdom operator - ( Logdom a, double b ) { return a - Logdom::from_float( b ) ; }
+inline Logdom operator * ( double a, Logdom b ) { return Logdom::from_float( a ) * b ; }
+inline Logdom operator * ( Logdom a, double b ) { return a * Logdom::from_float( b ) ; }
+inline Logdom operator / ( double a, Logdom b ) { return Logdom::from_float( a ) / b ; }
+inline Logdom operator / ( Logdom a, double b ) { return a / Logdom::from_float( b ) ; }
+
+template <typename A, typename B> 
+A lerp( B p, A a, A b )
+{ return (1.0-p) * a + p * b ; }
+
 #endif

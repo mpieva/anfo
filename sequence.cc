@@ -89,7 +89,7 @@ QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
 	Logdom prob = Logdom::from_phred( q ) ;
 	for( int i = 0 ; i != 4 ; ++i )
 	{
-		qscores[i] = a & (1<<i) ? ( (Logdom::from_float(1.0)-prob) / Logdom::from_float(bits) ).to_phred_byte()
+		qscores[i] = a & (1<<i) ? ( (1-prob) / Logdom::from_float(bits) ).to_phred_byte()
 			                    : ( prob / Logdom::from_float(4-bits) ).to_phred_byte() ;
 	}
 }
