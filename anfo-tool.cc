@@ -1036,6 +1036,12 @@ Stream* mk_output_glz  ( const ParamBlock& p )
 void desc_output_glz( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in GLZ format to " << parse_fn( p.arg ) ; }
 
+Stream* mk_output_3aln  ( const ParamBlock& p )
+{ return new ThreeAlnWriter( p.arg ) ; } // XXX is_stdout( p.arg ) ? new GlzWriter( 1 ) : new GlzWriter( p.arg ) ; } 
+
+void desc_output_3aln( ostream& ss, const ParamBlock& p )
+{ ss << "write contigs in 3ALN format to " << p.arg ; } // XXX parse_fn( p.arg ) ; }
+
 Stream* mk_output_fasta( const ParamBlock& p )
 {
 	return is_stdout( p.arg ) ? new FastaAlnWriter( cout.rdbuf(), p.genome, p.context )
@@ -1100,31 +1106,31 @@ int main_( int argc, const char **argv )
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_delete_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
-		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam, opt_output_glz,
+		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam, opt_output_glz, opt_output_3aln,
 		opt_output_fasta, opt_output_fastq, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit, mk_delete_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
-		0, 0, mk_rmdup, 0, 0, 0, 0,
+		0, 0, mk_rmdup, 0, 0, 0, 0, 0,
 		0, 0, 0, mk_duct_tape, 0, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, mk_merge, mk_join,
-		mk_mega_merge, mk_concat, 0, 0, 0, 0, 0,
+		mk_mega_merge, mk_concat, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, mk_output, mk_output_text, mk_output_sam, mk_output_glz,
+		0, 0, 0, mk_output, mk_output_text, mk_output_sam, mk_output_glz, mk_output_3aln,
 		mk_output_fasta, mk_output_fastq, mk_output_table, 0, mk_stats, 0 } ;
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
 		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
-		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz,
+		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
 
 	ParamBlock param( 7.5, 20.0, 0, 0, 0 ) ;
@@ -1152,6 +1158,7 @@ int main_( int argc, const char **argv )
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
 		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write contigs in GLZ format to FILE", "FILE" },
+		{ "output-3aln",    0 , POPT_ARG_STRING, 0, opt_output_3aln,   "write contigs in 3ALN format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments(!) in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },

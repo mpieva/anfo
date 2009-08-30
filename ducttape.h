@@ -2,6 +2,7 @@
 #define INCLUDED_DUCTTAPE_H
 
 #include "stream.h"
+#include "util.h"
 #include <string>
 #include <vector>
 
@@ -93,6 +94,30 @@ class GlzWriter : public Stream
 		GlzWriter( int fd ) ;
 		GlzWriter( const char* fn ) ;
 		virtual ~GlzWriter() {}
+		virtual void put_result( const Result& ) ;
+} ;
+
+//! \brief writes consensuus in text format
+//! Format as agreed upon internally:  
+//! > "hg18" chromosome ±start
+//! ; "pt2" chromosome ±start
+//! [repeat as necessary?]
+//! <hg18-base> <pt2-base> <nt-majority-base (A,C,G,T)>
+//!   <Q-score> <depth> <#gaps> <#A> <#C> <#G> <#T> <4 likelihood-ratios>
+//! [repeat as necessary]
+//!
+//! \todo reconstruction of the involved whole genome alignments is not
+//!       yet possible
+class ThreeAlnWriter : public Stream
+{
+	private:
+		std::ofstream out_ ;
+		std::string name_ ;
+		Chan chan_ ;
+
+	public:
+		ThreeAlnWriter( const char* ) ;
+		virtual ~ThreeAlnWriter() {} 
 		virtual void put_result( const Result& ) ;
 } ;
 

@@ -151,7 +151,7 @@ void* run_worker_thread( void* cd_ )
 int main_( int argc, const char * argv[] )
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum option_tags { opt_none, opt_version, opt_quiet } ;
+	enum option_tags { opt_none, opt_version } ;
 
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
@@ -166,7 +166,8 @@ int main_( int argc, const char * argv[] )
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
-		{ "quiet",       'q', POPT_ARG_NONE,   0,            opt_quiet,   "Don't show progress reports", 0 },
+		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
+		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
 		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -179,10 +180,6 @@ int main_( int argc, const char * argv[] )
 	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
 	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
 	{
-		case opt_quiet:
-			std::clog.rdbuf( 0 ) ;
-			break ;
-
 		case opt_version:
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;

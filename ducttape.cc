@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <numeric>
 #include <sstream>
 
@@ -32,6 +33,7 @@ void DuctTaper::put_header( const Header& h )
 
 void DuctTaper::flush_contig()
 {
+	static int external_to_internal_base[4] = { 0, 1, 3, 2 } ;
 	if( observed_.empty() ) return ;
 
 	// if the last column was added, but nothing was observed, leave it
@@ -71,7 +73,7 @@ void DuctTaper::flush_contig()
 			int maxlk = 0 ;
 			for( int j = 0 ; j != 4 ; ++j )
 			{
-				rd.add_seen_bases( i->seen[j] ) ;
+				rd.add_seen_bases( i->seen[ external_to_internal_base[j] ] ) ;
 				if( i->lk[j] > i->lk[maxlk] ) maxlk = j ;
 			}
 
@@ -189,7 +191,7 @@ class AlnIter
 				            seq_[-1] == 'G' ? 1 : seq_[-1] == 'T' ? 0 : -1 ) ;
 		}
 
-		Logdom qual() const { return Logdom::from_phred( fwd_ ? qual_[0] : qual_[-1] ) ; }
+		Logdom qual() const { return Logdom::from_phred( (uint8_t)( fwd_ ? qual_[0] : qual_[-1] ) ) ; }
 } ;
 
 //! \brief updates likelihood information
@@ -228,7 +230,6 @@ class AlnIter
 //! to the sum of all the match scores, which requires a preliminary
 //! pass over everything.
 
-// XXX likelihoods do not regard BJ model
 void DuctTaper::put_result( const Result& r )
 {
 	if( !has_hit_to( r, g_ ) ) return ;
@@ -276,8 +277,6 @@ void DuctTaper::put_result( const Result& r )
 			++contig_end_ ;
 		}
 
-		// XXX: likelihood calculation doesn't take BJ model into
-		// account
 		switch( aln_i.cigar_op() )
 		{
 			case Hit::SoftClip:
@@ -299,8 +298,8 @@ void DuctTaper::put_result( const Result& r )
 				lk_ds_3 /= simple_adna::ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
 
 no_match:
+				lk_ds_5 *= simple_adna::overhang_ext_penalty ;
 				lk_ds_3 /= simple_adna::overhang_ext_penalty ;
-				lk_ds_5 /= simple_adna::overhang_ext_penalty ;
 
 				if( aln_i.base() != -1 ) {
 					++column->seen[ aln_i.base() ] ;
@@ -328,7 +327,7 @@ no_match:
 							lk_base[k] += 
 								( prob_ss_3 > prob_ss_5 
 								  ? lerp( prob_ss_3, simple_adna::ss_mat[1<<k][1<<l], simple_adna::ds_mat[1<<k][1<<l] )
-								  : lerp( prob_ss_3, simple_adna::ss_mat[complement(1<<k)][complement(1<<l)],
+								  : lerp( prob_ss_5, simple_adna::ss_mat[complement(1<<k)][complement(1<<l)],
 									  simple_adna::ds_mat[complement(1<<k)][complement(1<<l)] ) ) *
 								( l == aln_i.base() ? l_mat : l_mismat ) ;
 						}
@@ -438,6 +437,95 @@ void GlzWriter::put_result( const Result& rr )
 				default:
 					break ;
 			}
+		}
+	}
+}
+
+ThreeAlnWriter::ThreeAlnWriter( const char* fn ) : out_( fn ), name_( basename( fn ) ) {}
+
+// Need to walk along any number of alignments (hg18, pt2, ..., nt),
+// producing either gaps or bases at each position.  If *all* positions
+// are gapped, the position is skipped.  Else produce symbols (gaps or
+// base, either from genome or from majority sequence), summary
+// information and likelihoods.
+//
+// XXX: for the time being, walk only one alignment
+void ThreeAlnWriter::put_result( const Result& res )
+{
+	const Read& r = res.read() ;
+	const Hit& h = hit_to( res, 0 ) ;
+	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+
+	std::stringstream ss ;
+	ss << name_ << ": " << h.genome_name() << '/' << h.sequence() << '@' << h.start_pos() ; 
+	chan_( Console::info, ss.str() ) ;
+
+	out_ << '>' << h.genome_name() << ' ' << h.sequence() << ' '
+		<< ( h.aln_length() < 0 ? '-' : '+' ) << h.start_pos() << std::endl ;
+	// XXX more such header lines(?)
+
+	AlnIter aln( r, h ), aln_e( r, h, 1 ) ;
+	int offs = 0 ;
+	for( ; aln != aln_e ; ++aln ) 
+	{
+		switch( aln.cigar_op() )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Delete:
+				out_ << from_ambicode( *ref ) ;
+				break ;
+			case Hit::Insert:
+			case Hit::SoftClip:
+				out_ << '-' ;
+				break ;
+			default:
+				break ;
+		}
+		int ngaps = -std::accumulate(
+				r.seen_bases().begin() + 4*offs,
+				r.seen_bases().begin() + 4*offs +4,
+				-r.depth(offs) ) ;
+
+		switch( aln.cigar_op() )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Insert:
+			case Hit::SoftClip:
+				out_ << r.sequence()[offs] << std::setw(4) << (int)(uint8_t)r.quality()[offs]
+					<< std::setw(5) << r.depth(offs) << std::setw(5) << ngaps ;
+
+				out_ << "   " ;
+				for( int i = 0 ; i != 4 ; ++i )
+					out_ << std::setw(4) << r.seen_bases( i + 4*offs ) ;
+
+				out_ << "   " ;
+				for( int i = 0 ; i != 4 ; ++i )
+					out_ << std::setw(4) << (int)(uint8_t)r.likelihoods(i)[offs] ;
+				break ;
+
+			case Hit::Delete:
+				out_ << '-' ;
+				break ;
+			default:
+				break ;
+		}
+		out_ << '\n' ;
+		switch( aln.cigar_op() )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+				++ref ;
+
+			case Hit::Insert:
+			case Hit::SoftClip:
+				++offs ;
+				break ;
+
+			default:
+				++ref ;
+				break ;
 		}
 	}
 }
