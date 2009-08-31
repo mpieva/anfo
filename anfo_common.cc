@@ -57,19 +57,6 @@ static const int minscore = 4 ;
 
 int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol )
 {
-	// *r.mutable_read() = ps.get_read() ; 
-	/* XXX ->set_seqid( ps.get_name() ) ;
-	if( !ps.get_descr().empty() ) r.mutable_read()->set_description( ps.get_descr() ) ;
-	switch( ps.get_validity() ) 
-	{
-		case QSequence::bases_with_quality:
-		case QSequence::bases_with_qualities:
-		case QSequence::qualities_only:
-			r.mutable_read()->set_quality( ps.qualities() ) ;
-		case QSequence::bases_only:
-			r.mutable_read()->set_sequence( ps.as_string() ) ;
-	} */
-
 	// trim adapters, set trim points
 	// How does this work?  We create an overlap alignment, then
 	// calculate an alignment score from the number of differences.  The
@@ -94,10 +81,7 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 				maxd, overlap, 0, &ymax ) ;
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
-		{
 			r.mutable_read()->set_trim_right( r.read().sequence().length() - ymax ) ;
-			// XXX ps.trim_right( ps.length() - ymax ) ;
-		}
 	}
 
 	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
@@ -110,10 +94,7 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 				maxd, overlap, 0, &ymax ) ;
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
-		{
 			r.mutable_read()->set_trim_left( r.read().trim_left() + ymax ) ;
-			// XXX ps.trim_left( ymax ) ;
-		}
 	}
 
 	Policy p = select_policy( mi, r.read() ) ;

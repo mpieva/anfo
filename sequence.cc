@@ -94,23 +94,6 @@ QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
 	}
 }
 
-/* XXX
-QSequence::QSequence( const char* p, int q_score ) 
-		// : seq_() //, name_(), description_(), validity_( bases_only )
-{
-	seq_.push_back( Base() ) ;
-	for( ; *p ; ++p )
-		if( encodes_nuc( *p ) ) 
-		{
-			seq_.push_back( Base( to_ambicode( *p ), q_score ) ) ;
-			read_.mutable_sequence()->push_back( *p ) ;
-		}
-	seq_.push_back( Base() ) ;
-}
-*/
-
-//QSequence::QSequence( const char* p, const uint8_t* q, const std::string& name, const std::string &descr )
-		// : seq_(), name_(name), description_(descr), validity_( bases_with_quality )
 QSequence::QSequence( const output::Read& r, int default_q )
 {
 	seq_.push_back( Base() ) ;
@@ -164,7 +147,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 		{
 			if( encodes_nuc( line[i] ) )
 			{
-				r.mutable_sequence()->push_back( line[i] ) ; // QSequence::Base( to_ambicode( line[i] ), 30 ) ) ;
+				r.mutable_sequence()->push_back( line[i] ) ;
 			}
 		}
 	}
@@ -193,9 +176,6 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 					stringstream ss( line ) ;
 					for( int q = 0 ; ss >> q ; ++ix )
 						r.mutable_quality()->push_back( solexa_scores ? sol_to_phred(q) : q ) ;
-						// XXX qs.seq_[ix] = QSequence::Base(
-								// XXX qs.seq_[ix].ambicode, 
-								// XXX ) ; 
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
 				}
@@ -214,8 +194,6 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 						if( q != 13 ) // skip CRs
 						{
 							r.mutable_quality()->push_back( solexa_scores ? sol_to_phred( q-origin ) : q-origin ) ; 
-							// XXX qs.seq_[ix+1] = QSequence::Base(
-									// XXX qs.seq_[ix+1].ambicode, 
 							++ix ;
 						}
 					}
@@ -269,8 +247,6 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 	}
 #endif
 
-	// XXX qs.validity_ = got_quals ? got_seq ? QSequence::bases_with_qualities : QSequence::qualities_only
-		   // XXX                   : got_qual ? QSequence::bases_with_quality : QSequence::bases_only ;
 	// We did get a sequence, no matter the stream state now, so no
 	// failure.
 	return true ;

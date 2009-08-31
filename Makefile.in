@@ -21,8 +21,8 @@ DEFS ?= @DEFS@
 
 CXXFLAGS += -MMD -Wall -Werror
 
-CXXFLAGS += -DNDEBUG
-CXXFLAGS += -ggdb -O0
+CXXFLAGS += -DNDEBUG -O3 -fomit-frame-pointer -march=k8
+# CXXFLAGS += -ggdb -O0
 
 PROGS := fa2dna dnaindex anfo-sge anfo-tool 
 

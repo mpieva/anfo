@@ -51,17 +51,12 @@ int main_( int argc, const char * argv[] )
 	Mapper mapper( conf ) ;
 
 	AnfoWriter os( output_file ) ;
-	// XXX std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos(
-			// compress_fast( make_output_stream( output_file ) ) ) ;
-
 	Header ohdr ;
-	// CodedOutputStream cos( zos.get() ) ;
-	// cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	os.put_header( ohdr ) ; // streams::write_delimited_message( cos, 1, ohdr ) ;
+	os.put_header( ohdr ) ;
 
 	for( auto_ptr<Stream> inp( make_input_stream( input_file ) ) ; inp->get_state() == Stream::have_output ; )
 	{
@@ -70,12 +65,12 @@ int main_( int argc, const char * argv[] )
 		QSequence ps ;
 		int pmax = mapper.index_sequence( r, ps, ol ) ;
 		if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-		os.put_result( r ) ; // streams::write_delimited_message( cos, 4, r ) ;
+		os.put_result( r ) ;
 	}
 
 	Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	os.put_footer( ofoot ) ; // streams::write_delimited_message( cos, 3, ofoot ) ;
+	os.put_footer( ofoot ) ;
 	return 0 ;
 }
 

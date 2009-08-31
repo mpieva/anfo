@@ -69,11 +69,10 @@ struct CommonData
 	Queue<output::Result*, 4> output_queue ;
 	Queue<AlignmentWorkload*, 4> intermed_queue ;
 	Queue<output::Result*, 4> input_queue ;
-	// google::protobuf::io::CodedOutputStream output_stream ;
 	streams::AnfoWriter output_stream ;
 	Mapper mapper ;
 
-	CommonData( const Config& conf, const char* fn ) // XXX google::protobuf::io::ZeroCopyOutputStream *zos )
+	CommonData( const Config& conf, const char* fn )
 		: output_stream( fn ), mapper( conf ) {}
 } ;
 
@@ -193,9 +192,6 @@ int main_( int argc, const char * argv[] )
 	if( !output_file ) throw "no output file" ;
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
-	// std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos(
-			// compress_fast( make_output_stream( output_file ) ) ) ;
-
 	Config conf = get_default_config( config_file ) ;
 	CommonData common_data( conf, output_file ) ; // zos.get() ) ;
 
@@ -204,22 +200,12 @@ int main_( int argc, const char * argv[] )
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
-	int64_t total_size = 0 ; // XXX , total_done = 0 ;
-	for( size_t i = 0 ; i != files.size() && total_size != -1 ; ++i )
-	{
-		struct stat s ;
-		bool good = files[i] != "-" && !stat( files[i].c_str(), &s ) && S_ISREG( s.st_mode ) ;
-		if( good ) total_size += s.st_size ; else total_size = -1 ;
-	}
-
 	output::Header ohdr ;
-	// XXX common_data.output_stream.WriteRaw( "ANFO", 4 ) ; // signature
-
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	common_data.output_stream.put_header( ohdr ) ; // XXX streams::write_delimited_message( common_data.output_stream, 1, ohdr ) ;
+	common_data.output_stream.put_header( ohdr ) ;
 
 	// Running in multiple threads.  The main thread will read the
 	// input and enqueue it, then signal end of input by adding a null
@@ -243,25 +229,7 @@ int main_( int argc, const char * argv[] )
 				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
-		{
-			// std::auto_ptr<QSequence> ps( new QSequence ) ;
-			// if( exit_with || !read_fastq( inp.get(), *ps, solexa_scale, fastq_origin ) ) break ;
-			
-			// XXX
-			/*
-			stringstream progress ;
-			progress << ps->get_name() << " (#" << total_count ;
-			if( total_size != -1 ) progress << ", " << (total_done + raw_inp.ByteCount()) * 100 / total_size << '%' ;
-			progress << ')' ;
-
-			clog << '\r' << progress.str() << "\33[K" << flush ;
-			set_proc_title( progress.str().c_str() ) ;
-			*/
-
-			common_data.input_queue.enqueue( new output::Result( inp->fetch_result() ) ) ; // ps.release() ) ;
-		}
-		// if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
-		// if( inp_fd ) close( inp_fd ) ;
+			common_data.input_queue.enqueue( new output::Result( inp->fetch_result() ) ) ;
 	}
 	
 	// no more input, wait for indexer(s)
@@ -281,7 +249,7 @@ int main_( int argc, const char * argv[] )
 	clog << endl ;
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	common_data.output_stream.put_footer( ofoot ) ; // XXX streams::write_delimited_message( common_data.output_stream, 3, ofoot ) ;
+	common_data.output_stream.put_footer( ofoot ) ;
 	return 0 ;
 }
 

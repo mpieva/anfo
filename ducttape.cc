@@ -27,9 +27,10 @@ void DuctTaper::put_header( const Header& h )
 //! The strategy: If a gap is more likely than a base, we call a
 //! deletion and do not output anything else.  Else we compute
 //! likelihoods for all possible dialleles.  From that we call the most
-//! likely base or an ambiguity code if a heterozygote is more likely.
-//! Finally store the new contig as an \c output::Result and update
-//! internal state.
+//! likely base.  Calling ambiguity codes for heterozygous sites is not
+//! attempted, as that would be pointless without applying a prior for
+//! the rate of het sites.  Finally store the new contig as an \c
+//! output::Result and update internal state.
 
 void DuctTaper::flush_contig()
 {
@@ -51,6 +52,7 @@ void DuctTaper::flush_contig()
 	std::stringstream ss1 ;
 	ss1 << cur_genome_ << ':' << cur_sequence_ << ':' << contig_start_ ;
 	rd.set_seqid( ss1.str() ) ;
+	report_( Console::info, ss1.str() ) ;
 	
 	// remove cols where sth. was inserted, but most reads show a gap
 	for( Accs::iterator i = observed_.begin() ; i != observed_.end() ; )
@@ -78,7 +80,7 @@ void DuctTaper::flush_contig()
 			}
 
 			rd.add_depth( cov + i->seen[4] ) ;
-			rd.mutable_sequence()->push_back( "ACGTMRWSYK"[maxlk] ) ;
+			rd.mutable_sequence()->push_back( "ACGT"[maxlk] ) ;
 
 			Logdom q = Logdom::null() ;
 			for( int j = 0 ; j != 4 ; ++j ) if( j != maxlk ) q += i->lk[j] ;
@@ -212,12 +214,10 @@ class AlnIter
 //! likelihoods.)  The likelihood depends on how likely we are to be in
 //! a single stranded region.
 //!
-//! The likelihood of the
-//! alignment with a given overhang length is simply the alignment
-//! score, by dividing by the total likelihood, we get a likelihood for
-//! that overhang length.
+//! The likelihood of the alignment with a given overhang length is
+//! simply the alignment score, by dividing by the total likelihood, we
+//! get a likelihood for that overhang length.
 //!
-
 //! Likelihood for having an ss overhang of at least n is just the sum
 //! of match scores in first n positions; therefore probability is
 //! L_ss(n) / (L_ss(n)+L_ds(n)) * P_ss(n), the latter being the prior of
@@ -235,10 +235,12 @@ void DuctTaper::put_result( const Result& r )
 	if( !has_hit_to( r, g_ ) ) return ;
 	const Hit& h = hit_to( r, g_ ) ;
 
+	Logdom rate_ss = Logdom::from_float( hdr_.config().aligner().rate_of_ss_deamination() ), 
+		   rate_ds = Logdom::from_float( hdr_.config().aligner().rate_of_ds_deamination() ) ; 
+
 	int mapq = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
 	mapq_accum_ += mapq*mapq ;
 
-	++nreads_ ;
 	if( cur_genome_ != h.genome_name()
 				|| cur_sequence_ != h.sequence()
 				|| h.start_pos() > contig_end_ )
@@ -248,6 +250,10 @@ void DuctTaper::put_result( const Result& r )
 		cur_sequence_ = h.sequence() ;
 		contig_start_ = contig_end_ = h.start_pos() ;
 	}
+	++nreads_ ;
+
+	if( h.start_pos() < contig_start_ ) 
+		throw "ducttaping: input was not sorted" ;
 
 	Accs::iterator column = observed_.begin() ;
 	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
@@ -318,21 +324,45 @@ no_match:
 					// Probabilities for dialleles are simply the
 					// average of probabilities for the constituents.
 					
-					Logdom lk_base[4] ;
+#if 0
+					// Original code, unrolled and simplified below to
+					// avoid numerical difficulties.
+					Logdom lk_base[4]
 					for( int k = 0 ; k != 4 ; ++k )
 					{
 						lk_base[k] = Logdom::null() ;
 						for( int l = 0 ; l != 4 ; ++l )
 						{
-							lk_base[k] += 
-								( prob_ss_3 > prob_ss_5 
-								  ? lerp( prob_ss_3, simple_adna::ss_mat[1<<k][1<<l], simple_adna::ds_mat[1<<k][1<<l] )
-								  : lerp( prob_ss_5, simple_adna::ss_mat[complement(1<<k)][complement(1<<l)],
-									  simple_adna::ds_mat[complement(1<<k)][complement(1<<l)] ) ) *
-								( l == aln_i.base() ? l_mat : l_mismat ) ;
+							lk_base[k] +=
+								( l == aln_i.base() ? l_mat : l_mismat ) *
+								( prob_ss_5 > prob_ss_3 
+								  ? lerp( prob_ss_5,
+									  Logdom::from_float( ss_mat[k][l] ),
+									  Logdom::from_float( ds_mat[k][l] ) ) 
+								  : lerp( prob_ss_3,
+									  Logdom::from_float( ss_mat[k^2][l^2] ),
+									  Logdom::from_float( ds_mat[k^2][l^2] ) ) ) ;
 						}
 					}
+#endif
 
+					Logdom lk_base[4] = {
+						( 0 == aln_i.base() ? l_mat : l_mismat ),			// k == 0
+						( 1 == aln_i.base() ? l_mat : l_mismat ) *			// k == 1
+							( 1 - lerp( prob_ss_5, rate_ss, rate_ds ) ) +	// l == 1
+
+							( 2 == aln_i.base() ? l_mat : l_mismat ) *		// l == 2
+							lerp( prob_ss_5, rate_ss, rate_ds ),
+
+						( 2 == aln_i.base() ? l_mat : l_mismat ),			// k == 2
+						
+						( 0 == aln_i.base() ? l_mat : l_mismat ) *			// k == 3
+							lerp( prob_ss_3, rate_ss, rate_ds ) +			// l == 0
+
+							( 3 == aln_i.base() ? l_mat : l_mismat ) *		// l == 3
+							( 1 - lerp( prob_ss_3, rate_ss, rate_ds ) )
+					} ;
+						
 					// Translation of indices and calculation of het
 					// likelihoods.  A bit irregular, so spelled out in
 					// full.
@@ -397,7 +427,7 @@ void GlzWriter::put_result( const Result& rr )
 		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
 		char buf[12] ;
 		int i = 0 ;
-		Logdom min_lk ;
+		uint8_t min_lk ;
 
 		for( AlnIter beg( r, h ), end( r, h, 1 ) ; beg != end ; ++beg )
 		{
@@ -411,16 +441,20 @@ void GlzWriter::put_result( const Result& rr )
 					//   unsigned char lk[10] ;         /* log likelihood ratio, max 255 */
 					//   unsigned min_lk:8,             /* minimum lk capped at 255
 					//   depth:24 ;            			/* and the number of mapped reads */
+
+					// I'm not sure what's the business about min_lk,
+					// I'll read it literally and take the smallest
+					// likelihood value.
+					min_lk = r.likelihoods(0)[i] ;
+					for( int j = 1 ; j != 10 ; ++j )
+						if( min_lk > r.likelihoods(j)[i] ) 
+							min_lk = r.likelihoods(j)[i] ; 
+
 					buf[0] = dna_to_glf_base[ *ref ] ;
 					buf[1] = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
-					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = r.likelihoods(j)[i] ;
+					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = (uint8_t)(r.likelihoods(j)[i]) - min_lk ;
 					c.WriteRaw( buf, 12 ) ;
-
-					// I take min_lk to be (1-quality).  Hope that's at least
-					// approximately right, but the calculation will probably
-					// lose all precision.
-					min_lk = 1 - Logdom::from_phred( r.quality()[i] ) ;
-					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (unsigned(min_lk.to_phred_byte()) & 0xff) ) ;
+					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | min_lk ) ;
 					++ref ;
 					++i ;
 					break ;
@@ -441,8 +475,6 @@ void GlzWriter::put_result( const Result& rr )
 	}
 }
 
-ThreeAlnWriter::ThreeAlnWriter( const char* fn ) : out_( fn ), name_( basename( fn ) ) {}
-
 // Need to walk along any number of alignments (hg18, pt2, ..., nt),
 // producing either gaps or bases at each position.  If *all* positions
 // are gapped, the position is skipped.  Else produce symbols (gaps or
@@ -460,9 +492,10 @@ void ThreeAlnWriter::put_result( const Result& res )
 	ss << name_ << ": " << h.genome_name() << '/' << h.sequence() << '@' << h.start_pos() ; 
 	chan_( Console::info, ss.str() ) ;
 
-	out_ << '>' << h.genome_name() << ' ' << h.sequence() << ' '
-		<< ( h.aln_length() < 0 ? '-' : '+' ) << h.start_pos() << std::endl ;
-	// XXX more such header lines(?)
+	out_ << '>' << r.seqid() << ' ' << r.description() << '\n' ;
+	// XXX more header lines like this:
+	// out_ << ';' << h.genome_name() << ' ' << h.sequence() << ' '
+		// << ( h.aln_length() < 0 ? '-' : '+' ) << h.start_pos() << std::endl ;
 
 	AlnIter aln( r, h ), aln_e( r, h, 1 ) ;
 	int offs = 0 ;

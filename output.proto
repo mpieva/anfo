@@ -44,7 +44,8 @@ message Header {
 
 // XXX: a few easily accessible statistics could be included here,
 // assuming the footer is somehow easily found.  Requires a bit more
-// infrastructure, though.
+// infrastructure, though.  While we're at it, an index would be well
+// placed here, too.
 message Footer {
 	required uint32 exit_code = 1 ;
 }
@@ -199,15 +200,13 @@ message Read {
     optional bytes quality = 14 ;
 
     // likelihoods of consensus sequence
-    // This is intended to resemble the GL format or at least allow
-    // generation of GLF.  For each position in the sequence, we store
-    // either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
-    // as specified for GLF.  Each entry is as long as the sequence, the
-    // order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  I
-    // interpret the min_lk field of GLF as the quality score (therefore
-    // it's stored in quality), sequence will be called with the most
-    // likely base (or maybe an ambiguity code).  Bytes are sufficient
-    // for storage, since we clamp everything at 255 anyway.
+	// This is intended to resemble the GL format or at least allow
+	// generation of GLF.  For each position in the sequence, we store
+	// either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
+	// as specified for GLF.  Each entry is as long as the sequence, the
+	// order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
+	// Bytes should be sufficient for storage, since we clamp almost
+	// everything at 254 anyway.
     repeated bytes likelihoods = 15 ;
 
     // raw counts of what base was seen in a position

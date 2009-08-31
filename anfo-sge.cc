@@ -132,21 +132,8 @@ int main_( int argc, const char * argv[] )
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
-	int64_t total_size = 0 ; // XXX , total_done = 0 ;
-	for( size_t i = 0 ; i != files.size() && total_size != -1 ; ++i )
-	{
-		struct stat s ;
-		bool good = files[i] != "-" && !stat( files[i].c_str(), &s ) && S_ISREG( s.st_mode ) ;
-		if( good ) total_size += s.st_size ; else total_size = -1 ;
-	}
-
 	streams::AnfoWriter os( output_file ) ;
-	// std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos(
-			// compress_fast( make_output_stream( output_file ) ) ) ;
-
 	output::Header ohdr ;
-	// google::protobuf::io::CodedOutputStream cos( zos.get() ) ;
-	// cos.WriteRaw( "ANFO", 4 ) ; // signature
 	*ohdr.mutable_config() = conf ;
 	ohdr.set_version( PACKAGE_VERSION ) ;
 	if( stride > 1 ) 
@@ -158,7 +145,6 @@ int main_( int argc, const char * argv[] )
 	if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
 	if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
 	os.put_header( ohdr ) ; 
-	// streams::write_delimited_message( cos, 1, ohdr ) ;
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
@@ -167,48 +153,25 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		// XXX bool is_stdin = 
-		// int inp_fd = is_stdin ? dup( 0 ) :
-			// throw_errno_if_minus1( open( files.front().c_str(), O_RDONLY ),
-					// "opening ", files.front().c_str() ) ;
-
 		std::auto_ptr< streams::Stream > inp(
 			streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
-
-		// FileInputStream raw_inp( inp_fd ) ;
-		// std::auto_ptr<ZeroCopyInputStream> inp( decompress( &raw_inp ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{
 			output::Result r = inp->fetch_result() ;
-
-			// if( exit_with || !read_fastq( inp.get(), ps, solexa_scale, fastq_origin ) ) break ;
-			
-			// XXX
-			/*
-			stringstream progress ;
-			progress << r.seqid() << " (#" << total_count ;
-			if( total_size != -1 ) progress << ", " << (total_done + raw_inp.ByteCount()) * 100 / total_size << '%' ;
-			progress << ')' ;
-
-			set_proc_title( progress.str().c_str() ) ;
-			*/
-
 			if( total_count % stride == slicenum ) {
-				// output::Result r ;
 				QSequence ps ;
 				std::deque< alignment_type > ol ;
 				int pmax = mapper.index_sequence( r, ps, ol ) ;
 				if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-				os.put_result( r ) ; // streams::write_delimited_message( cos, 4, r ) ;
+				os.put_result( r ) ;
 			}
 		}
-		// XXX if( total_size != -1 ) total_done += raw_inp.ByteCount() ;
 	}
 
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	os.put_footer( ofoot ) ; // streams::write_delimited_message( cos, 3, ofoot ) ;
+	os.put_footer( ofoot ) ;
 	return 0 ;
 }
 

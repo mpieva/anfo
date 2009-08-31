@@ -283,10 +283,12 @@ template< typename I > class ContainerStream : public Stream
 {
 	private:
 		I cur_, end_ ;
+		unsigned total_, done_ ;
+		Chan chan_ ;
 
 	public:
 		ContainerStream( const Header &hdr, I begin, I end, const Footer &foot ) 
-			: cur_( begin ), end_( end )
+			: cur_( begin ), end_( end ), total_( std::distance( begin, end ) ), done_(0)
 		{
 			hdr_ = hdr ;
 			foot_ = foot ;
@@ -294,6 +296,14 @@ template< typename I > class ContainerStream : public Stream
 		}
 
 		virtual Result fetch_result() {
+			if( ++done_ % 1024 == 0 )
+			{
+				stringstream s ;
+				s << "(mem) " << done_ << "/" << total_
+					<< " (" << (int)(100*done_/total_) << "%)" ;
+				chan_( Console::info, s.str() ) ;
+			}
+
 			Result r = **cur_ ;
 			++cur_ ;
 			if( cur_ == end_ ) state_ = end_of_stream ;
@@ -784,7 +794,8 @@ static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
 void StatStream::printout( ostream& s, bool h )
 {
 	s << (h?"name\t#total\t#mapped\t#mapuniq\t%mapped\t#distinct\t"
-		    "GCraw\tGCmapped\trawlen\tdevrawlen\tmaplen\tdevmaplen\n":"")
+		    "GCraw\tGCmapped\trawlen\tdevrawlen\tmaplen\t"
+			"devmaplen\t~N50\n":"")
 	  << name_ << '\t' << total_ << '\t' 							// arbitrary name, reads
 	  << mapped_ << '\t' << mapped_u_ << '\t' 						// mapped reads, uniquely mapped reads
 	  << 100*(float)mapped_/(float)total_ << '\t'					// percent hominid
@@ -794,7 +805,8 @@ void StatStream::printout( ostream& s, bool h )
 	  << bases_ / (float)total_ << '\t'								// avg. length
 	  << std_dev( total_, bases_, bases_squared_ ) << '\t'       	// std.dev. length
 	  << bases_m_ / (float)mapped_ << '\t'  						// avg. mapped length
-	  << std_dev( mapped_, bases_m_, bases_m_squared_ ) << endl ;   // std.dev. mapped length
+	  << std_dev( mapped_, bases_m_, bases_m_squared_ ) << '\t'     // std.dev. mapped length
+	  << bases_squared_ / bases_ << endl ;
 } 
 
 class IgnoreHit : public Filter
@@ -806,6 +818,11 @@ class IgnoreHit : public Filter
 	public:
 		IgnoreHit( const char* g, const char* s ) : g_(g), s_(s) {}
 		virtual ~IgnoreHit() {}
+		virtual void put_header( const Header& h ) {
+			Filter::put_header( h ) ;
+			hdr_.clear_is_sorted_by_coordinate() ;
+		}
+
 		virtual bool xform( Result& r ) 
 		{
 			int j = 0 ;
@@ -814,7 +831,7 @@ class IgnoreHit : public Filter
 				if( (g_ && *g_ && r.hit(i).genome_name() != g_)
 						|| (s_ && *s_ && r.hit(i).sequence() != s_) )
 				{
-					swap( *r.mutable_hit(j), *r.mutable_hit(i) ) ;
+					if( i != j ) swap( *r.mutable_hit(j), *r.mutable_hit(i) ) ;
 					++j ;
 				}
 			}
@@ -1030,17 +1047,17 @@ void desc_output_sam( ostream& ss, const ParamBlock& p )
 	ss << " in SAM format to " << parse_fn( p.arg ) ;
 }
 
-Stream* mk_output_glz  ( const ParamBlock& p )
+Stream* mk_output_glz( const ParamBlock& p )
 { return is_stdout( p.arg ) ? new GlzWriter( 1 ) : new GlzWriter( p.arg ) ; } 
 
 void desc_output_glz( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in GLZ format to " << parse_fn( p.arg ) ; }
 
-Stream* mk_output_3aln  ( const ParamBlock& p )
-{ return new ThreeAlnWriter( p.arg ) ; } // XXX is_stdout( p.arg ) ? new GlzWriter( 1 ) : new GlzWriter( p.arg ) ; } 
+Stream* mk_output_3aln( const ParamBlock& p )
+{ return is_stdout( p.arg ) ? new ThreeAlnWriter( std::cout.rdbuf() ) : new ThreeAlnWriter( p.arg ) ; } 
 
 void desc_output_3aln( ostream& ss, const ParamBlock& p )
-{ ss << "write contigs in 3ALN format to " << p.arg ; } // XXX parse_fn( p.arg ) ; }
+{ ss << "write contigs in 3ALN format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_fasta( const ParamBlock& p )
 {

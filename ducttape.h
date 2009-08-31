@@ -30,6 +30,7 @@ class DuctTaper : public Stream
 	private:
 		const char* g_ ;	// will be 'assembled'
 		int maxq_ ;			// clamp QScores to this
+		Chan report_ ;
 
 		// tracking of current reference sequence; we need to start a
 		// new contig if one of these changes
@@ -111,12 +112,15 @@ class GlzWriter : public Stream
 class ThreeAlnWriter : public Stream
 {
 	private:
-		std::ofstream out_ ;
+		std::auto_ptr< std::filebuf > buf_ ;
+		std::ostream out_ ;
 		std::string name_ ;
 		Chan chan_ ;
 
 	public:
-		ThreeAlnWriter( const char* ) ;
+		ThreeAlnWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
+		{ buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ; }
+		ThreeAlnWriter( std::streambuf *s ) : buf_(), out_( s ) {}
 		virtual ~ThreeAlnWriter() {} 
 		virtual void put_result( const Result& ) ;
 } ;
