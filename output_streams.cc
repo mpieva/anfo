@@ -27,7 +27,7 @@ void show_alignment(
 	DnaP ref( 0 ) ;
 
 	try {
-		g = &Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
+		g = &Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
 		if( g ) ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
 		if( ref && h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 		if( !ref ) throw "sequence not found: " + h.sequence() ;

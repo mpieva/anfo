@@ -263,7 +263,7 @@ void DuctTaper::put_result( const Result& r )
 	Logdom lk_ss_5 = simple_adna::overhang_enter_penalty, lk_ds_5 ;
 	Logdom lk_ss_3 = simple_adna::overhang_enter_penalty, lk_ds_3 ;
 
-	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
 	for( AlnIter aln_i( r.read(), h ), aln_e( r.read(), h, 1 ) ; aln_i != aln_e ; ++aln_i )
 	{
 		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
@@ -275,7 +275,7 @@ void DuctTaper::put_result( const Result& r )
 		if( aln_i.cigar_op() != Hit::Delete ) lk_ds_3 *= simple_adna::overhang_ext_penalty ;
 	}
 
-	ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+	ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
 	for( AlnIter aln_b( r.read(), h ), aln_i( aln_b ), aln_e( r.read(), h, 1 ) ;
 			aln_i != aln_e ; ++column )
 	{
@@ -425,7 +425,7 @@ void GlzWriter::put_result( const Result& rr )
 		c.WriteLittleEndian32( r.sequence().size() ) ;
 
 		const Hit& h = hit_to( rr, 0 ) ;
-		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
 		char buf[12] ;
 		int i = 0 ;
 		uint8_t min_lk ;
@@ -487,7 +487,7 @@ void ThreeAlnWriter::put_result( const Result& res )
 {
 	const Read& r = res.read() ;
 	const Hit& h = hit_to( res, 0 ) ;
-	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence() ).find_pos( h.sequence(), h.start_pos() ) ;
+	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
 
 	std::stringstream ss ;
 	ss << name_ << ": " << h.genome_name() << '/' << h.sequence() << '@' << h.start_pos() ; 

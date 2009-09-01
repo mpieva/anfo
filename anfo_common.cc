@@ -47,7 +47,7 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 			if( !ix ) {
 				FixedIndex( ixs.name(), mi, MADV_WILLNEED ).swap( ix ) ;
 				const string& genome_name = ix.ci_.genome_name() ; 
-				Metagenome::find_genome( genome_name ) ;
+				Metagenome::find_genome( genome_name, Metagenome::persistent ) ;
 			}
 		}
 	}
@@ -106,7 +106,7 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
 		const FixedIndex &ix = indices[ cis.name() ] ;
-		const CompactGenome &g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
+		const CompactGenome &g = Metagenome::find_genome( ix.ci_.genome_name(), Metagenome::persistent ) ;
 		assert( ix ) ; assert( g.get_base() ) ;
 
 		vector<Seed> seeds ;

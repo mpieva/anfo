@@ -1118,8 +1118,18 @@ const char *poptGetOptArg1( poptContext con )
 	return p ;
 }
 
+// #include <sys/time.h>
+// #include <sys/resource.h>
+
 int main_( int argc, const char **argv )
 {
+#if 0
+	struct rlimit lim ;
+	getrlimit( RLIMIT_AS, &lim ) ;
+	lim.rlim_cur = 1024*1024*768 ;
+	setrlimit( RLIMIT_AS, &lim ) ;
+#endif
+
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_delete_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,

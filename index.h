@@ -386,9 +386,17 @@ typedef std::map< std::string, FixedIndex > Indices ;
 
 class Metagenome
 {
+	public:
+		enum Persistence { persistent = 0, ephemeral = 1 } ;
+
 	private:
-		typedef std::map< std::string, CompactGenome* > Genomes ;
+		// maps file name to genome object
+		typedef std::map< std::string, std::pair< Persistence, CompactGenome* > > Genomes ;
+
+		// maps sequence id to genome object
 		typedef std::map< std::string, CompactGenome* > SeqMap1 ;
+
+		// maps genome id to sequence map
 		typedef std::map< std::string, SeqMap1 > SeqMap ;
 
 		Genomes genomes ;
@@ -398,8 +406,9 @@ class Metagenome
 		static Metagenome the_metagenome ;
 
 	public:
+
 		Metagenome( const char* p ) ;
-		~Metagenome() { for( Genomes::iterator i = genomes.begin() ; i != genomes.end() ; ++i ) delete i->second ; }
+		~Metagenome() { for( Genomes::iterator i = genomes.begin() ; i != genomes.end() ; ++i ) delete i->second.second ; }
 
 		static void add_path( const std::string& s ) { the_metagenome.path.push_front( s ) ; }
 
@@ -407,13 +416,15 @@ class Metagenome
 		//! If a genome is given, only genome files whose name starts with
 		//! the genome name are considered.  If genome is empty, all files
 		//! are searched.
-		static CompactGenome &find_sequence( const std::string& genome, const std::string& seq ) ;
+		static CompactGenome &find_sequence( const std::string& genome, const std::string& seq, Persistence ) ;
 
-		static CompactGenome &find_genome( const std::string& genome ) ;
+		static CompactGenome &find_genome( const std::string& genome, Persistence ) ;
 
 		static glob_t glob_path( const std::string& genome ) ;
 
-		static bool translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out = 0, const config::Genome** g_out = 0 ) ; // , std::string* g_file )
+		static bool translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out = 0, const config::Genome** g_out = 0 ) ;
+
+		static void *mmap( void *start, size_t length, int prot, int flags, int fd, off_t offset ) ;
 } ;
 
 

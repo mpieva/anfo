@@ -6,6 +6,7 @@
 
 #include <fcntl.h>
 #include <glob.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -22,7 +23,7 @@ CompactGenome::CompactGenome( const std::string &name, int adv )
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		file_size_ = the_stat.st_size ;
-		void *p = mmap( 0, file_size_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
+		void *p = Metagenome::mmap( 0, file_size_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		base_.assign( (uint8_t*)p ) ;
 
@@ -84,7 +85,7 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		length = the_stat.st_size ;
-		p = mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
+		p = Metagenome::mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		p_ = p ;
 
@@ -294,7 +295,7 @@ glob_t Metagenome::glob_path( const std::string& genome )
 	return the_glob ;
 }
 
-CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::string& seq )
+CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::string& seq, Persistence ps )
 {
 	SeqMap1 &m = the_metagenome.seq_map[ genome ] ;
 
@@ -310,20 +311,23 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 			try
 			{
 				const char *n = the_glob.gl_pathv[j] ; 
-				if( the_metagenome.genomes.find( n ) == the_metagenome.genomes.end() )
+				Genomes::iterator gi = the_metagenome.genomes.find( n ) ;
+				if( gi == the_metagenome.genomes.end() )
 				{
 					console.output( Console::info, "Metagenome: trying file " + std::string(n) ) ;
 
 					CompactGenome* g = new CompactGenome( n ) ;
-					the_metagenome.genomes[ n ] = g ;
+					the_metagenome.genomes[ n ] = std::make_pair( ps, g ) ;
 
 					console.output( Console::info, "Metagenome: loaded (part of) genome " + g->name() ) ;
 
-					// map sequence names to new genome
+					SeqMap1 &m_ = the_metagenome.seq_map[ g->name() ] ;
 					for( int k = 0 ; k != g->g_.sequence_size() ; ++k )
-						m[ g->g_.sequence(k).name() ] = g ;
-					i = m.find( seq ) ;
+						m_[ g->g_.sequence(k).name() ] = g ;
+
+					if( g->name() == genome ) i = m.find( seq ) ;
 				}
+				else if( ps == persistent ) gi->second.first = persistent ;
 			}
 			catch( ... ) {}
 		}
@@ -336,29 +340,71 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 	return *i->second ;
 }
 
-CompactGenome &Metagenome::find_genome( const std::string& genome )
+CompactGenome &Metagenome::find_genome( const std::string& genome, Persistence ps )
 {
-	CompactGenome* &g = the_metagenome.genomes[ genome ] ;
-	if( !g ) {
-		glob_t the_glob = glob_path( genome ) ;
-		if( !the_glob.gl_pathc ) throw "genome file not found for " + genome ;
-		g = new CompactGenome( *the_glob.gl_pathv ) ;
+	// would be nicer to check if we already a suitable genome, but this
+	// is called so rarely, I won't bother
+
+	glob_t the_glob = glob_path( genome ) ;
+	if( !the_glob.gl_pathc ) throw "no genome file found for " + genome ;
+
+	const char *n = the_glob.gl_pathv[0] ; 
+	Genomes::iterator gi = the_metagenome.genomes.find( n ) ;
+	if( gi == the_metagenome.genomes.end() )
+	{
+		CompactGenome *g = new CompactGenome( n ) ;
+		the_metagenome.genomes[ n ] = std::make_pair( ps, g ) ;
+		globfree( &the_glob ) ;
+		return *g ;
 	}
-	return *g ;
+	globfree( &the_glob ) ;
+	if( ps == persistent ) gi->second.first = persistent ;
+	return *gi->second.second ;
 }
 
 bool Metagenome::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out, const config::Genome** g_out )
 {
 	for( Genomes::const_iterator g = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; g != ge ; ++g )
 	{
-		if( const Sequence *sequ = g->second->translate_back( pos, xpos ) )
+		if( const Sequence *sequ = g->second.second->translate_back( pos, xpos ) )
 		{
 			if( s_out ) *s_out = sequ ;
-			if( g_out ) *g_out = &g->second->g_ ;
+			if( g_out ) *g_out = &g->second.second->g_ ;
 			return true ;
 		}
 	}
 	return false ;
 }
 
+void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd, off_t offset )
+{
+	for(;;)
+	{
+		void *p = ::mmap( start, length, prot, flags, fd, offset ) ;
+#if 1
+		// aww crap, this is somehow fscked up...
+		return p ;
+#else
+		if( p != (void*)(-1) ) return p ;
+
+		// make room by forgetting about some genome
+		int nephemeral = 0 ;
+		for( Genomes::iterator gi = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; gi != ge ; ++gi )
+			if( gi->second.first == ephemeral ) ++nephemeral ;
+		
+		if( !nephemeral ) return p ;
+
+		Genomes::iterator gi = the_metagenome.genomes.begin() ;
+		for( int i = random() % nephemeral ; i || gi->second.first != ephemeral ; ++gi ) if( gi->second.first == ephemeral ) --i ;
+
+		for( SeqMap::iterator i = the_metagenome.seq_map.begin(), ie = the_metagenome.seq_map.end() ; i != ie ; ++i )
+			for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; ++j )
+				if( j->second == gi->second.second ) i->second.erase( j ) ;
+
+		console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
+		delete gi->second.second ;
+		the_metagenome.genomes.erase( gi ) ;
+#endif
+	}
+}
 
