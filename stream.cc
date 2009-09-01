@@ -1,3 +1,4 @@
+#include "config.h"
 #include "compress_stream.h"
 #include "stream.h"
 #include "util.h"

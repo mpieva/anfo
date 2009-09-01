@@ -1,7 +1,6 @@
 #ifndef INCLUDED_COMPRESS_STREAM_H
 #define INCLUDED_COMPRESS_STREAM_H
 
-#include "config.h"
 #include "util.h"
 
 #include <google/protobuf/io/zero_copy_stream.h>

@@ -1,3 +1,4 @@
+#include "config.h"
 #include "sequence.h"
 #include "logdom.h"
 #include <cmath>

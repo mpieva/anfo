@@ -1,3 +1,4 @@
+#include "config.h"
 #include "anfo_common.h"
 
 #include "stream.h"

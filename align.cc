@@ -1,3 +1,4 @@
+#include "config.h"
 #include "align.h"
 
 #include <ostream>

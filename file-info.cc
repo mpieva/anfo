@@ -1,3 +1,4 @@
+#include "config.h"
 #include "config.pb.h"
 #include "index.h"
 #include "stream.h"

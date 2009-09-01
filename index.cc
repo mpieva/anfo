@@ -1,3 +1,4 @@
+#include "config.h"
 #include "index.h"
 #include "util.h"
 

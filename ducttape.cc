@@ -1,3 +1,4 @@
+#include "config.h"
 #include "ducttape.h"
 
 #include "align.h"

@@ -1,3 +1,4 @@
+#include "config.h"
 #include "output_streams.h"
 
 #include "conffile.h"

@@ -1,4 +1,5 @@
 /*
+stolen and adapted from
 c-pthread-queue - c implementation of a bounded buffer queue using posix threads
 Copyright (C) 2008  Matthew Dickinson
 
@@ -56,7 +57,6 @@ template< typename T, size_t capacity > class Queue
 			pthread_mutex_lock(&mutex);
 			bool have_space = size != capacity ;
 			if( have_space ) {
-				// printf("enqueue %d\n", *(int *)value);
 				buffer[in] = value;
 				++ size;
 				++ in;
@@ -76,7 +76,6 @@ template< typename T, size_t capacity > class Queue
 			pthread_mutex_lock(&mutex);
 			while (size == capacity)
 				pthread_cond_wait(&cond_full, &mutex);
-			// printf("enqueue %d\n", *(int *)value);
 			buffer[in] = value;
 			++ size;
 			++ in;
@@ -95,7 +94,6 @@ template< typename T, size_t capacity > class Queue
 			while (size == 0)
 				pthread_cond_wait(&cond_empty, &mutex);
 			T value = buffer[out];
-			// printf("dequeue %d\n", *(int *)value);
 			-- size;
 			++ out;
 			out %= capacity;
@@ -114,7 +112,6 @@ template< typename T, size_t capacity > class Queue
 			bool have_element = size != 0 ;
 			if( have_element ) {
 				value = buffer[out];
-				// printf("dequeue %d\n", *(int *)value);
 				-- size;
 				++ out;
 				out %= capacity;

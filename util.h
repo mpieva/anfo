@@ -1,10 +1,6 @@
 #ifndef INCLUDED_UTIL_H
 #define INCLUDED_UTIL_H
 
-#if HAVE_CONFIG_H
-#include <config.h>
-#endif
-
 #include <cerrno>
 #include <cstring>
 #include <cstdlib>
