@@ -24,6 +24,8 @@
 struct Exception { virtual void print_to( std::ostream& ) const = 0 ;
                    virtual ~Exception() {} } ;
 
+inline std::ostream& operator << ( std::ostream& s, const Exception& e ) { e.print_to( s ) ; return s ; }
+
 template< typename T >
 T throw_errno_if_minus1( T x, const char* a, const char* b = 0 )
 { return throw_errno_if_eq( x, (T)(-1), a, b ) ; }
@@ -214,6 +216,14 @@ class Console
 } ;
 
 extern Console console ;
+extern std::string program_name ;
+
+template <typename T> void perr(const T& e)
+{
+	std::stringstream ss ;
+	ss << program_name << "[" << getpid() << "]: " << e ;
+	console.output( Console::error, ss.str() ) ; 
+}
 
 //! \brief a channel for progress notification
 class Chan 

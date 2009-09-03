@@ -329,7 +329,12 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 				}
 				else if( ps == persistent ) gi->second.first = persistent ;
 			}
-			catch( ... ) {}
+			catch( const std::string& e ) { perr( e ) ; }
+			catch( const char *e ) { perr( e ) ; }
+			catch( char *e ) { perr( e ) ; }
+			catch( const Exception& e ) { perr( e ) ; }
+			catch( const std::exception& e ) { perr( e.what() ) ; }
+			catch( ... ) { perr( "Oh noes!" ) ; }
 		}
 		globfree( &the_glob ) ;
 	}
@@ -381,7 +386,7 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd,
 	for(;;)
 	{
 		void *p = ::mmap( start, length, prot, flags, fd, offset ) ;
-#if 1
+#if 0
 		// aww crap, this is somehow fscked up...
 		return p ;
 #else
@@ -398,8 +403,13 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd,
 		for( int i = random() % nephemeral ; i || gi->second.first != ephemeral ; ++gi ) if( gi->second.first == ephemeral ) --i ;
 
 		for( SeqMap::iterator i = the_metagenome.seq_map.begin(), ie = the_metagenome.seq_map.end() ; i != ie ; ++i )
-			for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; ++j )
-				if( j->second == gi->second.second ) i->second.erase( j ) ;
+		{
+			for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; )
+			{
+				SeqMap1::iterator k = j ; ++j ;
+				if( k->second == gi->second.second ) i->second.erase( k ) ;
+			}
+		}
 
 		console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
 		delete gi->second.second ;

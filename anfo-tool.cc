@@ -17,6 +17,7 @@
 
 #include <glob.h>
 #include <popt.h>
+#include <sys/resource.h>
 
 using namespace google::protobuf ;
 using namespace google::protobuf::io ;
@@ -840,6 +841,64 @@ class IgnoreHit : public Filter
 		}
 } ;
 
+class RegionFilter : public Filter
+{
+	private:
+		typedef std::map< unsigned, unsigned > Regions ;		// end(!) & start
+		typedef std::map< std::string, Regions > Regions2 ;		// chromosome
+		typedef std::map< std::string, Regions2 > Regions3 ; 	// filename
+
+		static Regions3 all_regions ;
+
+		Regions2 *my_regions ;
+
+	public:
+		RegionFilter( const std::string &fn )
+		{
+			Regions3::iterator i = all_regions.find( fn ) ;
+			if( i != all_regions.end() ) my_regions = &i->second ;
+			else
+			{
+				my_regions = &all_regions[ fn ] ;
+
+				console.output( Console::notice, "Loading annotation file " + fn ) ;
+				std::ifstream deffile( fn.c_str() ) ;
+				std::string junk, chrom ;
+				unsigned start, end ;
+
+				std::getline( deffile, junk ) ;
+				while( std::getline( deffile >> junk >> chrom >> start >> end, junk ) )
+					(*my_regions)[ chrom ][ end ] = start ;
+			}
+		}
+
+		bool inside( const Result& res )
+		{
+			const Hit &h = hit_to( res, 0 ) ;
+			unsigned x = h.start_pos() ;
+			const Regions &r = (*my_regions)[ h.sequence() ] ;
+			Regions::const_iterator i = r.lower_bound( x ) ;
+			if( i == r.end() ) return false ;
+			return i->second <= x && i->first >= x ;
+		}
+} ;
+
+RegionFilter::Regions3 RegionFilter::all_regions ;
+
+class InsideRegion : public RegionFilter
+{
+	public:
+		InsideRegion( const std::string& fn ) : RegionFilter( fn ) {}
+		bool xform( Result& r ) { return inside( r ) ; }
+} ;
+class OutsideRegion : public RegionFilter
+{
+	public:
+		OutsideRegion( const std::string& fn ) : RegionFilter( fn ) {}
+		bool xform( Result& r ) { return !inside( r ) ; }
+} ;
+
+
 } // namespace
 
 //! \page anfo_stream stream-like operations on ANFO files
@@ -1001,6 +1060,18 @@ void desc_rmdup( ostream& ss, const ParamBlock& p )
 		<< p.slope << " * ( L - " << p.intercept << " ) )" ;
 }
 
+Stream* mk_regions_only( const ParamBlock& p )
+{ return new InsideRegion( p.arg ) ; }
+
+void desc_regions_only( ostream& ss, const ParamBlock& p )
+{ ss << "keep results only in regions read from " << p.arg ; }
+
+Stream* mk_not_regions( const ParamBlock& p )
+{ return new OutsideRegion( p.arg ) ; }
+
+void desc_not_regions( ostream& ss, const ParamBlock& p )
+{ ss << "keep results outside regions read from " << p.arg ; }
+
 StreamBundle* mk_merge( const ParamBlock& )
 { return new MergeStream() ; }
 
@@ -1118,51 +1189,63 @@ const char *poptGetOptArg1( poptContext con )
 	return p ;
 }
 
-// #include <sys/time.h>
-// #include <sys/resource.h>
-
 int main_( int argc, const char **argv )
 {
-#if 0
-	struct rlimit lim ;
-	getrlimit( RLIMIT_AS, &lim ) ;
-	lim.rlim_cur = 1024*1024*768 ;
-	setrlimit( RLIMIT_AS, &lim ) ;
-#endif
-
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum { opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
-		opt_filter_score, opt_filter_mapq, opt_filter_hit, opt_delete_hit, opt_filter_qual, opt_subsample, opt_filter_multi, opt_edit_header, opt_merge, opt_join,
-		opt_mega_merge, opt_concat, opt_rmdup, opt_output, opt_output_text, opt_output_sam, opt_output_glz, opt_output_3aln,
-		opt_output_fasta, opt_output_fastq, opt_output_table, opt_duct_tape, opt_stats, opt_version, opt_MAX } ;
+	enum {
+		opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
+		opt_filter_score, opt_filter_mapq, opt_filter_hit,
+		opt_delete_hit, opt_filter_qual, opt_subsample,
+		opt_filter_multi, opt_edit_header, opt_merge, opt_join,
+		opt_mega_merge, opt_concat, opt_rmdup, opt_output,
+		opt_output_text, opt_output_sam, opt_output_glz,
+		opt_output_3aln, opt_output_fasta, opt_output_fastq,
+		opt_output_table, opt_duct_tape, opt_stats, opt_regions_only,
+		opt_not_regions, opt_version, opt_MAX } ;
 
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
-		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit, mk_delete_hit, mk_filter_qual, mk_subsample, mk_filter_multi, mk_edit_header, 0, 0,
-		0, 0, mk_rmdup, 0, 0, 0, 0, 0,
-		0, 0, 0, mk_duct_tape, 0, 0 } ;
+		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit,
+		mk_delete_hit, mk_filter_qual, mk_subsample,
+		mk_filter_multi, mk_edit_header, 0, 0,
+		0, 0, mk_rmdup, 0,
+		0, 0, 0,
+		0, 0, 0,
+		0, mk_duct_tape, 0, mk_regions_only,
+		mk_not_regions, 0 } ;
 
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, mk_merge, mk_join,
-		mk_mega_merge, mk_concat, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0 } ;
+		0, 0, 0,
+		0, 0, 0,
+		0, 0, mk_merge, mk_join,
+		mk_mega_merge, mk_concat, 0, 0,
+		0, 0, 0,
+		0, 0, 0,
+		0, 0, 0, 0,
+		0, 0 } ;
 
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, mk_output, mk_output_text, mk_output_sam, mk_output_glz, mk_output_3aln,
-		mk_output_fasta, mk_output_fastq, mk_output_table, 0, mk_stats, 0 } ;
+		0, 0, 0,
+		0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, mk_output,
+		mk_output_text, mk_output_sam, mk_output_glz,
+		mk_output_3aln, mk_output_fasta, mk_output_fastq,
+		mk_output_table, 0, mk_stats, 0,
+		0, 0 } ;
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
 		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
-		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, 0 } ;
+		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, desc_regions_only, desc_not_regions, 0 } ;
 
 	ParamBlock param( 7.5, 20.0, 0, 0, 0 ) ;
 	int POPT_ARG_DFLT = POPT_ARG_FLOAT | POPT_ARGFLAG_SHOW_DEFAULT ;
 	int POPT_ARG_DINT = POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT ;
+	long core_limit = 0 ;
 
 	struct poptOption options[] = {
 		{ "sort-pos",      's', POPT_ARG_INT,    0, opt_sort_pos,      "sort by alignment position [using <n MiB memory]", "n" },
@@ -1176,6 +1259,8 @@ int main_( int argc, const char **argv )
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
 		{ "edit-header",    0 , POPT_ARG_STRING, 0, opt_edit_header,   "invoke editor ED on the stream's header", "ED" },
+		{ "inside-regions", 0 , POPT_ARG_STRING, 0, opt_regions_only,  "keep results inside annotated regions only", "FILE" },
+		{ "outside-regions",0 , POPT_ARG_STRING, 0, opt_not_regions,   "keep results outside annotated regions only", "FILE" },
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
@@ -1198,6 +1283,7 @@ int main_( int argc, const char **argv )
 		{ "set-genome",     0 , POPT_ARG_STRING, &param.genome,     0, "set interesting genome parameter to G", "G" },
 		{ "clear-genome",   0 , POPT_ARG_VAL,    &param.genome,     0, "clear interesting genome parameter", 0 },
 
+		{ "vmem",           0 , POPT_ARG_INT,    &core_limit,       0, "limit virtual memory to X megabytes", "X" },
 		{ "quiet",         'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
 		{ "verbose",       'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
 		{ "debug",          0 , POPT_ARG_VAL,    &console.loglevel, Console::debug, "produce debugging output", 0 },
@@ -1262,6 +1348,13 @@ int main_( int argc, const char **argv )
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 		}
+	}
+
+	if( core_limit ) {
+		struct rlimit lim ;
+		getrlimit( RLIMIT_AS, &lim ) ;
+		lim.rlim_cur = 1024*1024 * core_limit ;
+		setrlimit( RLIMIT_AS, &lim ) ;
 	}
 
 	// iterate over non-option arguments, glob everything
@@ -1329,7 +1422,7 @@ int main_( int argc, const char **argv )
 		for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 		{
 			Compose *c = new Compose ;
-			c->add_stream( make_input_stream( *arg ) ) ; // new AnfoReader( *arg ) ) ;
+			c->add_stream( make_input_stream( *arg ) ) ;
 			for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
 				c->add_stream( (i->maker)( *i ) ) ;
 			cs.push_back( c ) ;
@@ -1337,7 +1430,7 @@ int main_( int argc, const char **argv )
 		for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
 			merging_stream->add_stream( *i ) ;
 	}
-	else merging_stream->add_stream( make_input_stream( /*new AnfoReader( 0,*/ dup( 0 ), "<stdin>" ) ) ;
+	else merging_stream->add_stream( make_input_stream( dup( 0 ), "<stdin>" ) ) ;
 
 	FanOut out ;
 	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )

@@ -8,18 +8,8 @@
 #include <sys/ioctl.h>
 
 volatile int exit_with = 0 ;
+std::string program_name ;
 Console console ;
-
-namespace {
-	std::string program_name ;
-	template <typename T> void perr(const T& e) {
-		std::cerr << "\r" << program_name << "[" << getpid() << "]: "
-			      << e << "\33[K" << std::endl ;
-	}
-	std::ostream& operator << ( std::ostream& s, const Exception& e ) {
-		e.print_to( s ) ; return s ;
-	}
-} ;
 
 extern int main_( int argc, const char * argv[] ) ;
 int main( int argc, const char * argv[] )
