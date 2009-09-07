@@ -31,7 +31,10 @@
 import Data.Attoparsec.Char8
 import qualified Data.ByteString.Lazy.Char8 as B
 import Data.Char (isSpace)
-import Data.List (transpose)
+import Data.List (transpose,foldl',groupBy)
+import Data.Bits ((.|.))
+
+import Debug.Trace
 
 data Label = Boring | Chimp | Human | Common | Essential deriving Show
 
@@ -46,12 +49,20 @@ data Tree = Empty
                  , n_sequence :: String } deriving Show
 
 
-epo_file :: Parser [Tree]
-epo_file = do
-    skipSpace
-    many comment
-    contig `sepBy1` lexeme (string (B.pack "//"))
+epo_entry :: B.ByteString -> (Tree, B.ByteString)
+epo_entry s = case parse epo_meta s of
+    (rest, Right phylo) -> let (bdef, more) = split_sep rest
+                               bases = transpose . map B.unpack . B.lines $ bdef
+                           in (phylo bases, more)
+    (rest, Left err) -> error $ err ++ "near " ++ show (B.take 30 rest)
+  where
+    epo_meta = do skipSpace ; many comment ; contig
 
+    split_sep s = case B.span (/= '/') s of
+                    (l,r) | B.null r                       -> (l, r)
+                          | B.pack "//\n" `B.isPrefixOf` r -> (l, B.drop 3 r)
+                          | otherwise -> error "found '/' but no separator"
+                   
 
 lexeme :: Parser a -> Parser a
 lexeme p = p <* skipWhile isSpace
@@ -62,13 +73,12 @@ word = lexeme (takeTill isSpace)
 comment :: Parser ()
 comment = lexeme $ char '#' *> skipWhile (/= '\n')
 
-contig :: Parser Tree
+contig :: Parser ([String] -> Tree)
 contig = do 
     seqdefs <- many1 (seqline <?> "sequence definition")
     phylo <- treeline seqdefs <?> "tree topology definition"
     lexeme $ try (string (B.pack "DATA") <?> "data keyword")
-    bases <- many1 (many1 (satisfy (inClass "ACGT-")) <* char '\n')
-    phylo (transpose bases)
+    return phylo
 
 seqline :: Parser (B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)
 seqline = do
@@ -84,18 +94,17 @@ seqline = do
     return (family, species, chrom, start, end, strand)
 
 treeline :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)]
-         -> Parser ( [String] -> Parser Tree )
+         -> Parser ( [String] -> Tree )
 treeline seqs = try (lexeme $ string (B.pack "TREE")) *> node <* lexeme (char ';')
   where
-    node :: Parser ( [String] -> Parser Tree )
+    node :: Parser ( [String] -> Tree )
     node =     do char '(' <?> "opening parenthesis"
                   l <- node
                   char ',' <?> "comma"
                   r <- node
                   char ')' <?> "closing parenthesis" 
                   def <- short_seq_def
-                  return $ \bases -> do lt <- l bases ; rt <- r bases
-                                        find_seq seqs def (make_anc_node lt rt) bases 
+                  return $ \bases -> find_seq seqs def (make_anc_node (l bases) (r bases)) bases 
            <|> do def <- short_seq_def
                   return $ find_seq seqs def make_leaf_node
 
@@ -119,15 +128,15 @@ make_leaf_node genome = (l (B.unpack genome), Empty, Empty)
 
 find_seq :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)]
          -> (B.ByteString, B.ByteString, Integer, Integer, Bool)
-         -> (B.ByteString -> (Label, Tree, Tree)) -> [String] -> Parser Tree
+         -> (B.ByteString -> (Label, Tree, Tree)) -> [String] -> Tree
 find_seq ((fam,spec,chr1,beg1,end1,str1):ss) d@(genome,chr,beg,end,str) make_children (bs:bases)
     | B.tail genome `B.isPrefixOf` spec && (B.head genome,chr1,beg1,end1,str1) == (B.head fam,chr,beg,end,str)
-        = return $ Node lbl chr beg end str l r bs
+        =  Node lbl chr beg end str l r bs
     | otherwise = find_seq ss d make_children bases 
   where (lbl, l, r) = make_children genome
 find_seq [] (genome,chr,_,_,_) _ [] 
-    = fail $ "sequence not found: " ++ B.unpack genome ++ "_" ++ B.unpack chr
-find_seq _ d _ _ = fail $ "SEQ lines inconsistent with TREE line" ++ show d
+    = error $ "sequence not found: " ++ B.unpack genome ++ "_" ++ B.unpack chr
+find_seq _ d _ _ = error $ "SEQ lines inconsistent with TREE line" ++ show d
 
 new_label :: Label -> Label -> Label 
 new_label Boring Essential = Common
@@ -143,10 +152,79 @@ new_label _ Human = Essential
 new_label _ _ = Common
 
                        
- 
-main = do
-    (rest, result) <- parse epo_file <$> B.readFile "example.emf"
-    print rest
-    case result of Right ts -> mapM_ print ts
-                   Left err -> putStr err
+interesting_trees :: Tree -> [Tree]
+interesting_trees t@Node{ n_label = Essential } = [t]
+interesting_trees t@Node{ n_label = Common } = interesting_trees (n_left t) ++ interesting_trees (n_right t)
+interesting_trees _ = []
 
+data Op a = Delete Int | Insert a | Match Int | Replace a deriving Show
+
+-- consensus sequence: common ancestor and all human seqs are included, structure is taken from ancestor
+consensus :: Tree -> (String, [[Op String]])
+consensus t = ( filter (/= '-') cons, map (compact . mkcigar cons) seqs )
+  where
+    seqs = getseqs t
+    cons = map listcons $ transpose seqs
+
+    getseqs t = n_sequence t : get_hum_seqs (n_left t) ++ get_hum_seqs (n_right t)
+    get_hum_seqs Empty = []
+    get_hum_seqs t@Node{ n_left = Empty, n_right = Empty, n_label = Human } = [n_sequence t]
+    get_hum_seqs t = get_hum_seqs (n_left t) ++ get_hum_seqs (n_right t)
+
+    listcons ('-':_) = '-'
+    listcons xs = from_bits . foldl' (.|.) 0 . map to_bits $ xs
+
+    from_bits = (!!) "-ACMTWYHGRSVKDBN"
+
+    to_bits '-' = 0
+    to_bits 'A' = 1
+    to_bits 'a' = 1
+    to_bits 'C' = 2
+    to_bits 'c' = 2
+    to_bits 'T' = 4
+    to_bits 't' = 4
+    to_bits 'G' = 8 
+    to_bits 'g' = 8 
+    to_bits 'N' = 0
+    to_bits 'n' = 0
+
+    mkcigar ('-':as) ('-':bs) = mkcigar as bs
+    mkcigar ('-':as) ( b :bs) = Insert [b] : mkcigar as bs
+    mkcigar ( _ :as) ('-':bs) = Delete 1 : mkcigar as bs
+    mkcigar ( a :as) ( b :bs) | a == b    = Match 1 : mkcigar as bs
+                              | otherwise = Replace [b] : mkcigar as bs
+    mkcigar as [] = map (const $ Delete 1) as
+    mkcigar [] bs = map (Insert . (:[])) bs
+
+    compact = map sum_op . groupBy same_op . concatMap sum_op1 . groupBy same_op
+
+    same_op (Delete  _) (Delete  _) = True
+    same_op (Insert  _) (Insert  _) = True
+    same_op (Match   _) (Match   _) = True
+    same_op (Replace _) (Replace _) = True
+    same_op _ _ = False
+
+    sum_op xs@(Delete  _:_) = Delete $ sum    [ n | Delete  n <- xs ]
+    sum_op xs@(Insert  _:_) = Insert $ concat [ s | Insert  s <- xs ]
+    sum_op xs@(Match   _:_) = Match  $ sum    [ n | Match   n <- xs ]
+
+    sum_op1 xs@(Replace _:_) = [Delete (length r), Insert r] where r = concat [ s | Replace s <- xs ]
+    sum_op1 xs = xs
+
+
+main :: IO ()
+main = B.readFile "/home/udo_stenzel/tmp/Compara/Compara.epo_4_catarrhini.chr10_1.emf" >>= process_many
+
+process_many :: B.ByteString -> IO ()
+process_many inp | B.null inp = return ()
+process_many inp = 
+    case epo_entry inp of
+        (tree, rest) -> do
+            flip mapM_ (interesting_trees tree) $ \t -> do
+                let (cons, cigs) = consensus t
+                putStrLn $ take 150 cons
+                mapM_ (putStrLn . take 150 . show) cigs
+                putStrLn []
+
+            process_many rest
+        
