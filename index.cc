@@ -288,7 +288,7 @@ glob_t Metagenome::glob_path( const std::string& genome )
 	int glob_append = 0 ;
 	for( std::list< std::string >::iterator j = the_metagenome.path.begin() ; j != the_metagenome.path.end() ; ++j )
 	{
-		std::string p = *j + "/" + genome + "*" ;
+		std::string p = *j + "/" + genome + "*.dna" ;
 		glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
 		glob_append = GLOB_APPEND ;
 	}

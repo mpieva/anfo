@@ -12,8 +12,8 @@ AC_PROG_CC
 AC_PROG_INSTALL
 AC_PATH_PROG([PROTOC], [protoc])
 AC_PATH_PROG([DOXYGEN], [doxygen])
-AC_SUBST(PROTOC)
-AC_SUBST(DOXYGEN)
+AC_ARG_VAR([PROTOC], [location of protobuf compiler])
+AC_ARG_VAR([DOXYGEN], [location of documentation compiler])
 
 # Checks for libraries.
 AC_SEARCH_LIBS([exp], [m])

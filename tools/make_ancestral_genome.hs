@@ -28,33 +28,46 @@
  -
  -}
 
+import Control.Arrow ((&&&))
 import Data.Attoparsec.Char8
+import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy.Char8 as B
-import Data.Char (isSpace)
-import Data.List (transpose,foldl',groupBy)
-import Data.Bits ((.|.))
+import qualified Data.ByteString.Lazy as BB
+import Data.Char ( isSpace, toLower )
+import Data.List ( transpose, foldl', groupBy, genericLength )
+import qualified Data.Set as Set
+import Data.Bits ( (.|.), shiftL )
+import Data.Binary.Put
+import qualified Data.Sequence as Q
+import Data.Sequence ((|>),(<|),(><),ViewR(..),ViewL(..))
+import Data.Word ( Word8 )
+import System.IO
+import Text.ProtocolBuffers
+
+import qualified Config.Genome
+import qualified Config.Sequence
+import qualified Config.Contig
+import qualified Config
 
 import Debug.Trace
 
-data Label = Boring | Chimp | Human | Common | Essential deriving Show
+data Label = Boring | Chimp | Human | Common | Essential deriving (Show, Eq)
 
 data Tree = Empty
-          | Node { n_label    :: Label
-                 , n_chrom    :: B.ByteString
-                 , n_start    :: Integer
-                 , n_end      :: Integer
-                 , n_strand   :: Bool
-                 , n_left     :: Tree
-                 , n_right    :: Tree
-                 , n_sequence :: String } deriving Show
+          | Node { n_label    :: !Label
+                 , n_chrom    :: !S.ByteString
+                 , n_start    :: !Integer
+                 , n_end      :: !Integer
+                 , n_strand   :: !Bool
+                 , n_left     :: !Tree
+                 , n_right    :: !Tree
+                 , n_sequence :: !Int } deriving Show
 
 
-epo_entry :: B.ByteString -> (Tree, B.ByteString)
-epo_entry s = case parse epo_meta s of
-    (rest, Right phylo) -> let (bdef, more) = split_sep rest
-                               bases = transpose . map B.unpack . B.lines $ bdef
-                           in (phylo bases, more)
-    (rest, Left err) -> error $ err ++ "near " ++ show (B.take 30 rest)
+parse_epo_entry :: B.ByteString -> (Tree, [B.ByteString], B.ByteString)
+parse_epo_entry s = case parse epo_meta s of
+    (rest, Right phylo) -> case split_sep rest of (bdef, more) -> phylo `seq` (phylo, B.lines bdef, more)
+    (rest, Left err)    -> error $ err ++ "near " ++ show (B.take 30 rest)
   where
     epo_meta = do skipSpace ; many comment ; contig
 
@@ -73,7 +86,7 @@ word = lexeme (takeTill isSpace)
 comment :: Parser ()
 comment = lexeme $ char '#' *> skipWhile (/= '\n')
 
-contig :: Parser ([String] -> Tree)
+contig :: Parser Tree
 contig = do 
     seqdefs <- many1 (seqline <?> "sequence definition")
     phylo <- treeline seqdefs <?> "tree topology definition"
@@ -93,20 +106,19 @@ seqline = do
     lexeme $ skipMany (notChar '\n')
     return (family, species, chrom, start, end, strand)
 
-treeline :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)]
-         -> Parser ( [String] -> Tree )
+treeline :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)] -> Parser Tree
 treeline seqs = try (lexeme $ string (B.pack "TREE")) *> node <* lexeme (char ';')
   where
-    node :: Parser ( [String] -> Tree )
+    node :: Parser Tree
     node =     do char '(' <?> "opening parenthesis"
                   l <- node
                   char ',' <?> "comma"
                   r <- node
                   char ')' <?> "closing parenthesis" 
                   def <- short_seq_def
-                  return $ \bases -> find_seq seqs def (make_anc_node (l bases) (r bases)) bases 
+                  return $ find_seq seqs def (make_anc_node l r) 0
            <|> do def <- short_seq_def
-                  return $ find_seq seqs def make_leaf_node
+                  return $ find_seq seqs def make_leaf_node 0
 
 short_seq_def :: Parser (B.ByteString, B.ByteString, Integer, Integer, Bool)
 short_seq_def = reorder <$> (takeTill (== '_') <* char '_' <?> "binary short name")
@@ -128,15 +140,17 @@ make_leaf_node genome = (l (B.unpack genome), Empty, Empty)
 
 find_seq :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)]
          -> (B.ByteString, B.ByteString, Integer, Integer, Bool)
-         -> (B.ByteString -> (Label, Tree, Tree)) -> [String] -> Tree
-find_seq ((fam,spec,chr1,beg1,end1,str1):ss) d@(genome,chr,beg,end,str) make_children (bs:bases)
+         -> (B.ByteString -> (Label, Tree, Tree)) -> Int -> Tree
+find_seq ((fam,spec,chr1,beg1,end1,str1):ss) d@(genome,chr,beg,end,str) make_children i
     | B.tail genome `B.isPrefixOf` spec && (B.head genome,chr1,beg1,end1,str1) == (B.head fam,chr,beg,end,str)
-        =  Node lbl chr beg end str l r bs
-    | otherwise = find_seq ss d make_children bases 
+        =  Node lbl (shelve chr) beg end str l r i
+    | otherwise = find_seq ss d make_children (i+1)
   where (lbl, l, r) = make_children genome
-find_seq [] (genome,chr,_,_,_) _ [] 
+find_seq [] (genome,chr,_,_,_) _ _
     = error $ "sequence not found: " ++ B.unpack genome ++ "_" ++ B.unpack chr
-find_seq _ d _ _ = error $ "SEQ lines inconsistent with TREE line" ++ show d
+
+shelve :: B.ByteString -> S.ByteString
+shelve s = case B.toChunks s of [] -> S.empty ; [x] -> S.copy x ; xs -> S.concat xs
 
 new_label :: Label -> Label -> Label 
 new_label Boring Essential = Common
@@ -157,74 +171,139 @@ interesting_trees t@Node{ n_label = Essential } = [t]
 interesting_trees t@Node{ n_label = Common } = interesting_trees (n_left t) ++ interesting_trees (n_right t)
 interesting_trees _ = []
 
-data Op a = Delete Int | Insert a | Match Int | Replace a deriving Show
+data Op a = Delete !Int | Insert a | Match !Int | Replace a | NoOp deriving Show
 
--- consensus sequence: common ancestor and all human seqs are included, structure is taken from ancestor
-consensus :: Tree -> (String, [[Op String]])
-consensus t = ( filter (/= '-') cons, map (compact . mkcigar cons) seqs )
+-- XXX: drops all meta data
+type AncSeq = [( Word8, [Op Word8] )]
+
+-- consensus sequence: common ancestor and all human or chimp seqs are included, structure is taken from ancestor
+consensus :: Tree -> [B.ByteString] -> AncSeq
+consensus = map . blockcons . getseqs
   where
-    seqs = getseqs t
-    cons = map listcons $ transpose seqs
+    getseqs t = fromIntegral (n_sequence t) : get_seqs Human (n_left t) ++ get_seqs Human (n_right t)
+    get_seqs _ Empty = []
+    get_seqs s t@Node{ n_left = Empty, n_right = Empty, n_label = l } | l == s = [ fromIntegral $ n_sequence t ]
+    get_seqs s t = get_seqs s (n_left t) ++ get_seqs s (n_right t)
 
-    getseqs t = n_sequence t : get_hum_seqs (n_left t) ++ get_hum_seqs (n_right t)
-    get_hum_seqs Empty = []
-    get_hum_seqs t@Node{ n_left = Empty, n_right = Empty, n_label = Human } = [n_sequence t]
-    get_hum_seqs t = get_hum_seqs (n_left t) ++ get_hum_seqs (n_right t)
+    blockcons :: [Int64] -> B.ByteString -> ( Word8, [Op Word8] )
+    blockcons cs@(c:_) ss = ( cigs `seq` k, cigs )
+      where k | B.index ss c == '-' = 0 
+              | otherwise           = foldl' (.|.) 0 . map (to_bits' . B.index ss) $ cs
+            cigs = map' (mkcigar k . B.index ss) cs
+            map' f [] = []
+            map' f (x:xs) = ( (:) $! f x ) $! map' f xs
 
-    listcons ('-':_) = '-'
-    listcons xs = from_bits . foldl' (.|.) 0 . map to_bits $ xs
+    to_bits x = case toLower x of 
+                    '-' -> 0
+                    'a' -> 1
+                    'c' -> 2
+                    'm' -> 3
+                    't' -> 4
+                    'w' -> 5
+                    'y' -> 6
+                    'h' -> 7
+                    'g' -> 8
+                    'r' -> 9
+                    's' -> 10
+                    'v' -> 11
+                    'k' -> 12
+                    'd' -> 13
+                    'b' -> 14
+                    'n' -> 15
+                    _   -> error $ "does not code for nucleotide: " ++ show x
+                    
+    to_bits' 'N' = 0
+    to_bits' 'n' = 0
+    to_bits' x = to_bits x
 
-    from_bits = (!!) "-ACMTWYHGRSVKDBN"
-
-    to_bits '-' = 0
-    to_bits 'A' = 1
-    to_bits 'a' = 1
-    to_bits 'C' = 2
-    to_bits 'c' = 2
-    to_bits 'T' = 4
-    to_bits 't' = 4
-    to_bits 'G' = 8 
-    to_bits 'g' = 8 
-    to_bits 'N' = 0
-    to_bits 'n' = 0
-
-    mkcigar ('-':as) ('-':bs) = mkcigar as bs
-    mkcigar ('-':as) ( b :bs) = Insert [b] : mkcigar as bs
-    mkcigar ( _ :as) ('-':bs) = Delete 1 : mkcigar as bs
-    mkcigar ( a :as) ( b :bs) | a == b    = Match 1 : mkcigar as bs
-                              | otherwise = Replace [b] : mkcigar as bs
-    mkcigar as [] = map (const $ Delete 1) as
-    mkcigar [] bs = map (Insert . (:[])) bs
-
-    compact = map sum_op . groupBy same_op . concatMap sum_op1 . groupBy same_op
-
-    same_op (Delete  _) (Delete  _) = True
-    same_op (Insert  _) (Insert  _) = True
-    same_op (Match   _) (Match   _) = True
-    same_op (Replace _) (Replace _) = True
-    same_op _ _ = False
-
-    sum_op xs@(Delete  _:_) = Delete $ sum    [ n | Delete  n <- xs ]
-    sum_op xs@(Insert  _:_) = Insert $ concat [ s | Insert  s <- xs ]
-    sum_op xs@(Match   _:_) = Match  $ sum    [ n | Match   n <- xs ]
-
-    sum_op1 xs@(Replace _:_) = [Delete (length r), Insert r] where r = concat [ s | Replace s <- xs ]
-    sum_op1 xs = xs
-
+    mkcigar 0 '-'                 = NoOp
+    mkcigar 0  b                  = Insert $! to_bits b
+    mkcigar _ '-'                 = Delete 1
+    mkcigar a  b | a == to_bits b = Match 1
+                 | True           = Replace $! to_bits b
 
 main :: IO ()
-main = B.readFile "/home/udo_stenzel/tmp/Compara/Compara.epo_4_catarrhini.chr10_1.emf" >>= process_many
+main = B.readFile "bar.emf" >>= write_dna_file "foo.dna" . parse_many
 
-process_many :: B.ByteString -> IO ()
-process_many inp | B.null inp = return ()
-process_many inp = 
-    case epo_entry inp of
-        (tree, rest) -> do
-            flip mapM_ (interesting_trees tree) $ \t -> do
-                let (cons, cigs) = consensus t
-                putStrLn $ take 150 cons
-                mapM_ (putStrLn . take 150 . show) cigs
-                putStrLn []
+parse_many :: B.ByteString -> [ (S.ByteString, AncSeq) ]
+parse_many = map mk_cons . drop_dups Set.empty . do_parse
+  where 
+    do_parse inp | B.all isSpace inp = []
+                 | otherwise         = case parse_epo_entry inp of { (tree, bases, rest) ->
+                                       [ (t, bases) | t <- interesting_trees tree ] ++ do_parse rest }
 
-            process_many rest
+    drop_dups seen [] = []
+    drop_dups seen (t:ts) | n `Set.member` seen =     drop_dups               seen  ts
+                          | otherwise           = t : drop_dups (Set.insert n seen) ts
+        where n = n_chrom (fst t)
+
+    mk_cons (tree, bases) = ( n_chrom tree, tree `consensus` bases )
         
+    
+put_nybbles :: [Word8] -> Put
+put_nybbles (x:y:zs) = putWord8 (x .|. (y `shiftL` 4)) >> put_nybbles zs
+put_nybbles [x]      = putWord8 x
+put_nybbles []       = return ()
+
+type Cigar = Q.Seq (Op (Q.Seq Word8))
+
+reduce_seqs :: Word32 -> [ ( S.ByteString, AncSeq ) ] -> ( [Word8], Q.Seq Config.Sequence.Sequence, Word32 )
+reduce_seqs p [] | p `mod` 2 == 1 = ([0], Q.empty, p+1)
+                 | otherwise      = ([0,0], Q.empty, p+2)
+reduce_seqs p ((n,s):ss) = seqdefs' `seq` ( 0 : ws', seqdefs', p'' )
+  where ( ws,  cs, p'' ) = reduce_seqs p' ss
+        ( ws', c,  p'  ) = reduce_seq (p+1) (repeat Q.empty) ws s
+        seqdefs' = defaultValue { Config.Sequence.contig = Q.singleton co
+                                , Config.Sequence.name = Utf8 (B.fromChunks [n]) } <| cs
+        co = defaultValue { Config.Contig.offset      = p+1
+                          , Config.Contig.range_start = 0
+                          , Config.Contig.range_end   = p'-p-1 }
+                
+reduce_seq :: Word32 -> [Cigar] -> [Word8] -> [ (Word8, [Op Word8]) ] -> ( [Word8], [Cigar], Word32 )
+reduce_seq p cs ws [] = (ws, cs, p)
+reduce_seq p cs ws ( (x,ops) : xs ) 
+    = let ( ws', cs'', p' ) = (reduce_seq (p+1) cs') ws xs
+          cs' = zipWith' app_op cs ops
+      in p `seq` cs' `seq` ( x : ws', cs'', p' )
+
+app_op :: Cigar -> Op Word8 -> Cigar
+app_op c o = case ( Q.viewr c, o ) of
+    ( c' :> Match n,    Match m   ) -> (|>) c' $! Match (n+m)
+    ( c' :> Delete n,   Delete m  ) -> (|>) c' $! Delete (n+m)
+    ( c' :> Replace xs, Replace x ) -> (|>) c' $! Replace ((|>) xs $! x)
+    ( c' :> Replace xs, _         ) -> (c' |> Delete (Q.length xs) |> Insert xs) `app2` o
+    ( c' :> Insert xs,  Insert x  ) -> (|>) c' $! Insert ((|>) xs $! x)
+    ( _,                _         ) -> app2 c o
+  where 
+    app2 c (Replace x) = c |> Replace (Q.singleton $! x)
+    app2 c (Insert  x) = c |> Insert  (Q.singleton $! x)
+    app2 c (Match   n) = c |> Match n
+    app2 c (Delete  n) = c |> Delete n
+    app2 c NoOp        = c
+
+{-# INLINE zipWith' #-}
+zipWith' :: ( a -> b -> c ) -> [a] -> [b] -> [c]
+zipWith' f (x:xs) (y:ys) = ((:) $! f x y) (zipWith' f xs ys)
+zipWith' f [    ] [    ] = []
+
+write_dna_file :: FilePath -> [ ( S.ByteString, AncSeq ) ] -> IO ()
+write_dna_file path aseqs = 
+    withBinaryFile path WriteMode $ \h -> do
+        B.hPut h $ B.pack "DNA1\xD\xE\xA\xD\xB\xE\xE\xF"
+
+        let (words, seqdefs, total) = reduce_seqs 24 aseqs
+        B.hPut h $ runPut $ put_nybbles words
+        putStrLn "done writing bases"
+
+        index_start <- hTell h
+        B.hPut h $ runPut $ messagePutM $ defaultValue {
+                Config.Genome.name        = Just $ Utf8 $ B.pack "ca",
+                Config.Genome.description = Just $ Utf8 $ B.pack "Human-Chimp common ancestor",
+                Config.Genome.sequence    = seqdefs,
+                Config.Genome.total_size  = total }
+        index_end <- hTell h
+        
+        hSeek h AbsoluteSeek 4
+        B.hPut h $ runPut $ do putWord32le (fromIntegral index_start)
+                               putWord32le (fromIntegral $ index_end-index_start)
+

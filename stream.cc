@@ -646,7 +646,7 @@ void RmdupStream::call_consensus()
 		}
 
 		int qscore = (num/denom).to_phred() ;
-		if( qscore > 127 ) qscore = 127 ;
+		if( qscore > maxq_ ) qscore = maxq_ ;
 
 		cur_.mutable_read()->mutable_sequence()->push_back( m["ACTG"] ) ;
 		cur_.mutable_read()->mutable_quality()->push_back( qscore ) ;

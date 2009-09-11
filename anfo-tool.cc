@@ -872,14 +872,21 @@ class RegionFilter : public Filter
 			}
 		}
 
+		//! \brief looks for a region overlapping the current alignment
+		//! This will only work correctly for non-overlapping
+		//! annotations.  Deal with it.
 		bool inside( const Result& res )
 		{
 			const Hit &h = hit_to( res, 0 ) ;
 			unsigned x = h.start_pos() ;
 			const Regions &r = (*my_regions)[ h.sequence() ] ;
 			Regions::const_iterator i = r.lower_bound( x ) ;
+			// we now got the leftmost region whose end is to the right
+			// of our start.  if no such thing exists, nothing overlaps.
 			if( i == r.end() ) return false ;
-			return i->second <= x && i->first >= x ;
+			// now check if what we got actually overlaps.  it does if
+			// it starts before our alignment ends.
+			return i->second <= x + abs(h.aln_length()) && i->first >= x ;
 		}
 } ;
 
@@ -1052,12 +1059,13 @@ void desc_edit_header( ostream& ss, const ParamBlock& p )
 { ss << "invoke " << (p.arg?p.arg:" text editor ") << " on stream's header" ; }
 
 Stream* mk_rmdup( const ParamBlock& p )
-{ return new RmdupStream( p.slope, p.intercept ) ; }
+{ return new RmdupStream( p.slope, p.intercept, parse_int( p.arg, 127 ) ) ; }
 
 void desc_rmdup( ostream& ss, const ParamBlock& p )
 {
 	ss << "coalesce duplicates as long as score is no worse than ( "
-		<< p.slope << " * ( L - " << p.intercept << " ) )" ;
+		<< p.slope << " * ( L - " << p.intercept << " ) ), "
+		<< "limit Q score to " << parse_int( p.arg, 127 ) ;
 }
 
 Stream* mk_regions_only( const ParamBlock& p )
@@ -1160,13 +1168,13 @@ void desc_output_table( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_duct_tape( const ParamBlock& p )
-{ return new DuctTaper( p.genome, parse_int( p.arg ) ) ; }
+{ return new DuctTaper( p.genome, p.arg ? p.arg : "contig" ) ; }
 
 void desc_duct_tape( ostream& ss, const ParamBlock& p )
 { 
 	ss << "mock-assemble hits" ;
 	if( p.genome ) ss << " to genome " << p.genome ;
-	ss << " and clamp Q-score to no more than " << parse_int( p.arg ) ;
+	ss << ", name contigs '" << (p.arg ? p.arg : "contig" ) << '\'' ;
 }
 
 Stream* mk_stats( const ParamBlock& p )
@@ -1265,7 +1273,7 @@ int main_( int argc, const char **argv )
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
 		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid jobs", 0 },
-		{ "rmdup",         'd', POPT_ARG_NONE,   0, opt_rmdup,         "remove PCR duplicates", 0 },
+		{ "rmdup",         'd', POPT_ARG_INT,    0, opt_rmdup,         "remove PCR duplicates, clamp Q-scores to Q", "Q" },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
@@ -1274,7 +1282,7 @@ int main_( int argc, const char **argv )
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments(!) in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
-		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble while clamping Q-scores to Q", "Q" },
+		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble into contigs named NAME", "NAME" },
 		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_DFLT,   &param.slope,      0, "set slope parameter to S", "S" },

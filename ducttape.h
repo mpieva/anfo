@@ -28,8 +28,7 @@ namespace streams {
 class DuctTaper : public Stream
 {
 	private:
-		const char* g_ ;	// will be 'assembled'
-		int maxq_ ;			// clamp QScores to this
+		const char* g_, *name_ ;	// will be 'assembled'
 		Chan report_ ;
 
 		// tracking of current reference sequence; we need to start a
@@ -66,7 +65,7 @@ class DuctTaper : public Stream
 		Accs observed_ ;
 
 		// for silly statistics
-		size_t nreads_ ; 
+		size_t nreads_, num_ ; 
 
 		// for MAPQ -- GLF wants MAPQ to be the RMS of the MAPQs that
 		// went into a contig.
@@ -75,8 +74,9 @@ class DuctTaper : public Stream
 		void flush_contig() ;
 
 	public:
-		DuctTaper( const char* g, int maxq ) 
-			: g_(g), maxq_(maxq), contig_start_(0), contig_end_(0), nreads_(0), mapq_accum_(0) {}
+		DuctTaper( const char* g, const char* name )
+			: g_(g), name_(name), contig_start_(0), contig_end_(0)
+			, nreads_(0), num_(0), mapq_accum_(0) {}
 		virtual ~DuctTaper() {}
 
 		virtual void put_header( const Header& ) ;

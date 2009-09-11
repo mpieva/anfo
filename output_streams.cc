@@ -205,16 +205,21 @@ void TextWriter::put_result( const Result& r )
 //! "perfect" mapping by writing out a 255.
 //!
 //! About the hit to convert: ANFO is happy representing more than one
-//! hit per sequence, but SAM is not (or is it?).  We will convert the
-//! \c best_to_genome entry, ignoring everything else.  This is both the
-//! most useful alignment and the one best in line with the intended use
-//! of SAM.
+//! hit per sequence, but SAM is not (or is it?).  We will convert
+//! either the best hit globallly or the best one to a given genome.
+//! This is both the most useful alignment and the one best in line with
+//! the intended use of SAM.
 //!
 //! About len: since we're doing semi-global alignments, it is actually
 //! an error if the sequence length (taking trim points into account)
 //! and the effective len from the cigar do not match.  However, files
 //! with such errors exist, so we need to filter out those faulty
 //! alignments.
+//!
+//! About the CIGAR line: parts of the samtools suite fail if an
+//! alignment declares an insertion that overhangs the reference.  To
+//! deal with that, we declare inserts at the ends of alignments as soft
+//! clips instead.
 //!
 //! About the alignment score: This optional field of SAM is filled with
 //! the raw ANFO alignment score, which is a bit difficult to interpret
@@ -228,24 +233,34 @@ void TextWriter::put_result( const Result& r )
 template <typename Iter> 
 std::ostream& decode_binCigar(std::ostream& s, Iter begin, Iter end )
 {
-	unsigned len = 0, op = Hit::Match ;
+	std::vector< std::pair< unsigned, unsigned > > new_cigar ;
 
-	for( Iter cur = begin ; cur != end ; )
+	unsigned len = 0, op = Hit::Match ;
+	for( Iter cur = begin ; cur != end ; ++cur )
 	{
-		unsigned o = cigar_op( *begin ), l = cigar_len( *begin ) ;
+		unsigned o = cigar_op( *cur ), l = cigar_len( *cur ) ;
 		if( o == Hit::Mismatch ) o = Hit::Match ;
-		if( o == Hit::Insert && begin == cur ) o = Hit::SoftClip ;
-		++cur ;
-		if( o == Hit::Insert && end == cur ) o = Hit::SoftClip ;
 
 		if( o == op ) len += l ;
 		else {
-			if( len ) s << len << "MIDNSHP"[op] ;
+			if( len ) new_cigar.push_back( std::make_pair( len, op ) ) ; 
 			op = o ;
 			len = l ;
 		}
 	}
-	if( len ) s << len << "MIDNSHP"[op] ;
+	if( len ) new_cigar.push_back( std::make_pair( len, op ) ) ;
+
+	if( !new_cigar.empty() )
+	{
+		if( new_cigar.front().second == Hit::Insert )
+			new_cigar.front().second = Hit::SoftClip ;
+
+		if( new_cigar.back().second == Hit::Insert )
+			new_cigar.back().second = Hit::SoftClip ;
+	}
+	for( size_t i = 0 ; i != new_cigar.size() ; ++i )
+		s << new_cigar[i].first << "MIDNSHP"[ new_cigar[i].second ] ;
+
     return s ;
 }
 

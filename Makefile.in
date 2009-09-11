@@ -43,7 +43,7 @@ dbs: $(DATABASES)
 
 OBJECTS := align.o anfo_common.o config.pb.o ducttape.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
 
-install: $(PROGS) $(if $(DOXYGEN),install_doc)
+install: $(PROGS)
 	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
 	$(INSTALL_PROGRAM) $(PROGS) @bindir@
 	test -d @docdir@ || $(INSTALL) -d -m 755 @docdir@

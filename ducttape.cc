@@ -51,7 +51,7 @@ void DuctTaper::flush_contig()
 
 	Read &rd = *res_.mutable_read() ;
 	std::stringstream ss1 ;
-	ss1 << cur_genome_ << ':' << cur_sequence_ << ':' << contig_start_ ;
+	ss1 << name_ << '_' << ++num_ ;
 	rd.set_seqid( ss1.str() ) ;
 	report_( Console::info, ss1.str() ) ;
 	
@@ -327,7 +327,7 @@ no_match:
 					
 #if 0
 					// Original code, unrolled and simplified below to
-					// avoid numerical difficulties.
+					// avoid addition of inifinite quantities.
 					Logdom lk_base[4]
 					for( int k = 0 ; k != 4 ; ++k )
 					{

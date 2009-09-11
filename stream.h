@@ -462,6 +462,7 @@ class RmdupStream : public Stream
 		double slope_ ;
 		double intercept_ ;
 		const char *g_ ;
+		int maxq_ ;
 
 		// XXX double err_prob_[4][4] ; // get this from config or
 		// something?
@@ -471,7 +472,7 @@ class RmdupStream : public Stream
 		void call_consensus() ;
 
 	public:
-		RmdupStream( double s, double i ) : slope_(s), intercept_(i), g_(0) {}
+		RmdupStream( double s, double i, int maxq ) : slope_(s), intercept_(i), g_(0), maxq_( std::min(maxq,127) ) {}
 		virtual ~RmdupStream() { free( const_cast<char*>(g_) ) ; }
 
 		virtual void put_header( const Header& h )
