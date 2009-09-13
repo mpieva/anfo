@@ -390,10 +390,9 @@ bool Metagenome::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const con
 	return false ;
 }
 
-static int get_zero_device( int prot )
+static int get_zero_device()
 {
-	static int fdz = throw_errno_if_minus1( open( "/dev/zero", 
-				prot & PROT_READ ? prot & PROT_WRITE ? O_RDWR : O_RDONLY : O_WRONLY ),
+	static int fdz = throw_errno_if_minus1( open( "/dev/zero", O_RDWR ), 
 			"opening", "/dev/zero" ) ;
 	return fdz ;
 }
@@ -405,7 +404,7 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd,
 	for(;;)
 	{
 		if( nommap ) {
-			void *p = ::mmap( 0, length, prot, flags, get_zero_device(prot), 0 ) ;
+			void *p = ::mmap( 0, length, (prot | MAP_PRIVATE) & ~MAP_SHARED, flags, get_zero_device(), 0 ) ;
 			if( p != (void*)(-1) ) {
 				myread( fd, p, length ) ;
 				return p ;
