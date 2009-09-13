@@ -68,6 +68,8 @@ int main_( int argc, const char * argv[] )
 	int stride = 1 ;
 	int fastq_origin = 33 ;
 
+	Metagenome::nommap = true ;
+
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },

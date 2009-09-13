@@ -88,6 +88,19 @@ inline void mywrite( int fd, const void* buf, size_t count, const char* msg = 0 
 	}
 }
 
+//! \brief near drop-in for read(2)
+inline void myread( int fd, void* buf, size_t count, const char* msg = 0 )
+{
+	while( count > 0 ) 
+	{
+		ssize_t w = read( fd, buf, count ) ;
+		if( w == -1 && errno == EINTR ) w = 0 ;
+		throw_errno_if_minus1( w, "reading", msg ) ;
+		count -= w ;
+		buf = (char*)buf + w ;
+	}
+}
+
 
 namespace {
 	inline int open1( const std::string& s ) {

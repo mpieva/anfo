@@ -24,6 +24,7 @@ CompactGenome::CompactGenome( const std::string &name, int adv )
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		file_size_ = the_stat.st_size ;
 		void *p = Metagenome::mmap( 0, file_size_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
+		if( Metagenome::nommap ) { close( fd_ ) ; fd_ = -1 ; }
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		base_.assign( (uint8_t*)p ) ;
 
@@ -86,6 +87,7 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		length = the_stat.st_size ;
 		p = Metagenome::mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ) ;
+		if( Metagenome::nommap ) { close( fd_ ) ; fd_ = -1 ; }
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		p_ = p ;
 
@@ -282,15 +284,22 @@ Metagenome::Metagenome( const char* p )
 	}
 }
 
+//! \brief searches genome path for matching files
+//! This functions looks for exact matches (supporting index files that
+//! name the genome file) and for files starting with the genome name
+//! and ending in ".dna" (to support lookup of named genomes).
+
 glob_t Metagenome::glob_path( const std::string& genome ) 
 {
 	glob_t the_glob = { 0 } ;
 	int glob_append = 0 ;
 	for( std::list< std::string >::iterator j = the_metagenome.path.begin() ; j != the_metagenome.path.end() ; ++j )
 	{
-		std::string p = *j + "/" + genome + "*.dna" ;
+		std::string p = *j + "/" + genome ;
 		glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
 		glob_append = GLOB_APPEND ;
+		p += "*.dna" ;
+		glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
 	}
 	return the_glob ;
 }
@@ -381,23 +390,37 @@ bool Metagenome::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const con
 	return false ;
 }
 
+static int get_zero_device( int prot )
+{
+	static int fdz = throw_errno_if_minus1( open( "/dev/zero", 
+				prot & PROT_READ ? prot & PROT_WRITE ? O_RDWR : O_RDONLY : O_WRONLY ),
+			"opening", "/dev/zero" ) ;
+	return fdz ;
+}
+
+bool Metagenome::nommap = false ;
+
 void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd, off_t offset )
 {
 	for(;;)
 	{
-		void *p = ::mmap( start, length, prot, flags, fd, offset ) ;
-#if 0
-		// aww crap, this is somehow fscked up...
-		return p ;
-#else
-		if( p != (void*)(-1) ) return p ;
+		if( nommap ) {
+			void *p = ::mmap( 0, length, prot, flags, get_zero_device(prot), 0 ) ;
+			if( p != (void*)(-1) ) {
+				myread( fd, p, length ) ;
+				return p ;
+			}
+		} else {
+			void *p = ::mmap( start, length, prot, flags, fd, offset ) ;
+			if( p != (void*)(-1) ) return p ;
+		}
 
 		// make room by forgetting about some genome
 		int nephemeral = 0 ;
 		for( Genomes::iterator gi = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; gi != ge ; ++gi )
 			if( gi->second.first == ephemeral ) ++nephemeral ;
 		
-		if( !nephemeral ) return p ;
+		if( !nephemeral ) return (void*)(-1) ;
 
 		Genomes::iterator gi = the_metagenome.genomes.begin() ;
 		for( int i = random() % nephemeral ; i || gi->second.first != ephemeral ; ++gi ) if( gi->second.first == ephemeral ) --i ;
@@ -414,7 +437,6 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd,
 		console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
 		delete gi->second.second ;
 		the_metagenome.genomes.erase( gi ) ;
-#endif
 	}
 }
 

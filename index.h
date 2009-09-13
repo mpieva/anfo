@@ -158,6 +158,11 @@ class FixedIndex
 		enum { signature = 0x31584449u } ; // IDX1 
 
 		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
+
+		//! \brief loads an index from a file
+		//! \param name filename
+		//! \param c I'll be damned if I remember what this was for
+		//! \param adv advice passed to mmap()
 		FixedIndex( const std::string &name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~FixedIndex() ;
 
@@ -388,6 +393,7 @@ class Metagenome
 {
 	public:
 		enum Persistence { persistent = 0, ephemeral = 1 } ;
+		static bool nommap ;
 
 	private:
 		// maps file name to genome object
@@ -424,6 +430,15 @@ class Metagenome
 
 		static bool translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out = 0, const config::Genome** g_out = 0 ) ;
 
+		//! \brief replacement for mmap() that knows how to free memory
+		//! This is a wrapper wround mmap().  If the system mmap()
+		//! fails, it will try to free up some memory by forgetting
+		//! about an ephemeral genome and then call mmap again.
+		//! Parameters are passed to mmap() unchanged.  If
+		//! Metagenome::nommap is set, doesn't mmap() the file
+		//! descriptor, but mmap()s /dev/zero instead and read()s the
+		//! requested region from the file descriptor (intended for file
+		//! systems where mmap() is agonizingly slow, e.g.  GCFS).
 		static void *mmap( void *start, size_t length, int prot, int flags, int fd, off_t offset ) ;
 } ;
 
