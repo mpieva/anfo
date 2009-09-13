@@ -68,6 +68,9 @@ install_doc: doc/html/index.html
 ../data/chr21_10.idx: ../data/chr21.dna dnaindex
 	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
 
+anfo-shell: anfo-shell.cc $(OBJECTS)
+	$(CXX) $(DEFS) $(LDFLAGS) $(CXXFLAGS) @GUILE_CFLAGS@ $^ -o $@ @GUILE_LDFLAGS@ $(LDLIBS) 
+
 %: %.o $(OBJECTS)
 	$(CXX) $(DEFS) $(LDFLAGS) $^ -o $@ $(LDLIBS) 
  

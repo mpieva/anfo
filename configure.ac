@@ -55,5 +55,7 @@ AC_TYPE_SIGNAL
 AC_FUNC_STAT
 AC_CHECK_FUNCS([memset munmap pow strerror])
 
+GUILE_FLAGS
+
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
