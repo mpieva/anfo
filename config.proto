@@ -78,8 +78,8 @@ message CompactIndex {
     // in the absence of a cutoff)
     optional uint32 indexsize = 5 ;
 
-	// stride if not every word is indexed
-	optional uint32 stride = 6 [default=1] ;
+    // stride if not every word is indexed
+    optional uint32 stride = 6 [default=1] ;
 }
 
 message CompactIndexSpec {

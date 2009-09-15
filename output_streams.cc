@@ -173,6 +173,14 @@ void TextWriter::print_msg( const google::protobuf::Message& m )
 	if( size ) fos_.BackUp( size ) ;
 }
 
+void TextWriter::put_header( const Header& h )
+{
+	Stream::put_header( h ) ;
+	print_msg( h ) ;
+	for( int i = 0 ; i != h.config().genome_path_size() ; ++i )
+		Metagenome::add_path( h.config().genome_path( i ) ) ;
+}
+
 void TextWriter::put_result( const Result& r )
 {
 	google::protobuf::TextFormat::Print( r, &fos_ ) ;
@@ -185,6 +193,12 @@ void TextWriter::put_result( const Result& r )
 		p.Print( vars, "\nREF: `ref`\nQRY: `qry`\nCON: `con`\n" ) ;
 	}
 	p.Print( "\n\n" ) ;
+}
+
+void TextWriter::put_footer( const Footer& f )
+{
+	Stream::put_footer( f ) ;
+	print_msg( f ) ;
 }
 
 //! \page anfo_to_sam Conversion to SAM
@@ -344,6 +358,13 @@ void SamWriter::put_footer( const Footer& f )
 			s << "SamWriter: " << discarded[b] << " reads " << descr[b] ;
 			console.output( Console::notice, s.str() ) ;
 		}
+}
+
+void FastaAlnWriter::put_header( const Header& h )
+{
+	Stream::put_header( h ) ;
+	for( int i = 0 ; i != h.config().genome_path_size() ; ++i )
+		Metagenome::add_path( h.config().genome_path( i ) ) ;
 }
 
 void FastaAlnWriter::put_result( const Result& r ) 

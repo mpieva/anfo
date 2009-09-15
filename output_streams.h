@@ -33,19 +33,9 @@ class TextWriter : public Stream
 		{ fos_.SetCloseOnDelete( true ) ; }
 		virtual ~TextWriter() {}
 
-		virtual void put_header( const Header& h ) 
-		{
-			Stream::put_header( h ) ;
-			print_msg( h ) ;
-		}
-
+		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
-
-		virtual void put_footer( const Footer& f )
-		{
-			Stream::put_footer( f ) ;
-			print_msg( f ) ;
-		}
+		virtual void put_footer( const Footer& ) ;
 } ;
 
 //! \brief writes in SAM format
@@ -133,6 +123,7 @@ class FastaAlnWriter : public Stream
 		FastaAlnWriter( std::streambuf *s, const char* g, int c ) : buf_(), out_( s ), g_(g), c_(c) { }
 		virtual ~FastaAlnWriter() {}
 
+		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 } ;
 

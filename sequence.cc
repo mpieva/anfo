@@ -99,12 +99,12 @@ QSequence::QSequence( const output::Read& r, int default_q )
 {
 	seq_.push_back( Base() ) ;
 	if( r.has_quality() ) 
-		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end() ; p != pe ; ++p )
-			seq_.push_back( Base( to_ambicode( *p ), default_q ) ) ;
-	else
 		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end(),
 				q = r.quality().begin(), qe = r.quality().end() ; p != pe && q != qe ; ++p, ++q )
 			seq_.push_back( Base( to_ambicode( *p ), *q ) ) ;
+	else
+		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end() ; p != pe ; ++p )
+			seq_.push_back( Base( to_ambicode( *p ), default_q ) ) ;
 	seq_.push_back( Base() ) ;
 }
 					
