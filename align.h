@@ -417,7 +417,7 @@ struct simple_adna : public gen_alignment<simple_adna> {
 	static Logdom gap_ext_penalty ;
 
 	//! \brief sets up parameters from configuration block
-	static void configure( const config::Aligner&, std::ostream* ) ;
+	static void configure( const config::Aligner&, std::ostream* = 0 ) ;
 
 	simple_adna() : gen_alignment<simple_adna>() {}
 	simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}

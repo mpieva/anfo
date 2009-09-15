@@ -66,9 +66,9 @@ struct AlignmentWorkload
 
 struct CommonData
 {
-	Queue<output::Result*, 4> output_queue ;
-	Queue<AlignmentWorkload*, 4> intermed_queue ;
-	Queue<output::Result*, 4> input_queue ;
+	Queue<output::Result*, 8> output_queue ;
+	Queue<AlignmentWorkload*, 8> intermed_queue ;
+	Queue<output::Result*, 8> input_queue ;
 	streams::AnfoWriter output_stream ;
 	Mapper mapper ;
 
@@ -81,7 +81,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		q->output_stream.put_result( *r ) ; // streams::write_delimited_message( q->output_stream, 4, *r ) ;
+		q->output_stream.put_result( *r ) ;
 		delete r ;
 	}
 	return 0 ;
@@ -93,7 +93,7 @@ void* run_indexer_thread( void* cd_ )
 	while( output::Result *r = cd->input_queue.dequeue() )
 	{
 		std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
-		w->r.reset( r ) ; // new output::Result ) ;
+		w->r.reset( r ) ;
 		w->ps.reset( new QSequence() ) ;
 		w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
 		if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;

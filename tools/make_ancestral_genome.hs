@@ -29,6 +29,7 @@
  -}
 
 import Control.Arrow ((&&&))
+import Control.Monad.State
 import Data.Attoparsec.Char8
 import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy.Char8 as B
@@ -54,14 +55,15 @@ import Debug.Trace
 data Label = Boring | Chimp | Human | Common | Essential deriving (Show, Eq)
 
 data Tree = Empty
-          | Node { n_label    :: !Label
-                 , n_chrom    :: !S.ByteString
-                 , n_start    :: !Integer
-                 , n_end      :: !Integer
-                 , n_strand   :: !Bool
-                 , n_left     :: !Tree
-                 , n_right    :: !Tree
-                 , n_sequence :: !Int } deriving Show
+          | Node { n_label    :: {-# UNPACK #-} !Label
+                 , n_chrom    :: {-# UNPACK #-} !S.ByteString
+                 , n_start    :: {-# UNPACK #-} !Int
+                 , n_end      :: {-# UNPACK #-} !Int
+                 , n_strand   :: {-# UNPACK #-} !Bool
+                 , n_left     :: {-# UNPACK #-} !Tree
+                 , n_right    :: {-# UNPACK #-} !Tree
+                 , n_sequence :: {-# UNPACK #-} !Int
+                 } deriving Show
 
 
 parse_epo_entry :: B.ByteString -> (Tree, [B.ByteString], B.ByteString)
@@ -93,20 +95,20 @@ contig = do
     lexeme $ try (string (B.pack "DATA") <?> "data keyword")
     return phylo
 
-seqline :: Parser (B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)
+seqline :: Parser (B.ByteString, B.ByteString, B.ByteString, Int, Int, Bool)
 seqline = do
     try $ lexeme $ string (B.pack "SEQ")
     family <- takeTill (== '_')
     char '_'
     species <- word
     chrom <- word
-    start <- lexeme (integer <?> "start coordinate")
-    end <- lexeme (integer <?> "end coordinate")
+    start <- fromIntegral <$> lexeme (integer <?> "start coordinate")
+    end <- fromIntegral <$> lexeme (integer <?> "end coordinate")
     strand <- (>=0) <$> lexeme (integer <?> "strand indicator")
     lexeme $ skipMany (notChar '\n')
     return (family, species, chrom, start, end, strand)
 
-treeline :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)] -> Parser Tree
+treeline :: [(B.ByteString, B.ByteString, B.ByteString, Int, Int, Bool)] -> Parser Tree
 treeline seqs = try (lexeme $ string (B.pack "TREE")) *> node <* lexeme (char ';')
   where
     node :: Parser Tree
@@ -120,13 +122,13 @@ treeline seqs = try (lexeme $ string (B.pack "TREE")) *> node <* lexeme (char ';
            <|> do def <- short_seq_def
                   return $ find_seq seqs def make_leaf_node 0
 
-short_seq_def :: Parser (B.ByteString, B.ByteString, Integer, Integer, Bool)
+short_seq_def :: Parser (B.ByteString, B.ByteString, Int, Int, Bool)
 short_seq_def = reorder <$> (takeTill (== '_') <* char '_' <?> "binary short name")
                         <*> (rest <* skipWhile (notInClass ",);"))
   where
     rest = try rest1 <|> (combine <$> (takeTill (== '_') <* char '_'<?> "sequence name") <*> rest)
-    rest1 = (,,,) [] <$> ((integer <* char '_') <?> "start position")
-                     <*> ((integer <* char '[') <?> "end position")
+    rest1 = (,,,) [] <$> (fromIntegral <$> (integer <* char '_') <?> "start position")
+                     <*> (fromIntegral <$> (integer <* char '[') <?> "end position")
                      <*> ((const True <$> char '+' <|> const False <$> char '-') <?> "strand specifier")
     combine a (b,c,d,e) = (a:b,c,d,e)
     reorder a (bs,c,d,e) = (a, B.intercalate (B.pack "_") bs, c, d, e)
@@ -138,12 +140,12 @@ make_leaf_node :: B.ByteString -> (Label, Tree, Tree)
 make_leaf_node genome = (l (B.unpack genome), Empty, Empty)
   where l "Hsap" = Human ; l "Ptro" = Chimp ; l _ = Boring
 
-find_seq :: [(B.ByteString, B.ByteString, B.ByteString, Integer, Integer, Bool)]
-         -> (B.ByteString, B.ByteString, Integer, Integer, Bool)
+find_seq :: [(B.ByteString, B.ByteString, B.ByteString, Int, Int, Bool)]
+         -> (B.ByteString, B.ByteString, Int, Int, Bool)
          -> (B.ByteString -> (Label, Tree, Tree)) -> Int -> Tree
 find_seq ((fam,spec,chr1,beg1,end1,str1):ss) d@(genome,chr,beg,end,str) make_children i
     | B.tail genome `B.isPrefixOf` spec && (B.head genome,chr1,beg1,end1,str1) == (B.head fam,chr,beg,end,str)
-        =  Node lbl (shelve chr) beg end str l r i
+        = Node lbl (shelve chr) beg end str l r i
     | otherwise = find_seq ss d make_children (i+1)
   where (lbl, l, r) = make_children genome
 find_seq [] (genome,chr,_,_,_) _ _
@@ -181,6 +183,7 @@ consensus :: Tree -> [B.ByteString] -> AncSeq
 consensus = map . blockcons . getseqs
   where
     getseqs t = fromIntegral (n_sequence t) : get_seqs Human (n_left t) ++ get_seqs Human (n_right t)
+
     get_seqs _ Empty = []
     get_seqs s t@Node{ n_left = Empty, n_right = Empty, n_label = l } | l == s = [ fromIntegral $ n_sequence t ]
     get_seqs s t = get_seqs s (n_left t) ++ get_seqs s (n_right t)
@@ -230,7 +233,7 @@ parse_many = map mk_cons . drop_dups Set.empty . do_parse
   where 
     do_parse inp | B.all isSpace inp = []
                  | otherwise         = case parse_epo_entry inp of { (tree, bases, rest) ->
-                                       [ (t, bases) | t <- interesting_trees tree ] ++ do_parse rest }
+                                       [ (t, bases ) | t <- take 1 (interesting_trees tree) ] ++ do_parse rest }
 
     drop_dups seen [] = []
     drop_dups seen (t:ts) | n `Set.member` seen =     drop_dups               seen  ts
@@ -240,31 +243,54 @@ parse_many = map mk_cons . drop_dups Set.empty . do_parse
     mk_cons (tree, bases) = ( n_chrom tree, tree `consensus` bases )
         
     
+{-
 put_nybbles :: [Word8] -> Put
 put_nybbles (x:y:zs) = putWord8 (x .|. (y `shiftL` 4)) >> put_nybbles zs
 put_nybbles [x]      = putWord8 x
 put_nybbles []       = return ()
+-}
 
 type Cigar = Q.Seq (Op (Q.Seq Word8))
 
-reduce_seqs :: Word32 -> [ ( S.ByteString, AncSeq ) ] -> ( [Word8], Q.Seq Config.Sequence.Sequence, Word32 )
-reduce_seqs p [] | p `mod` 2 == 1 = ([0], Q.empty, p+1)
-                 | otherwise      = ([0,0], Q.empty, p+2)
-reduce_seqs p ((n,s):ss) = seqdefs' `seq` ( 0 : ws', seqdefs', p'' )
-  where ( ws,  cs, p'' ) = reduce_seqs p' ss
-        ( ws', c,  p'  ) = reduce_seq (p+1) (repeat Q.empty) ws s
-        seqdefs' = defaultValue { Config.Sequence.contig = Q.singleton co
-                                , Config.Sequence.name = Utf8 (B.fromChunks [n]) } <| cs
-        co = defaultValue { Config.Contig.offset      = p+1
-                          , Config.Contig.range_start = 0
-                          , Config.Contig.range_end   = p'-p-1 }
+type Out a = StateT OutputState PutM a 
+
+data OutputState = Out { out_p :: !Word32, out_seqdefs :: !(Q.Seq Config.Sequence.Sequence), out_byte :: !Word8 }
+
+putNybble :: Word8 -> Out ()
+putNybble w = do
+    s@Out { out_p = p, out_byte = v } <- get
+    when (p `mod` 2 == 1) (lift $ putWord8 (w .|. (v `shiftL` 4)))
+    put $! s { out_byte = w, out_p = succ p }
+
+reduce_seqs :: [ ( S.ByteString, AncSeq ) ] -> Out ()
+reduce_seqs [] = do
+    putNybble 0
+    p <- gets out_p 
+    when (p `mod` 2 == 1) (putNybble 0)
+    return ()
+                         
+reduce_seqs ((n,s):ss) = do
+    putNybble 0
+    _cigars <- reduce_seq s 
+    -- something about the seqdef
+    reduce_seqs ss
+
+    -- ( 0 : ws, seqdefs {-cs-} ) -- , p'' )
+  -- case (reduce_seq $! p+1) (
+  -- where -- ( ws,  seqdefs {- , p'' -} ) = {- co `seq` seqdefs' `seq`-} reduce_seqs p {-'-} seqdefs ss
+
+        -- ( ws', _, p' ) = 
+        -- seqdefs' = seqdefs -- |> defaultValue { Config.Sequence.contig = Q.singleton co
+                         --             , Config.Sequence.name = Utf8 (B.fromChunks [n]) }
+        -- co = defaultValue { Config.Contig.offset      = p+1
+                          -- , Config.Contig.range_start = 0
+                          -- , Config.Contig.range_end   = p'-p-1 }
                 
-reduce_seq :: Word32 -> [Cigar] -> [Word8] -> [ (Word8, [Op Word8]) ] -> ( [Word8], [Cigar], Word32 )
-reduce_seq p cs ws [] = (ws, cs, p)
-reduce_seq p cs ws ( (x,ops) : xs ) 
-    = let ( ws', cs'', p' ) = (reduce_seq (p+1) cs') ws xs
-          cs' = zipWith' app_op cs ops
-      in p `seq` cs' `seq` ( x : ws', cs'', p' )
+reduce_seq :: [ (Word8, [Op Word8]) ] -> Out [Cigar]
+reduce_seq = r (repeat Q.empty) 
+  where
+    r cs [              ] = return cs
+    r cs ( (x,ops) : xs ) = (r $! zipWith' app_op cs ops) xs 
 
 app_op :: Cigar -> Op Word8 -> Cigar
 app_op c o = case ( Q.viewr c, o ) of
@@ -284,15 +310,17 @@ app_op c o = case ( Q.viewr c, o ) of
 {-# INLINE zipWith' #-}
 zipWith' :: ( a -> b -> c ) -> [a] -> [b] -> [c]
 zipWith' f (x:xs) (y:ys) = ((:) $! f x y) (zipWith' f xs ys)
-zipWith' f [    ] [    ] = []
+zipWith' f _ _ = []
 
 write_dna_file :: FilePath -> [ ( S.ByteString, AncSeq ) ] -> IO ()
 write_dna_file path aseqs = 
     withBinaryFile path WriteMode $ \h -> do
         B.hPut h $ B.pack "DNA1\xD\xE\xA\xD\xB\xE\xE\xF"
+        putStrLn "done writing header"
 
-        let (words, seqdefs, total) = reduce_seqs 24 aseqs
-        B.hPut h $ runPut $ put_nybbles words
+        let ( Out { out_seqdefs = seqdefs, out_p = total }, bytes ) =
+                runPutM $ execStateT (reduce_seqs aseqs) (Out { out_p = 24, out_seqdefs = Q.empty, out_byte = 0 })
+        B.hPut h bytes
         putStrLn "done writing bases"
 
         index_start <- hTell h

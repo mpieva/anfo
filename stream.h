@@ -120,9 +120,9 @@ inline uint32_t mk_cigar( output::Hit::Operation op, uint32_t len ) { return len
 
 inline void push_op( std::vector<unsigned>& s, unsigned m, output::Hit::Operation op )
 {
-	if( !s.empty() && (streams::cigar_op( s.back() ) == op) && streams::cigar_len( s.back() ) ) 
+	if( m && !s.empty() && (streams::cigar_op( s.back() ) == op) && streams::cigar_len( s.back() ) ) 
 		s.back() = streams::mk_cigar( op, m + streams::cigar_len( s.back() ) ) ;
-	else s.push_back( streams::mk_cigar( op, m ) ) ;
+	else if( m ) s.push_back( streams::mk_cigar( op, m ) ) ;
 }
 inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Match ) ; }
 inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }

@@ -32,7 +32,7 @@ Policy select_policy( const Config &c, const Read &r )
 
 Mapper::Mapper( const config::Config &config ) : mi(config)
 {
-	if( mi.has_aligner() ) simple_adna::configure( mi.aligner(), 0 ) ;
+	simple_adna::configure( mi.aligner() ) ;
 	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
 
     for( int i = mi.genome_path_size() ; i != 0 ; --i )
@@ -175,13 +175,13 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 		const Sequence *sequ ;
 		const Genome *genome ;
 
-		if( Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
-		{
-			if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
-			h->set_sequence( sequ->name() ) ;
-			if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-			else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
-		}
+		if( !Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
+			throw "Not supposed to happen:  invalid alignment coordinates" ;
+		
+		if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
+		h->set_sequence( sequ->name() ) ;
+		if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+		else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
 
 		h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
 		h->set_aln_length( minpos.is_reversed() ? -len : len ) ;

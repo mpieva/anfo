@@ -1253,7 +1253,7 @@ int main_( int argc, const char **argv )
 	ParamBlock param( 7.5, 20.0, 0, 0, 0 ) ;
 	int POPT_ARG_DFLT = POPT_ARG_FLOAT | POPT_ARGFLAG_SHOW_DEFAULT ;
 	int POPT_ARG_DINT = POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT ;
-	long core_limit = 0 ;
+	int core_limit = 0, dry_run = 0 ;
 
 	struct poptOption options[] = {
 		{ "sort-pos",      's', POPT_ARG_INT,    0, opt_sort_pos,      "sort by alignment position [using <n MiB memory]", "n" },
@@ -1295,6 +1295,7 @@ int main_( int argc, const char **argv )
 		{ "quiet",         'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
 		{ "verbose",       'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
 		{ "debug",          0 , POPT_ARG_VAL,    &console.loglevel, Console::debug, "produce debugging output", 0 },
+		{ "dry-run",       'n', POPT_ARG_NONE,   &dry_run,          1, "parse command line, then exit", 0 },
 		{ "version",       'V', POPT_ARG_NONE,   0, opt_version,       "print version number and exit", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
@@ -1361,7 +1362,7 @@ int main_( int argc, const char **argv )
 	if( core_limit ) {
 		struct rlimit lim ;
 		getrlimit( RLIMIT_AS, &lim ) ;
-		lim.rlim_cur = 1024*1024 * core_limit ;
+		lim.rlim_cur = 1024*1024 * (long)core_limit ;
 		setrlimit( RLIMIT_AS, &lim ) ;
 	}
 
@@ -1421,35 +1422,38 @@ int main_( int argc, const char **argv )
 		}
 	}
 
-	std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( merging_filter ) ) ;
-
-	// iterate over glob results
-	if( the_glob.gl_pathc )
+	if( !dry_run ) 
 	{
-		vector< Compose* > cs ;
-		for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
+		std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( merging_filter ) ) ;
+
+		// iterate over glob results
+		if( the_glob.gl_pathc )
 		{
-			Compose *c = new Compose ;
-			c->add_stream( make_input_stream( *arg ) ) ;
-			for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
-				c->add_stream( (i->maker)( *i ) ) ;
-			cs.push_back( c ) ;
+			vector< Compose* > cs ;
+			for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
+			{
+				Compose *c = new Compose ;
+				c->add_stream( make_input_stream( *arg ) ) ;
+				for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
+					c->add_stream( (i->maker)( *i ) ) ;
+				cs.push_back( c ) ;
+			}
+			for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
+				merging_stream->add_stream( *i ) ;
 		}
-		for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
-			merging_stream->add_stream( *i ) ;
-	}
-	else merging_stream->add_stream( make_input_stream( dup( 0 ), "<stdin>" ) ) ;
+		else merging_stream->add_stream( make_input_stream( dup( 0 ), "<stdin>" ) ) ;
 
-	FanOut out ;
-	for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
-	{
-		auto_ptr< Compose > c( new Compose ) ;
-		for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
-			c->add_stream( (j->maker)( *j ) ) ;
-		out.add_stream( c.release() ) ;
-	}
+		FanOut out ;
+		for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
+		{
+			auto_ptr< Compose > c( new Compose ) ;
+			for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
+				c->add_stream( (j->maker)( *j ) ) ;
+			out.add_stream( c.release() ) ;
+		}
 
-	transfer( *merging_stream, out ) ;
+		transfer( *merging_stream, out ) ;
+	}
 	poptFreeContext( pc ) ;
 	return 0 ;
 }

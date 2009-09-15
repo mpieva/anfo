@@ -167,9 +167,10 @@ message Config {
     repeated Policy policy = 3 ;
 
     // aligner configuration
-    // There can be only one kind of aligner in a run, if none is configured,
-    // you get the trivial ("flat") alignment.
-    optional Aligner aligner = 4 ;
+    // This is now required, because practically all tools rely on it
+	// being rpesent anyway.  Configuration of different aligners is
+	// currently not supported anyway.
+    required Aligner aligner = 4 ;
 
 	// trimming configuration: sequences to look for and kill off
 	// We look for the given sequence, which may overlap the read

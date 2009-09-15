@@ -1,13 +1,20 @@
 #include "config.h"
 
-// The idea: use the Guile interpreter as a scripting engine for golfing
-// ANFO files.  Expose the stream infrastruture as a Scheme primitive
-// along with suitable functions.  More scripting might be possible, it
-// could make sense to access the protobuf messages through the built-in
-// reflection interface---think 'customizable filters'.
+//! \page anfo-shell ANFO-tool with scripting language.
+//! The idea: use the Guile interpreter as a scripting engine for
+//! golfing ANFO files.  Expose the stream infrastruture as a Scheme
+//! primitive along with suitable functions.  More scripting might be
+//! possible, it could make sense to access the protobuf messages
+//! through the built-in reflection interface---think 'customizable
+//! filters'.
 
 //! \todo Check what happens to string we pull out of SCM values.  They
 //! should be copied and properly freed.
+
+//! \todo Deal with errors: C++ exceptions need to be caught, formatted
+//!       and reflected back into Scheme.
+
+//! \todo Include many, many more streams...
 
 #include <libguile.h>
 
