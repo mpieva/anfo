@@ -32,12 +32,13 @@ Policy select_policy( const Config &c, const Read &r )
 
 Mapper::Mapper( const config::Config &config ) : mi(config)
 {
-	simple_adna::configure( mi.aligner() ) ;
+	if( !mi.has_aligner() ) throw "no aligner configuration---cannot start." ;
 	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
 
     for( int i = mi.genome_path_size() ; i != 0 ; --i )
         Metagenome::add_path( mi.genome_path(i-1) ) ;
 
+	simple_adna::configure( mi.aligner() ) ;
 	for( int i = 0 ; i != mi.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )

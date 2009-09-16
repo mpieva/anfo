@@ -85,7 +85,7 @@ message CompactIndex {
 message CompactIndexSpec {
     required string name = 2 ;
     optional uint32 cutoff = 4 ;
-	optional bool allow_near_perfect = 5 [ default = false ] ;
+    optional bool allow_near_perfect = 5 [ default = false ] ;
 
     // If the index has slices, declare them here.  The value of
     // SGE_TASK_ID % number_of_slices is the slice to use.  We start
@@ -151,7 +151,7 @@ message Aligner {
     // at each end of a read we say there's half a chance that it has an
     // overhang in the right (detectable) direction, and if so, the length is
     // geometrically distributed with a suitable parameter
-	// if left out, no overhangs are produced
+    // if left out, no overhangs are produced
     optional float mean_overhang_length = 7 ;
 }
 
@@ -167,18 +167,18 @@ message Config {
     repeated Policy policy = 3 ;
 
     // aligner configuration
-    // This is now required, because practically all tools rely on it
-	// being rpesent anyway.  Configuration of different aligners is
-	// currently not supported anyway.
-    required Aligner aligner = 4 ;
+    // This is in fact required, because practically all tools rely on it
+    // being present anyway.  Configuration of different aligners is
+    // currently not supported anyway.
+    optional Aligner aligner = 4 ;
 
-	// trimming configuration: sequences to look for and kill off
-	// We look for the given sequence, which may overlap the read
-	// sequence or be contained within it.  If the overlap is good
-	// enough, it is cut off.  We can do this on the 3' end (adapters)
-	// or the 5' end (strange artefacts).
-	repeated string trim_right = 5 ;
-	repeated string trim_left  = 6 ;
+    // trimming configuration: sequences to look for and kill off
+    // We look for the given sequence, which may overlap the read
+    // sequence or be contained within it.  If the overlap is good
+    // enough, it is cut off.  We can do this on the 3' end (adapters)
+    // or the 5' end (strange artefacts).
+    repeated string trim_right = 5 ;
+    repeated string trim_left  = 6 ;
 }
 
-// vim:expandtab:ts=4:sw=4:cindent
+// :vim:expandtab:ts=4:sw=4:cindent:

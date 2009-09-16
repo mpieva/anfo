@@ -1374,7 +1374,14 @@ int main_( int argc, const char **argv )
 
 	while( const char* arg = poptGetArg( pc ) )
 	{
-		glob( arg, glob_flag, 0, &the_glob ) ;
+		switch( glob( arg, glob_flag, 0, &the_glob ) ) 
+		{
+			case 0: break ;
+			case GLOB_NOSPACE: throw "out of memory while globbing " + std::string(arg) ;
+			case GLOB_ABORTED: throw "read error on " + std::string(arg) ;
+			case GLOB_NOMATCH: throw "no match for " + std::string(arg) ;
+			default: throw "strange error from glob()" ;
+		}
 		glob_flag |= GLOB_APPEND ;
 	}
 

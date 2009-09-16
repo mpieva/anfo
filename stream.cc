@@ -219,7 +219,7 @@ void AnfoWriter::put_result( const Result& r )
 {
 	write_delimited_message( o_, 4, r ) ; 
 	++wrote_ ;
-	if( wrote_ % 1000 == 0 )
+	if( wrote_ % 1024 == 0 )
 	{
 		stringstream s ;
 		s << name_ << ": " << wrote_ << " msgs" ;

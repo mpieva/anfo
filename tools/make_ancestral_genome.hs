@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, DeriveDataTypeable #-}
 {- 
  - Construction of human + common ancestor (of human and chimp) genome.
  - Input is emf files from EPO (compara) output.
@@ -34,8 +35,10 @@ import Data.Attoparsec.Char8
 import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.ByteString.Lazy as BB
-import Data.Char ( isSpace, toLower )
-import Data.List ( transpose, foldl', groupBy, genericLength )
+import Data.Char ( isSpace, toLower, chr )
+import Data.List ( transpose, groupBy, genericLength )
+import Data.Monoid
+import Data.Foldable
 import qualified Data.Set as Set
 import Data.Bits ( (.|.), shiftL )
 import Data.Binary.Put
@@ -44,13 +47,16 @@ import Data.Sequence ((|>),(<|),(><),ViewR(..),ViewL(..))
 import Data.Word ( Word8 )
 import System.IO
 import Text.ProtocolBuffers
+import Text.ProtocolBuffers.WireMessage ( putVarUInt, getFromBS )
 
+import qualified Config
+import qualified Config.Contig
+import qualified Config.Homolog
 import qualified Config.Genome
 import qualified Config.Sequence
-import qualified Config.Contig
-import qualified Config
 
 import Debug.Trace
+import Prelude hiding (foldr)
 
 data Label = Boring | Chimp | Human | Common | Essential deriving (Show, Eq)
 
@@ -173,7 +179,7 @@ interesting_trees t@Node{ n_label = Essential } = [t]
 interesting_trees t@Node{ n_label = Common } = interesting_trees (n_left t) ++ interesting_trees (n_right t)
 interesting_trees _ = []
 
-data Op a = Delete !Int | Insert a | Match !Int | Replace a | NoOp deriving Show
+data Op a = Delete {-# UNPACK #-} !Word32 | Insert a | Match {-# UNPACK #-} !Word32 | Replace a | NoOp deriving Show
 
 -- XXX: drops all meta data
 type AncSeq = [( Word8, [Op Word8] )]
@@ -228,8 +234,8 @@ consensus = map . blockcons . getseqs
 main :: IO ()
 main = B.readFile "bar.emf" >>= write_dna_file "foo.dna" . parse_many
 
-parse_many :: B.ByteString -> [ (S.ByteString, AncSeq) ]
-parse_many = map mk_cons . drop_dups Set.empty . do_parse
+parse_many :: B.ByteString -> [ ( Tree, [B.ByteString] ) ]
+parse_many = drop_dups Set.empty . do_parse
   where 
     do_parse inp | B.all isSpace inp = []
                  | otherwise         = case parse_epo_entry inp of { (tree, bases, rest) ->
@@ -240,98 +246,113 @@ parse_many = map mk_cons . drop_dups Set.empty . do_parse
                           | otherwise           = t : drop_dups (Set.insert n seen) ts
         where n = n_chrom (fst t)
 
-    mk_cons (tree, bases) = ( n_chrom tree, tree `consensus` bases )
-        
     
-{-
-put_nybbles :: [Word8] -> Put
-put_nybbles (x:y:zs) = putWord8 (x .|. (y `shiftL` 4)) >> put_nybbles zs
-put_nybbles [x]      = putWord8 x
-put_nybbles []       = return ()
--}
-
 type Cigar = Q.Seq (Op (Q.Seq Word8))
 
-type Out a = StateT OutputState PutM a 
+data OutputState = Out { out_p :: {-# UNPACK #-} !Word32
+                       , out_byte :: {-# UNPACK #-} !Word8
+                       , out_hdl :: {-# UNPACK #-} !Handle
+                       , out_seqdefs :: [ CodedSeqdef ] }
+type Out a = StateT OutputState IO a 
 
-data OutputState = Out { out_p :: !Word32, out_seqdefs :: !(Q.Seq Config.Sequence.Sequence), out_byte :: !Word8 }
+newtype CodedSeqdef = CodedSeqdef B.ByteString
 
 putNybble :: Word8 -> Out ()
 putNybble w = do
-    s@Out { out_p = p, out_byte = v } <- get
-    when (p `mod` 2 == 1) (lift $ putWord8 (w .|. (v `shiftL` 4)))
+    s@Out { out_p = p, out_byte = v, out_hdl = h } <- get
+    when (p `mod` 2 == 1) $
+        lift $ hPutChar h $ chr $ fromIntegral $ w .|. (v `shiftL` 4)
     put $! s { out_byte = w, out_p = succ p }
 
-reduce_seqs :: [ ( S.ByteString, AncSeq ) ] -> Out ()
+reduce_seqs :: [ ( Tree, [B.ByteString] ) ] -> Out ()
 reduce_seqs [] = do
     putNybble 0
     p <- gets out_p 
     when (p `mod` 2 == 1) (putNybble 0)
     return ()
                          
-reduce_seqs ((n,s):ss) = do
+reduce_seqs (x:xs) = do
     putNybble 0
-    _cigars <- reduce_seq s 
-    -- something about the seqdef
-    reduce_seqs ss
-
-    -- ( 0 : ws, seqdefs {-cs-} ) -- , p'' )
-  -- case (reduce_seq $! p+1) (
-  -- where -- ( ws,  seqdefs {- , p'' -} ) = {- co `seq` seqdefs' `seq`-} reduce_seqs p {-'-} seqdefs ss
-
-        -- ( ws', _, p' ) = 
-        -- seqdefs' = seqdefs -- |> defaultValue { Config.Sequence.contig = Q.singleton co
-                         --             , Config.Sequence.name = Utf8 (B.fromChunks [n]) }
-        -- co = defaultValue { Config.Contig.offset      = p+1
-                          -- , Config.Contig.range_start = 0
-                          -- , Config.Contig.range_end   = p'-p-1 }
+    sd <- uncurry reduce_seq x
+    st <- get
+    put $! st { out_seqdefs = sd : out_seqdefs st }
+    reduce_seqs xs
                 
-reduce_seq :: [ (Word8, [Op Word8]) ] -> Out [Cigar]
-reduce_seq = r (repeat Q.empty) 
+reduce_seq :: Tree -> [B.ByteString] -> Out CodedSeqdef
+reduce_seq t bs = do
+    p <- gets out_p
+    cigars <- r (repeat Q.empty) (consensus t bs)
+    p' <- gets out_p
+
+    let hs = map (\c -> defaultValue { Config.Homolog.cigar = encodeCigar c }) cigars
+    let co = defaultValue { Config.Contig.offset      = p+1
+                          , Config.Contig.range_start = 0
+                          , Config.Contig.range_end   = p'-p-1
+                          , Config.Contig.homolog     = Q.fromList hs }
+        sd = defaultValue { Config.Sequence.contig = Q.singleton co
+                          , Config.Sequence.name = Utf8 (B.fromChunks [n_chrom t]) }
+        code = runPut $ messagePutM $ sd
+
+    B.length code `seq` return $ CodedSeqdef code
+
   where
     r cs [              ] = return cs
     r cs ( (x,ops) : xs ) = (r $! zipWith' app_op cs ops) xs 
 
+        
 app_op :: Cigar -> Op Word8 -> Cigar
 app_op c o = case ( Q.viewr c, o ) of
-    ( c' :> Match n,    Match m   ) -> (|>) c' $! Match (n+m)
-    ( c' :> Delete n,   Delete m  ) -> (|>) c' $! Delete (n+m)
-    ( c' :> Replace xs, Replace x ) -> (|>) c' $! Replace ((|>) xs $! x)
-    ( c' :> Replace xs, _         ) -> (c' |> Delete (Q.length xs) |> Insert xs) `app2` o
-    ( c' :> Insert xs,  Insert x  ) -> (|>) c' $! Insert ((|>) xs $! x)
+    ( c' :> Match n,    Match m   ) -> (|>) c' $! Match $! n+m
+    ( c' :> Delete n,   Delete m  ) -> (|>) c' $! Delete $! n+m
+    ( c' :> Replace xs, Replace x ) -> (|>) c' $! Replace $! ((|>) xs $! x)
+    -- ( c' :> Replace xs, _         ) -> (c' |> Delete (Q.length xs) |> Insert xs) `app2` o
+    ( c' :> Insert xs,  Insert x  ) -> (|>) c' $! Insert $! ((|>) xs $! x)
     ( _,                _         ) -> app2 c o
   where 
-    app2 c (Replace x) = c |> Replace (Q.singleton $! x)
-    app2 c (Insert  x) = c |> Insert  (Q.singleton $! x)
-    app2 c (Match   n) = c |> Match n
-    app2 c (Delete  n) = c |> Delete n
+    app2 c (Replace x) = (|>) c $! Replace $! (Q.singleton $! x)
+    app2 c (Insert  x) = (|>) c $! Insert  $! (Q.singleton $! x)
+    app2 c (Match   n) = (|>) c $! Match n
+    app2 c (Delete  n) = (|>) c $! Delete n
     app2 c NoOp        = c
+
+encodeCigar :: Cigar -> Q.Seq Word32
+encodeCigar = foldMap encodeOp
+  where
+    -- encoding cigar as sequence of ints: low two bits are operation (0 == match, 1 == delete, 2 == insert), rest is either a
+    -- nucleotide (for insert) or a number (otherwise); replacement becomes deletion + insertion
+    encodeOp (Match n)   = Q.singleton $ n `shiftL` 2 .|. 0
+    encodeOp (Delete n)  = Q.singleton $ n `shiftL` 2 .|. 1
+    encodeOp (Insert xs) = fmap (\x -> fromIntegral x `shiftL` 2 .|. 2) xs
+    encodeOp (Replace xs) = encodeOp (Delete (fromIntegral (Q.length xs))) `mappend` encodeOp (Insert xs)
+    encodeOp NoOp = Q.empty
 
 {-# INLINE zipWith' #-}
 zipWith' :: ( a -> b -> c ) -> [a] -> [b] -> [c]
 zipWith' f (x:xs) (y:ys) = ((:) $! f x y) (zipWith' f xs ys)
 zipWith' f _ _ = []
 
-write_dna_file :: FilePath -> [ ( S.ByteString, AncSeq ) ] -> IO ()
+write_dna_file :: FilePath -> [ ( Tree, [B.ByteString] ) ] -> IO ()
 write_dna_file path aseqs = 
     withBinaryFile path WriteMode $ \h -> do
         B.hPut h $ B.pack "DNA1\xD\xE\xA\xD\xB\xE\xE\xF"
         putStrLn "done writing header"
 
-        let ( Out { out_seqdefs = seqdefs, out_p = total }, bytes ) =
-                runPutM $ execStateT (reduce_seqs aseqs) (Out { out_p = 24, out_seqdefs = Q.empty, out_byte = 0 })
-        B.hPut h bytes
+        Out { out_seqdefs = seqdefs, out_p = total } <- execStateT (reduce_seqs aseqs) $
+                    Out { out_p = 24, out_seqdefs = [], out_byte = 0, out_hdl = h }
         putStrLn "done writing bases"
 
         index_start <- hTell h
         B.hPut h $ runPut $ messagePutM $ defaultValue {
-                Config.Genome.name        = Just $ Utf8 $ B.pack "ca",
+                Config.Genome.name        = Just $ Utf8 $ B.pack "CA",
                 Config.Genome.description = Just $ Utf8 $ B.pack "Human-Chimp common ancestor",
-                Config.Genome.sequence    = seqdefs,
+                Config.Genome.sequence    = foldr (\(CodedSeqdef sd) q -> q |> getFromBS messageGetM sd) Q.empty seqdefs,
                 Config.Genome.total_size  = total }
         index_end <- hTell h
+        putStrLn "done writing metainfo"
         
         hSeek h AbsoluteSeek 4
         B.hPut h $ runPut $ do putWord32le (fromIntegral index_start)
                                putWord32le (fromIntegral $ index_end-index_start)
+        putStrLn "done writing pointers"
+
 

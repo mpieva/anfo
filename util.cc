@@ -93,8 +93,7 @@ void Console::update()
     if( 0 == ioctl( fd_, TIOCGWINSZ, &ws ) ) width = ws.ws_col-1 ;
 
 	std::string line = "\r\e[K" ;
-	for( std::map<int, std::string>::const_reverse_iterator ch = chans_.rbegin() ;
-		width >= 3 && ch != chans_.rend() ; ++ch )
+	for( Chans::const_iterator ch = chans_.begin() ; width >= 3 && ch != chans_.end() ; ++ch )
 	{
 		line.push_back( '[' ) ;
 		line.append( ch->second.substr( 0, width-2 ) ) ;
@@ -105,4 +104,35 @@ void Console::update()
 	mywrite( fd_, line.data(), line.size() - (line[line.size()-1] == ' ') ) ;
 }
 
+void Console::free_chan( int c )
+{
+	for( Chans::iterator i = chans_.begin() ; i != chans_.end() ; ++i )
+	{
+		if( i->first == c ) 
+		{
+			chans_.erase(i) ; 
+			update() ; 
+			return ; 
+		}
+	}
+}
+
+void Console::progress( int c, Loglevel l, const std::string& s )
+{
+	if( l < loglevel ) return ;
+
+	for( Chans::iterator i = chans_.begin() ; i != chans_.end() ; ++i )
+	{
+		if( i->first == c )
+		{
+			i->second = s ;
+			if( i != chans_.begin() ) std::swap( i[0], i[-1] ) ;
+			update() ;
+			return ;
+		}
+	}
+
+	chans_.push_front( make_pair( c, s ) ) ;
+	update() ;
+}
 

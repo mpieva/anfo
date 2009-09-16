@@ -4,8 +4,8 @@
 #include <cerrno>
 #include <cstring>
 #include <cstdlib>
+#include <deque>
 #include <iosfwd>
-#include <map>
 #include <sstream>
 #include <string>
 
@@ -209,18 +209,17 @@ class Console
 	private:
 		int fd_ ;
 		int next_ ;
-		std::map< int, std::string > chans_ ;
+		typedef std::deque< std::pair< int, std::string > > Chans ;
+		Chans chans_ ;
 
 	public:
 		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
 		~Console() { if( fd_ >= 0 ) { mywrite( fd_, "\n", 1 ) ; close( fd_ ) ; } }
 
 		int alloc_chan() { return ++next_ ; }
-		void free_chan( int c ) { chans_.erase( c ) ; update() ; }
+		void free_chan( int c ) ;
+		void progress( int c, Loglevel l, const std::string& s ) ;
 		void update() ; 
-
-		void progress( int c, Loglevel l, const std::string& s )
-		{ if( l >= loglevel ) { chans_[c] = s ; update() ; } }
 
 		void output( Loglevel, const std::string& ) ;
 
