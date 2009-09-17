@@ -92,6 +92,7 @@ void Console::update()
 	struct winsize ws;
     if( 0 == ioctl( fd_, TIOCGWINSZ, &ws ) ) width = ws.ws_col-1 ;
 
+	if( chans_.empty() ) return ;
 	std::string line = "\r\e[K" ;
 	for( Chans::const_iterator ch = chans_.begin() ; width >= 3 && ch != chans_.end() ; ++ch )
 	{
@@ -102,6 +103,7 @@ void Console::update()
 		width -= ch->second.size()+3 ;
 	}
 	mywrite( fd_, line.data(), line.size() - (line[line.size()-1] == ' ') ) ;
+	wrote_anything_ = true ;
 }
 
 void Console::free_chan( int c )
