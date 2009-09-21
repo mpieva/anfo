@@ -29,7 +29,8 @@
  -
  -}
 
-import           Control.Monad.State
+import           Control.Monad.State hiding ( forM_ )
+import           Data.Array.Unboxed
 import           Data.Attoparsec.Char8
 import           Data.Binary.Put
 import           Data.Bits ( (.|.), shiftL )
@@ -37,14 +38,14 @@ import qualified Data.ByteString.Char8 as S
 import qualified Data.ByteString.Lazy.Char8 as B
 import           Data.Char ( isSpace, toLower, chr )
 import           Data.Foldable hiding ( foldr, concatMap )
+import qualified Data.Map as M
 import qualified Data.Sequence as Q
-import           Data.Sequence ( (|>), (><), ViewR(..) )
+import           Data.Sequence ( (|>), ViewR(..) )
 import qualified Data.Set as Set
 import           Data.Word ( Word8 )
 import           System.Environment ( getArgs )
 import           System.IO
 import           Text.ProtocolBuffers
-import           Text.ProtocolBuffers.WireMessage ( getFromBS )
 
 import qualified Config.Contig
 import qualified Config.Homolog
@@ -57,6 +58,8 @@ data Tree = Empty
           | Node { n_label    :: {-# UNPACK #-} !Label
                  , n_chrom    :: {-# UNPACK #-} !S.ByteString
                  , n_start    :: {-# UNPACK #-} !Int32
+                 , n_end      :: {-# UNPACK #-} !Int32
+                 , n_strand   :: {-# UNPACK #-} !Bool
                  , n_left     :: {-# UNPACK #-} !Tree
                  , n_right    :: {-# UNPACK #-} !Tree
                  , n_sequence :: {-# UNPACK #-} !Int
@@ -142,7 +145,7 @@ find_seq :: [(B.ByteString, B.ByteString, B.ByteString, Int, Int, Bool)]
          -> (B.ByteString -> (Label, Tree, Tree)) -> Int -> Tree
 find_seq ((fam,spec,chr1,beg1,end1,str1):ss) d@(genome,chrom,beg,end,str) make_children i
     | B.tail genome `B.isPrefixOf` spec && (B.head genome,chr1,beg1,end1,str1) == (B.head fam,chrom,beg,end,str)
-        = Node lbl (shelve chrom) (fromIntegral $ if str then beg else -end) l r i
+        = Node lbl (shelve chrom) (fromIntegral beg) (fromIntegral end) str l r i
     | otherwise = find_seq ss d make_children (i+1)
   where (lbl, l, r) = make_children genome
 find_seq [] (genome,chrom,_,_,_) _ _
@@ -165,12 +168,28 @@ new_label _ Human = Essential
 new_label _ _ = Common
 
                        
+-- get either the essential common ancestors from a tree where the root
+-- is a common ancestor, or the single non-boring leaf or the only
+-- ancestor that has two non-boring children
 interesting_trees :: Tree -> [Tree]
-interesting_trees t@Node{ n_label = Essential } = [t]
-interesting_trees t@Node{ n_label = Common } = interesting_trees (n_left t) ++ interesting_trees (n_right t)
-interesting_trees _ = []
+interesting_trees t@Node{ n_label = Human } = interesting_trees_lbl Human t
+interesting_trees t@Node{ n_label = Chimp } = interesting_trees_lbl Chimp t
+interesting_trees t = interesting_trees_common t
 
-data Op a = Delete {-# UNPACK #-} !Word32 | Insert a | Match {-# UNPACK #-} !Word32 | Replace a | NoOp deriving Show
+interesting_trees_lbl :: Label -> Tree -> [Tree]
+interesting_trees_lbl l   Node{ n_label = l' } | l /= l' = []
+interesting_trees_lbl _ t@Node{ n_left = Empty, n_right = Empty } = [t]
+interesting_trees_lbl l t@Node{ n_left = tl, n_right = tr }
+    | n_label tl == l && n_label tr == l = [t]
+    | otherwise = interesting_trees_lbl l tl ++ interesting_trees_lbl l tr
+interesting_trees_lbl _ _ = [] 
+
+interesting_trees_common :: Tree -> [Tree]
+interesting_trees_common t@Node{ n_label = Essential } = [t]
+interesting_trees_common t@Node{ n_label = Common } = interesting_trees_common (n_left t) ++ interesting_trees_common (n_right t)
+interesting_trees_common _ = []
+
+data Op a = Delete {-# UNPACK #-} !Word32 | Insert a | Match {-# UNPACK #-} !Word32 | Replace a | InsN {-# UNPACK #-} !Word32 | ReplN {-# UNPACK #-} !Word32 | NoOp deriving Show
 
 get_trees :: Label -> Tree -> [Tree]
 get_trees _ Empty = []
@@ -243,10 +262,12 @@ type Cigar = Q.Seq (Op (Q.Seq Word8))
 data OutputState = Out { out_p :: {-# UNPACK #-} !Word32
                        , out_byte :: {-# UNPACK #-} !Word8
                        , out_hdl :: {-# UNPACK #-} !Handle
-                       , out_seqdefs :: [ CodedSeqdef ] }
+                       , out_seqdefs :: ![Contig]
+                       , out_missing_human :: !Missing
+                       , out_missing_chimp :: !Missing }
 type Out a = StateT OutputState IO a 
 
-newtype CodedSeqdef = CodedSeqdef B.ByteString
+-- newtype CodedSeqdef = CodedSeqdef { unCodedSeqdef :: S.ByteString }
 
 putNybble :: Word8 -> Out ()
 putNybble w = do
@@ -265,38 +286,39 @@ reduce_seqs [] = do
 reduce_seqs (x:xs) = do
     putNybble 0
     sd <- uncurry reduce_seq x
+    let humans = get_trees Human (fst x)
+        chimps = get_trees Chimp (fst x)
+        mark'em = foldl' (\m t -> mark (min (n_start t) (n_end t) - 1) (max (n_start t) (n_end t)) (n_chrom t) m)
+
     st <- get
-    put $! st { out_seqdefs = sd : out_seqdefs st }
+    put $! st { out_seqdefs = sd : out_seqdefs st
+              , out_missing_human = mark'em (out_missing_human st) humans
+              , out_missing_chimp = mark'em (out_missing_chimp st) chimps }
     reduce_seqs xs
                 
-reduce_seq :: Tree -> [B.ByteString] -> Out CodedSeqdef
+data Homolog = Hom { hom_label :: {-# UNPACK #-} !Label
+                   , hom_chrom :: {-# UNPACK #-} !S.ByteString
+                   , hom_start :: {-# UNPACK #-} !Int32
+                   , hom_cigar :: {-# UNPACK #-} !(UArray Int Word32) }
+
+data Contig = Ctg { ctg_offset :: {-# UNPACK #-} !Word32
+                  , ctg_length :: {-# UNPACK #-} !Word32
+                  , ctg_name   :: {-# UNPACK #-} !S.ByteString
+                  , ctg_homologs :: ![ Homolog ] }
+
+reduce_seq :: Tree -> [B.ByteString] -> Out Contig
 reduce_seq t bs = do
-    lift $ putStrLn $ ".o0O( " ++ S.unpack (n_chrom t) ++ " )"
+    lift $ hPutStrLn stderr $ ".o0O( " ++ S.unpack (n_chrom t) ++ " )"
     p <- gets out_p
     cigars <- r $ consensus t bs
     p' <- gets out_p
-    let genome Chimp = "pt2"
-        genome Human = "hg18"
-        genome _     = error "oops, picked wrong tree"
 
-        mkhom c t' = defaultValue { Config.Homolog.genome = Just . Utf8 . B.pack . genome $ n_label t'
-                                  , Config.Homolog.sequence = Just . Utf8 $ B.fromChunks [n_chrom t']
-                                  , Config.Homolog.start = n_start t'
-                                   , Config.Homolog.cigar = encodeCigar c }
+    let mkhom c t' = Hom (n_label t') (n_chrom t') start (listArray' (encodeCigar c))
+            where start = if n_strand t' then n_start t' else - n_end t'
+                  listArray' xs = listArray (1,length xs) xs
 
-        homologs = Q.fromList . zipWith mkhom cigars $ get_trees Human t ++ get_trees Chimp t
-
-        co = defaultValue { Config.Contig.offset      = p+1
-                          , Config.Contig.range_start = 0
-                          , Config.Contig.range_end   = p'-p-1
-                          , Config.Contig.homolog     = homologs }
-
-        sd = defaultValue { Config.Sequence.contig = Q.singleton co
-                          , Config.Sequence.name = Utf8 (B.fromChunks [n_chrom t]) }
-
-        code = runPut $ messagePutM $ sd
-
-    B.length code `seq` return $ CodedSeqdef code
+    return $! Ctg (p+1) (p'-p) (n_chrom t) $!
+        zipWith' mkhom cigars $ get_trees Human t ++ get_trees Chimp t
 
   where
     r [] = return []
@@ -309,27 +331,38 @@ reduce_seq t bs = do
 app_op :: Cigar -> Op Word8 -> Cigar
 app_op c o = case ( Q.viewr c, o ) of
     ( c' :> Match n,    Match m   ) -> (|>) c' $! Match $! n+m
+    ( c' :> InsN n,     InsN m    ) -> (|>) c' $! InsN $! n+m
+    ( c' :> InsN n,     Insert 15 ) -> (|>) c' $! InsN $! n+1
     ( c' :> Delete n,   Delete m  ) -> (|>) c' $! Delete $! n+m
-    ( c' :> Replace xs, Replace x ) -> (|>) c' $! Replace $! ((|>) xs $! x)
-    ( c' :> Insert xs,  Insert x  ) -> (|>) c' $! Insert $! ((|>) xs $! x)
+    ( c' :> ReplN n,    ReplN m   ) -> (|>) c' $! ReplN $! n+m
+    ( c' :> ReplN n,    Replace 15) -> (|>) c' $! ReplN $! n+1
+    ( c' :> Replace xs, Replace x ) | x /= 15 -> (|>) c' $! Replace $! ((|>) xs $! x)
+    ( c' :> Insert xs,  Insert x  ) | x /= 15 -> (|>) c' $! Insert $! ((|>) xs $! x)
     ( _,                _         ) -> app2 o
   where 
+    app2 (Replace 15)= (|>) c $! ReplN 1
     app2 (Replace x) = (|>) c $! Replace $! (Q.singleton $! x)
+    app2 (Insert 15) = (|>) c $! InsN 1
     app2 (Insert  x) = (|>) c $! Insert  $! (Q.singleton $! x)
     app2 (Match   n) = (|>) c $! Match n
     app2 (Delete  n) = (|>) c $! Delete n
+    app2 (InsN    n) = (|>) c $! InsN n
+    app2 (ReplN   n) = (|>) c $! ReplN n
     app2  NoOp       = c
 
-encodeCigar :: Cigar -> Q.Seq Word32
-encodeCigar = foldMap encodeOp
+encodeCigar :: Cigar -> [Word32]
+encodeCigar c = foldMap encodeOp c []
   where
     -- encoding CIGAR as sequence of ints: low two bits are operation (0 == match, 1 == delete, 2 == insert), rest is either a
     -- nucleotide (for insert) or a number (otherwise); replacement becomes deletion + insertion
-    encodeOp (Match n)   = Q.singleton $ n `shiftL` 2 .|. 0
-    encodeOp (Delete n)  = Q.singleton $ n `shiftL` 2 .|. 1
-    encodeOp (Insert xs) = fmap (\x -> fromIntegral x `shiftL` 2 .|. 2) xs
-    encodeOp (Replace xs) = encodeOp (Delete (fromIntegral (Q.length xs))) >< encodeOp (Insert xs)
-    encodeOp NoOp = Q.empty
+    encodeOp :: Op (Q.Seq Word8) -> [Word32] -> [Word32]
+    encodeOp (Match n)   = (:) (n `shiftL` 2 .|. 0)
+    encodeOp (Delete n)  = (:) (n `shiftL` 2 .|. 1)
+    encodeOp (Insert xs) = foldMap (\x -> (:) (fromIntegral x `shiftL` 2 .|. 2)) xs
+    encodeOp (InsN n)    = (:) (n `shiftL` 2 .|. 3)
+    encodeOp (Replace xs) = encodeOp (Delete (fromIntegral (Q.length xs))) . encodeOp (Insert xs)
+    encodeOp (ReplN n) = encodeOp (Delete n) . encodeOp (InsN n)
+    encodeOp NoOp = id
 
 {-# INLINE zipWith' #-}
 zipWith' :: ( a -> b -> c ) -> [a] -> [b] -> [c]
@@ -340,24 +373,124 @@ write_dna_file :: FilePath -> [ ( Tree, [B.ByteString] ) ] -> IO ()
 write_dna_file path aseqs = 
     withBinaryFile path WriteMode $ \h -> do
         B.hPut h $ B.pack "DNA1\xD\xE\xA\xD\xB\xE\xE\xF"
-        putStrLn "done writing header"
+        hPutStrLn stderr "done writing header"
 
-        Out { out_seqdefs = seqdefs, out_p = total } <- execStateT (reduce_seqs aseqs) $
-                    Out { out_p = 24, out_seqdefs = [], out_byte = 0, out_hdl = h }
-        putStrLn "done writing bases"
+        Out { out_seqdefs = seqdefs, out_p = total, out_missing_human = missing_human, out_missing_chimp = missing_chimp }
+            <- execStateT (reduce_seqs aseqs) $
+                    Out { out_p = 24, out_seqdefs = [], out_byte = 0, out_hdl = h
+                        , out_missing_human = human_tab, out_missing_chimp = chimp_tab }
+        hPutStrLn stderr "done writing bases"
+
+        {- 
+        forM_ seqdefs $ \c -> do
+            forM_ (ctg_homologs c) $ \hom -> do
+                hPrint stderr . hom_chrom $ h
+                hPrint stderr . uncurry (-) . bounds . hom_cigar $ h
+            hPrint stderr $ ctg_name c
+               
+        hPutStrLn stderr "metainfo looks fine"
+        -}
+
+        let genome Chimp = "pt2"
+            genome Human = "hg18"
+            genome _     = error "oops, picked wrong tree"
+
+            repack_homolog hom = defaultValue { 
+                    Config.Homolog.genome = Just . Utf8 . B.pack . genome $ hom_label hom,
+                    Config.Homolog.sequence = Just . Utf8 $ B.fromChunks [hom_chrom hom],
+                    Config.Homolog.start = hom_start hom,
+                    Config.Homolog.cigar = Q.fromList $ elems $ hom_cigar hom }
+
+            repack_contig c = defaultValue {
+                                Config.Sequence.contig = Q.singleton $ defaultValue {
+                                  Config.Contig.offset      = ctg_offset c,
+                                  Config.Contig.range_start = 0,
+                                  Config.Contig.range_end   = ctg_length c - 1,
+                                  Config.Contig.homolog     = Q.fromList $ map repack_homolog $ ctg_homologs c },
+                                Config.Sequence.name = Utf8 (B.fromChunks [ctg_name c]) }
 
         index_start <- hTell h
         B.hPut h $ runPut $ messagePutM $ defaultValue {
                 Config.Genome.name        = Just $ Utf8 $ B.pack "CA",
                 Config.Genome.description = Just $ Utf8 $ B.pack "Human-Chimp common ancestor",
-                Config.Genome.sequence    = foldr (\(CodedSeqdef sd) q -> q |> getFromBS messageGetM sd) Q.empty seqdefs,
+                Config.Genome.sequence    = Q.fromList $ map repack_contig $ reverse seqdefs,
                 Config.Genome.total_size  = total }
+
         index_end <- hTell h
-        putStrLn "done writing metainfo"
+        hPutStrLn stderr "done writing metainfo"
         
         hSeek h AbsoluteSeek 4
         B.hPut h $ runPut $ do putWord32le (fromIntegral index_start)
                                putWord32le (fromIntegral $ index_end-index_start)
-        putStrLn "done writing pointers"
+        hPutStrLn stderr "done writing pointers\n"
+    
+        let show_inner_map = M.foldWithKey (\a b k -> shows a . ('-':) . shows b . (", "++) . k) id
+            show_outer_map = M.foldWithKey (\c m k -> ("  " ++) . (S.unpack c ++) . (": " ++) . show_inner_map m . ('\n':) . k) id
+
+        putStrLn "Missing from human: "
+        putStr $ show_outer_map missing_human "\n"
+
+        putStrLn "Missing from chimp: "
+        putStr $ show_outer_map missing_chimp "\n"
+
+
+type Missing = M.Map S.ByteString (M.Map Int32 Int32)
+
+human_tab :: Missing
+human_tab = M.fromList [ "1" ==> 247249719, "1_random" ==> 1663265, "10" ==> 135374737, "10_random" ==> 113275, "11" ==> 134452384,
+    "11_random" ==> 215294, "12" ==> 132349534, "13" ==> 114142980, "13_random" ==> 186858, "14" ==> 106368585, "15" ==> 100338915,
+    "15_random" ==> 784346, "16" ==> 88827254, "16_random" ==> 105485, "17" ==> 78774742, "17_random" ==> 2617613, "18" ==>
+    76117153, "18_random" ==> 4262, "19" ==> 63811651, "19_random" ==> 301858, "2" ==> 242951149, "2_random " ==> 185571, "20" ==>
+    62435964, "21" ==> 46944323, "21_random" ==> 1679693, "22" ==> 49691432, "22_random" ==> 257318, "3" ==> 199501827, "3_random"
+    ==> 749256, "4" ==> 191273063, "4_random" ==> 842648, "5" ==> 180857866, "5_random" ==> 143687, "6" ==> 170899992, "6_random"
+    ==> 1875562, "7" ==> 158821424, "7_random" ==> 549659, "8" ==> 146274826, "8_random" ==> 943810, "9" ==> 140273252, "9_random"
+    ==> 1146434, "M" ==> 16571, "X" ==> 154913754, "X_random" ==> 1719168, "Y" ==> 57772954 ]
+  where c ==> l = (S.pack c, M.singleton 0 l)
+
+chimp_tab :: Missing
+chimp_tab = M.fromList [ "1" ==> 229974691, "1_random" ==> 9420409, "10" ==> 135001995, "10_random" ==> 8402541, "11" ==> 134204764,
+    "11_random" ==> 8412303, "12" ==> 135371336, "12_random" ==> 2259969, "13" ==> 115868456, "13_random" ==> 9231045, "14" ==>
+    107349158, "14_random" ==> 2108736, "15" ==> 100063422, "15_random" ==> 3087076, "16" ==> 90682376, "16_random" ==> 6370548,
+    "17" ==> 83384210, "17_random" ==> 5078517, "18" ==> 77261746, "18_random" ==> 1841920, "19" ==> 64473437, "19_random" ==>
+    2407237, "20" ==> 62293572, "20_random" ==> 1792361, "21" ==> 46489110, "22" ==> 50165558, "22_random" ==> 1182457, "2a" ==>
+    114460064, "2a_random" ==> 3052259, "2b" ==> 248603653, "2b_random" ==> 2186977, "3" ==> 203962478, "3_random" ==> 3517036, "4"
+    ==> 194897272, "4_random" ==> 6711082, "5" ==> 183994906, "5_random" ==> 3159943, "6" ==> 173908612, "6_random" ==> 9388360, "7"
+    ==> 160261443, "7_random" ==> 7240870, "8" ==> 145085868, "8_random" ==> 7291619, "9" ==> 138509991, "9_random" ==> 7733331, "M"
+    ==> 16554, "Un" ==> 58616431, "X" ==> 155361357, "X_random" ==> 3548706, "Y" ==> 23952694, "Y_random" ==> 772887 ] 
+  where c ==> l = (S.pack c, M.singleton 0 l)
+
+-- mark an interval: find all overlapping intervals, cut them back,
+-- reassemble a finite map
+-- Intervals are sorted by start coordinate.  Splitlookup is a good
+-- start: candidates are the last interval in the left part, the direct
+-- hit, and the minima of the right part.
+
+mark :: Int32 -> Int32 -> S.ByteString -> Missing -> Missing
+mark l r c  _ | l `seq` r `seq` c `seq` False = undefined
+mark l r c m0 = case M.lookup c m0 of 
+                    Just m -> (M.insert c $! mark1 m) m0 
+                    Nothing -> m0
+  where 
+    mark1 m = mleft' `M.union` hit' `M.union` mright' mright
+      where
+        (mleft, mhit, mright) = M.splitLookup l m
+        hit' = case mhit of
+                    Nothing -> M.empty 
+                    Just i -> markI (l,i)
+
+        mleft' = case M.maxViewWithKey mleft of
+                    Nothing -> M.empty
+                    Just (i,mleft1) -> mleft1 `M.union` markI i
+
+        mright' mr = case M.maxViewWithKey mr of
+                        Nothing -> M.empty
+                        Just ((u,_),_) | u >= r -> mr
+                        Just (i,mr') -> markI i `M.union` mright' mr'
+
+    markI (u,v) | l >= v || r <= u = M.singleton u v
+                | l >  u && r <  v = M.singleton u l `M.union` M.singleton r v
+                | l >  u           = M.singleton u l
+                |           r <  v = M.singleton r v
+                | otherwise        = M.empty
 
 
