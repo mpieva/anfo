@@ -94,8 +94,9 @@ doc/html/index.html: Doxyfile *.cc *.h
 tags: *.cc *.h
 	-ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
 
-clean:
-	-rm $(TARGETS)
-	-rm -r doc
+dist-clean:
 	-rm *.o *.d *.pb.cc *.pb.h
 
+clean:
+	-rm -r doc
+	-rm $(TARGETS) anfo-shell
