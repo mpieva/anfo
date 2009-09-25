@@ -20,7 +20,16 @@ Prerequisites are...
 
  - Doxygen, if you want the documentation.  Can be found at http://doxygen.org
 
-If you have those, call 'make', then 'make doc' to create the documentation.
+ - zlib from zlib.net
+
+ - libbz2 from bzip2.org
+
+ - Guile from http://www.gnu.org/software/guile (optional).
+
+If you have those, call './configure', 'make', then 'make doc' to create
+the documentation, then 'make install'.  If you want to toy with it,
+'make anfo-shell' builds a scheme-based shell (that doesn't do much,
+yet).
 
 
 How to use it?
@@ -108,15 +117,8 @@ Pretty much stabilized are...
    principle.
 
 
-Royal mess:
+Copyright
 
- - the main program (anfo-standalone.cc) and aux. tools (anfo-type,
-   file-info, anfo-merge and anfo-sort)
-
-   These have just grown.  The aux. tools might work the way they are or may
-   change chape; just treat them as debugging aid.  The main program was never
-   planned (the original plan is to have a set of interconnected, networked
-   services), but I'm afraid we're stuck with it for the time being.  Parts of
-   it should be abstracted out, especially the interfaces to the indexer(s) and
-   aligner(s) are absolutely unclean.  Oh well...
+Anfo is (C) 2009 by Udo Stenzel and licensed under the Gnu GPL v3 or
+later.  You can reach me at udo_stenzel@eva.mpg.de
 
