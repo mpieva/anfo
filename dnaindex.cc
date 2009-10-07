@@ -197,7 +197,6 @@ int main_( int argc, const char * argv[] )
 	enum option_tags { opt_none, opt_version, opt_path } ;
 
 	const char* output_file = 0 ;
-	const char* output_dir  = "." ;
 	const char* description = 0 ;
 	const char* genome_file = 0 ;
 
@@ -211,7 +210,6 @@ int main_( int argc, const char * argv[] )
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Output index to FILE", "FILE" },
-		{ "output-dir",  'O', POPT_ARG_STRING, &output_dir,  opt_none,    "Write output in folder DIR", "DIR" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_file, opt_none,    "Read genome from FILE", "FILE" },
 		{ "genome-dir",  'G', POPT_ARG_STRING, 0,            opt_path,    "Add DIR to genome search path", "DIR" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
@@ -333,7 +331,6 @@ int main_( int argc, const char * argv[] )
  
 	std::clog << "Writing " << genome.name() << "..." << std::endl ;
 	std::stringstream output_path ;
-	output_path << output_dir << '/' ;
 	if( output_file ) output_path << output_file ;
 	else output_path << genome.name() << '_' << wordsize << ".idx" ;
 	int fd = throw_errno_if_minus1( creat( output_path.str().c_str(), 0644 ), "opening", output_path.str().c_str() ) ;
