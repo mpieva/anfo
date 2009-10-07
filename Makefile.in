@@ -4,6 +4,8 @@ exec_prefix ?= @exec_prefix@
 datadir ?= @datadir@
 datarootdir ?= @datarootdir@
 docdir ?= @docdir@
+htmldir ?= @htmldir@
+mandir ?= @mandir@
 
 CXX ?= @CXX@
 CPP ?= @CPP@
@@ -32,41 +34,22 @@ endif
 
 TARGETS := $(PROGS) index-test file-info dump-params
 
-ifeq (@SIZEOF_INT_P@,4)
-DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
-else
-DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
-endif
-
 all: tags $(TARGETS)
-dbs: $(DATABASES)
 
 OBJECTS := align.o anfo_common.o config.pb.o ducttape.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
 
 install: $(PROGS)
-	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
-	$(INSTALL_PROGRAM) $(PROGS) @bindir@
-	test -d @docdir@ || $(INSTALL) -d -m 755 @docdir@
-	$(INSTALL_DATA) README @docdir@
+	test -d $(bindir) || $(INSTALL) -d -m 755 $(bindir)
+	$(INSTALL_PROGRAM) $(PROGS) $(bindir)
+	test -d $(docdir) || $(INSTALL) -d -m 755 $(docdir)
+	$(INSTALL_DATA) README $(docdir)
+	test -d $(mandir) || $(INSTALL) -d -m 755 $(mandir)/man1
+	$(INSTALL_DATA) fa2dna.1 $(mandir)/man1
 
 install_doc: doc/html/index.html
-	test -d @htmldir@/html || $(INSTALL) -d -m 755 @htmldir@/html
-	$(INSTALL_DATA) doc/html/* @htmldir@/html
+	test -d $(htmldir)/html || $(INSTALL) -d -m 755 $(htmldir)/html
+	$(INSTALL_DATA) doc/html/* $(htmldir)/html
 
-
-../data/hg18.dna: fa2dna
-	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -O ${@D} -v \
-	    	/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr*.fa
-
-../data/chr21.dna: fa2dna
-	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -O ${@D} -v \
-		/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr21.fa
-
-../data/hg18_10.idx: ../data/hg18.dna dnaindex
-	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
-
-../data/chr21_10.idx: ../data/chr21.dna dnaindex
-	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
 
 anfo-shell: anfo-shell.cc $(OBJECTS)
 	$(CXX) $(DEFS) $(LDFLAGS) $(CXXFLAGS) @GUILE_CFLAGS@ $^ -o $@ @GUILE_LDFLAGS@ $(LDLIBS) 
