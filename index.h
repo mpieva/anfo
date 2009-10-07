@@ -171,7 +171,8 @@ inline std::ostream& operator << ( std::ostream& o, const Seed& s )
 class FixedIndex 
 {
 	public:
-		enum { signature = 0x31584449u } ; // IDX1 
+		enum { old_signature = 0x31584449u     // IDX1 
+		     , signature     = 0x32584449u } ; // IDX2
 
 		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
 
@@ -182,7 +183,7 @@ class FixedIndex
 		FixedIndex( const std::string &name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~FixedIndex() ;
 
-		unsigned lookupS( const std::string& /*QSequence&*/ seq, std::vector<Seed>&,
+		unsigned lookupS( const std::string&  seq, std::vector<Seed>&,
 				bool near_perfect = false, int *num_useless = 0,
 				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
 		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offs, int *num_useless ) const ;

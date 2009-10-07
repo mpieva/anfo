@@ -109,17 +109,21 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 
 		if( adv ) madvise( p, length, adv ) ;
 
-		if( *(const uint32_t*)p != signature ) 
+		if( *(const uint32_t*)p != signature && *(const uint32_t*)p != old_signature ) 
 			throw name + string(" does not have 'IDX1' signature") ;
 
 		uint32_t meta_len = ((const uint32_t*)p)[1] ;
 		if( !ci_.ParseFromArray( (const char*)p + 8, meta_len ) )
 			throw "error parsing meta information" ;
 
-		// XXX: this line is actually correct, but indexes need to be
-		// rebuilt
-		// first_level_len = (1 << (2 * ci_.wordsize())) + 1 ;
-		first_level_len = 1 << ((2 * ci_.wordsize()) + 1) ;
+		if( *(const uint32_t*)p == old_signature ) 
+			// this is actually buggy, but just wastes memory.  left in
+			// to support old indices
+			first_level_len = 1 << ((2 * ci_.wordsize()) + 1) ;
+		else
+			// correct version for new indices
+			first_level_len = (1 << (2 * ci_.wordsize())) + 1 ;
+
 		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
 	}

@@ -248,9 +248,7 @@ int main_( int argc, const char * argv[] )
 
 	CompactGenome genome( genome_file, MADV_SEQUENTIAL ) ;
 
-	// XXX next line is correct, need to rebuild indexes afterwards
-	// uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
-	uint64_t first_level_len = 1 << ((2 * wordsize) + 1) ;
+	uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
 	assert( std::numeric_limits<uint32_t>::max() > first_level_len ) ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
 
