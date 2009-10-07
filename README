@@ -54,15 +54,15 @@ Garching, /var/tmp/udo on bionc02), but here's how to do it yourself:
  - Write a sensible anfo.cfg using the examples in conf/ and
    config.proto as guideline.
 
- - You can run index-test, anfo-standalone or anfo-sge now.  Index-test
+ - You can run index-test, anfo or anfo-sge now.  Index-test
    just does lookups in the index, and optionally (on simulated data)
    checks if a seed in the correct region was found.  
    nonsense, something is fucked up.
 
- - anfo-standalone/anfo-sge can be run on any FASTA/FASTQ/FOURQ file
-   now.  No offically blessed, "correct" sets of output exist, yet.
-   Anfo-standalone can run multi-threaded, anfo-sge will not, but
-   contains numerous workarounds for the hostile SGE environment.
+ - anfo/anfo-sge can be run on any FASTA/FASTQ file now.  No offically
+   blessed, "correct" sets of output exist, yet.  Anfo can run
+   multi-threaded, anfo-sge will not, but contains numerous workarounds
+   for the hostile SGE environment.
 
 
 What's stable and what isn't?

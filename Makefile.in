@@ -27,9 +27,11 @@ CXXFLAGS += -DNDEBUG -O3 -fomit-frame-pointer -march=k8
 # CXXFLAGS += -ggdb -O0
 
 PROGS := fa2dna dnaindex anfo-sge anfo-tool 
+MANS := fa2dna.1 dnaindex.1 anfo-sge.1
 
 ifneq (,$(findstring -lpthread,$(LDLIBS)))
-PROGS += anfo-standalone
+PROGS += anfo
+MANS += anfo.1
 endif
 
 TARGETS := $(PROGS) index-test file-info dump-params
@@ -44,7 +46,7 @@ install: $(PROGS)
 	test -d $(docdir) || $(INSTALL) -d -m 755 $(docdir)
 	$(INSTALL_DATA) README $(docdir)
 	test -d $(mandir) || $(INSTALL) -d -m 755 $(mandir)/man1
-	$(INSTALL_DATA) fa2dna.1 $(mandir)/man1
+	$(INSTALL_DATA) $(MANS)1 $(mandir)/man1
 
 install_doc: doc/html/index.html
 	test -d $(htmldir)/html || $(INSTALL) -d -m 755 $(htmldir)/html
