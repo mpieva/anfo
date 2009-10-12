@@ -80,9 +80,12 @@ doc/html/index.html: Doxyfile *.cc *.h
 tags: *.cc *.h
 	-ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
 
-dist-clean:
+mostly-clean:
 	-rm *.o *.d *.pb.cc *.pb.h
 
-clean: dist-clean
+dist-clean: mostly-clean
+	-rm -r Makefile autom4te.cache config.h config.log config.status tags 
+
+clean: mostly-clean
 	-rm -r doc
 	-rm $(TARGETS) anfo-shell

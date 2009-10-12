@@ -16,13 +16,14 @@ anfo-tool \- process native ANFO binary files
 .B anfo-tool [
 .I option
 .B |
-.I file
+.I pattern
 .B ... ]
 .SH DESCRIPTION
 .B anfo-tool
 is used to filter, process and convert the files created by
 .BR anfo . 
-For every input file (or the standard input, if no file is given),
+Every pattern on the command line is wildcard expanded, then for every
+input file (or the standard input, if no pattern is given),
 .B anfo-tool
 builds a chain of input filters, it then merges these input streams in
 one of several ways, splits the result up into multiple output streams,
