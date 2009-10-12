@@ -2,8 +2,8 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT([anfo], [0.96], [udo_stenzel@eva.mpg.de])
-AC_CONFIG_SRCDIR([util.cc])
+AC_INIT([anfo], [svn], [udo_stenzel@eva.mpg.de])
+AC_CONFIG_SRCDIR([src/util.cc])
 AC_CONFIG_HEADER([config.h])
 
 # Checks for programs.

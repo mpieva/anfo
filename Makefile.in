@@ -27,19 +27,26 @@ CXXFLAGS += -MMD -Wall -Werror
 CXXFLAGS += -DNDEBUG -O3 -fomit-frame-pointer -march=k8
 # CXXFLAGS += -ggdb -O0
 
-PROGS := fa2dna   dnaindex   anfo-sge   anfo-tool   file-info 
-MANS  := fa2dna.1 dnaindex.1 anfo-sge.1 anfo-tool.1 file-info.1
+PROGS := src/fa2dna   src/dnaindex   src/anfo-sge   src/anfo-tool   src/file-info 
+MANS  := src/fa2dna.1 src/dnaindex.1 src/anfo-sge.1 src/anfo-tool.1 src/file-info.1
 
 ifneq (,$(findstring -lpthread,$(LDLIBS)))
-PROGS += anfo
-MANS  += anfo.1
+    PROGS += src/anfo
+    MANS  += src/anfo.1
 endif
 
-TARGETS := $(PROGS) index-test 
+ifneq (,@GUILE@)
+    PROGS += src/anfo-shell
+    MANS  += src/anfo-shell.1
+endif
+
+TARGETS := $(PROGS) src/index-test 
 
 all: tags $(TARGETS)
 
-OBJECTS := align.o anfo_common.o config.pb.o ducttape.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
+OBJECTS := src/align.o src/anfo_common.o src/config.pb.o src/ducttape.o \
+	   src/index.o src/output.pb.o src/output_streams.o \
+	   src/sequence.o src/stream.o src/util.o 
 
 install: $(TARGETS) $(if $(DOXYGEN), install_doc)
 	test -d $(bindir) || $(INSTALL) -d -m 755 $(bindir)
@@ -54,38 +61,38 @@ install_doc: doc/html/index.html
 	$(INSTALL_DATA) doc/html/* $(htmldir)/html
 
 
-anfo-shell: anfo-shell.cc $(OBJECTS)
+src/anfo-shell: src/anfo-shell.cc $(OBJECTS)
 	$(CXX) $(DEFS) $(LDFLAGS) $(CXXFLAGS) @GUILE_CFLAGS@ $^ -o $@ @GUILE_LDFLAGS@ $(LDLIBS) 
 
 %: %.o $(OBJECTS)
 	$(CXX) $(DEFS) $(LDFLAGS) $^ -o $@ $(LDLIBS) 
  
-%.o: %.cc config.pb.h output.pb.h
+%.o: %.cc src/config.pb.h src/output.pb.h
 	$(CXX) $(DEFS) $(CXXFLAGS) -c $< -o $@
 
 %.pb.cc %.pb.h: %.proto
-	$(PROTOC) --cpp_out=$(*D) $<
+	$(PROTOC) -I src --cpp_out=$(*D) $<
 
--include *.d
+-include src/*.d
 
 .PRECIOUS: %.o %.pb.cc %.pb.h
-.PHONY: clean all doc
+.PHONY: clean mostly-clean dist-clean all doc
 .SUFFIXES:
 
 doc: doc/html/index.html
 
-doc/html/index.html: Doxyfile *.cc *.h
+doc/html/index.html: Doxyfile src/*.cc src/*.h
 	$(DOXYGEN)
 
-tags: *.cc *.h
+tags: src/*.cc src/*.h
 	-ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
 
 mostly-clean:
-	-rm *.o *.d *.pb.cc *.pb.h
+	-rm src/*.o src/*.d src/*.pb.cc src/*.pb.h
 
 dist-clean: mostly-clean
 	-rm -r Makefile autom4te.cache config.h config.log config.status tags 
 
 clean: mostly-clean
 	-rm -r doc
-	-rm $(TARGETS) anfo-shell
+	-rm $(TARGETS)

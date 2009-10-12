@@ -20,7 +20,9 @@
 //! as if it contains a coordinate (simulated data does), this program
 //! will check whether a seed in the correct region is found at all.
 
-#include "config.h"
+#ifdef HAVE_CONFIG_H
+#include "../config.h"
+#endif
 
 #include "align.h"
 #include "anfo_common.h"

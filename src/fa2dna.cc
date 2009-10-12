@@ -52,7 +52,10 @@
  *       data base.
  */
 
-#include "config.h"
+#ifdef HAVE_CONFIG_H
+#include "../config.h"
+#endif
+
 #include "conffile.h"
 #include "config.pb.h"
 #include "index.h"

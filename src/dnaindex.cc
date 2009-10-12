@@ -53,7 +53,10 @@
  * probably impractical anyway.)  
  */
 
-#include "config.h"
+#ifdef HAVE_CONFIG_H
+#include "../config.h"
+#endif
+
 #include "index.h"
 #include "util.h"
 #include "config.pb.h"

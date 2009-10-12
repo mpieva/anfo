@@ -1,0 +1,48 @@
+.\" ANFO short read aligner
+.\" (C) 2009 Udo Stenzel
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 3 of the License, or (at
+.\" your option) any later version.  See the COPYING file for details.
+
+.\" Process this file with
+.\" groff -man -Tascii patman.1
+.\"
+.TH ANFO-SHELL 1 "OCTOBER 2009" Applications "User Manuals"
+.SH NAME
+anfo-shell \- run Guile interpreter with ANFO support
+.SH SYNOPSIS
+.B anfo-shell [
+.I option
+.B ... ]
+.SH DESCRIPTION
+.B anfo-shell
+is a standard
+.B guile
+interpreter extended by functions to operate on 
+.B anfo
+streams.  Please refer to the documentation of
+.B guile
+for how to invoke a guile interpreter.
+
+In general, there is one function for every stream that is available in
+.BR anfo-tool .
+These functions take the appropriate arguments, where multiple or
+optional arguments are typically named.  A list of streams acts as a
+chain.  The typical use of
+.B anfo-shell 
+will be to build a single chain starting with an input stream and ending
+with an output stream, which results in one pass over the inputs,
+application of transformations and writing of potentially multiple
+outputs.
+
+.SH BUGS
+Both this program and its documentation are sadly incomplete.
+
+.SH AUTHOR
+Udo Stenzel <udo_stenzel@eva.mpg.de>
+
+.SH "SEE ALSO"
+.BR anfo "(1), " anfo-tool (1)
+
