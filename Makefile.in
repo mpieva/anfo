@@ -28,16 +28,16 @@ CXXFLAGS += -DNDEBUG -O3 -fomit-frame-pointer -march=k8
 # CXXFLAGS += -ggdb -O0
 
 PROGS := src/fa2dna   src/dnaindex   src/anfo-sge   src/anfo-tool   src/file-info 
-MANS  := src/fa2dna.1 src/dnaindex.1 src/anfo-sge.1 src/anfo-tool.1 src/file-info.1
+MANS  := man/fa2dna.1 man/dnaindex.1 man/anfo-sge.1 man/anfo-tool.1 man/file-info.1
 
 ifneq (,$(findstring -lpthread,$(LDLIBS)))
     PROGS += src/anfo
-    MANS  += src/anfo.1
+    MANS  += man/anfo.1
 endif
 
 ifneq (,@GUILE@)
     PROGS += src/anfo-shell
-    MANS  += src/anfo-shell.1
+    MANS  += man/anfo-shell.1
 endif
 
 TARGETS := $(PROGS) src/index-test 
