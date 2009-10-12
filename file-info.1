@@ -1,0 +1,41 @@
+.\" ANFO short read aligner
+.\" (C) 2009 Udo Stenzel
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 2 of the License, or (at
+.\" your option) any later version.  See the LICENSE file for details.
+
+.\" Process this file with
+.\" groff -man -Tascii patman.1
+.\"
+.TH FILE-INFO 1 "OCTOBER 2009" Applications "User Manuals"
+.SH NAME
+fa2dna \- format fasta database for use with ANFO
+.SH SYNOPSIS
+.B file-info [
+.I file
+.B ... ]
+.SH DESCRIPTION
+.B file-info
+reads one or more files in various formats that 
+.BR anfo (1)
+understands, and for each file prints to stdout
+.IP \(bu 4
+the type of file if it was identified,
+.IP \(bu 4
+a textual form of the configuration, if a configuration is contained in
+it,
+.IP \(bu 4
+the substitution matrix and other alignment parameters, if an aligner
+configuration was contained.
+
+.SH BUGS
+None known.
+
+.SH AUTHOR
+Udo Stenzel <udo_stenzel@eva.mpg.de>
+
+.SH "SEE ALSO"
+.BR anfo (1)
+

@@ -3,6 +3,7 @@ prefix ?= @prefix@
 exec_prefix ?= @exec_prefix@
 datadir ?= @datadir@
 datarootdir ?= @datarootdir@
+bindir ?= @bindir@
 docdir ?= @docdir@
 htmldir ?= @htmldir@
 mandir ?= @mandir@
@@ -26,27 +27,27 @@ CXXFLAGS += -MMD -Wall -Werror
 CXXFLAGS += -DNDEBUG -O3 -fomit-frame-pointer -march=k8
 # CXXFLAGS += -ggdb -O0
 
-PROGS := fa2dna dnaindex anfo-sge anfo-tool 
-MANS := fa2dna.1 dnaindex.1 anfo-sge.1
+PROGS := fa2dna   dnaindex   anfo-sge   anfo-tool   file-info 
+MANS  := fa2dna.1 dnaindex.1 anfo-sge.1 anfo-tool.1 file-info.1
 
 ifneq (,$(findstring -lpthread,$(LDLIBS)))
 PROGS += anfo
-MANS += anfo.1
+MANS  += anfo.1
 endif
 
-TARGETS := $(PROGS) index-test file-info dump-params
+TARGETS := $(PROGS) index-test 
 
 all: tags $(TARGETS)
 
 OBJECTS := align.o anfo_common.o config.pb.o ducttape.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
 
-install: $(PROGS)
+install: $(TARGETS) $(if $(DOXYGEN), install_doc)
 	test -d $(bindir) || $(INSTALL) -d -m 755 $(bindir)
 	$(INSTALL_PROGRAM) $(PROGS) $(bindir)
 	test -d $(docdir) || $(INSTALL) -d -m 755 $(docdir)
 	$(INSTALL_DATA) README $(docdir)
 	test -d $(mandir) || $(INSTALL) -d -m 755 $(mandir)/man1
-	$(INSTALL_DATA) $(MANS)1 $(mandir)/man1
+	$(INSTALL_DATA) $(MANS) $(mandir)/man1
 
 install_doc: doc/html/index.html
 	test -d $(htmldir)/html || $(INSTALL) -d -m 755 $(htmldir)/html
@@ -82,6 +83,6 @@ tags: *.cc *.h
 dist-clean:
 	-rm *.o *.d *.pb.cc *.pb.h
 
-clean:
+clean: dist-clean
 	-rm -r doc
 	-rm $(TARGETS) anfo-shell
