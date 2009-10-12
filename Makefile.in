@@ -3,7 +3,10 @@ prefix ?= @prefix@
 exec_prefix ?= @exec_prefix@
 datadir ?= @datadir@
 datarootdir ?= @datarootdir@
+bindir ?= @bindir@
 docdir ?= @docdir@
+htmldir ?= @htmldir@
+mandir ?= @mandir@
 
 CXX ?= @CXX@
 CPP ?= @CPP@
@@ -24,49 +27,32 @@ CXXFLAGS += -MMD -Wall -Werror
 CXXFLAGS += -DNDEBUG -O3 -fomit-frame-pointer -march=k8
 # CXXFLAGS += -ggdb -O0
 
-PROGS := fa2dna dnaindex anfo-sge anfo-tool 
+PROGS := fa2dna   dnaindex   anfo-sge   anfo-tool   file-info 
+MANS  := fa2dna.1 dnaindex.1 anfo-sge.1 anfo-tool.1 file-info.1
 
 ifneq (,$(findstring -lpthread,$(LDLIBS)))
-PROGS += anfo-standalone
+PROGS += anfo
+MANS  += anfo.1
 endif
 
-TARGETS := $(PROGS) index-test file-info dump-params
-
-ifeq (@SIZEOF_INT_P@,4)
-DATABASES := ../data/chr21.dna ../data/chr21_10.idx 
-else
-DATABASES := ../data/chr21.dna ../data/chr21_10.idx ../data/hg18.dna ../data/hg18_10.idx
-endif
+TARGETS := $(PROGS) index-test 
 
 all: tags $(TARGETS)
-dbs: $(DATABASES)
 
 OBJECTS := align.o anfo_common.o config.pb.o ducttape.o index.o output.pb.o output_streams.o sequence.o stream.o util.o 
 
-install: $(PROGS)
-	test -d @bindir@ || $(INSTALL) -d -m 755 @bindir@
-	$(INSTALL_PROGRAM) $(PROGS) @bindir@
-	test -d @docdir@ || $(INSTALL) -d -m 755 @docdir@
-	$(INSTALL_DATA) README @docdir@
+install: $(TARGETS) $(if $(DOXYGEN), install_doc)
+	test -d $(bindir) || $(INSTALL) -d -m 755 $(bindir)
+	$(INSTALL_PROGRAM) $(PROGS) $(bindir)
+	test -d $(docdir) || $(INSTALL) -d -m 755 $(docdir)
+	$(INSTALL_DATA) README $(docdir)
+	test -d $(mandir) || $(INSTALL) -d -m 755 $(mandir)/man1
+	$(INSTALL_DATA) $(MANS) $(mandir)/man1
 
 install_doc: doc/html/index.html
-	test -d @htmldir@/html || $(INSTALL) -d -m 755 @htmldir@/html
-	$(INSTALL_DATA) doc/html/* @htmldir@/html
+	test -d $(htmldir)/html || $(INSTALL) -d -m 755 $(htmldir)/html
+	$(INSTALL_DATA) doc/html/* $(htmldir)/html
 
-
-../data/hg18.dna: fa2dna
-	./fa2dna -g hg18 -d "Homo Sapiens genome, revision 18" -O ${@D} -v \
-	    	/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr*.fa
-
-../data/chr21.dna: fa2dna
-	./fa2dna -g chr21 -d "Homo Sapiens chromosome 21" -O ${@D} -v \
-		/mnt/sequencedb/ucsc/goldenPath/hg18/bigZips/chr21.fa
-
-../data/hg18_10.idx: ../data/hg18.dna dnaindex
-	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
-
-../data/chr21_10.idx: ../data/chr21.dna dnaindex
-	./dnaindex -O ${@D} -G ${<D} -g ${<F} -v -s 10
 
 anfo-shell: anfo-shell.cc $(OBJECTS)
 	$(CXX) $(DEFS) $(LDFLAGS) $(CXXFLAGS) @GUILE_CFLAGS@ $^ -o $@ @GUILE_LDFLAGS@ $(LDLIBS) 
@@ -94,8 +80,12 @@ doc/html/index.html: Doxyfile *.cc *.h
 tags: *.cc *.h
 	-ctags -R --exclude=*.pb.cc --exclude=*.pb.h 
 
-clean:
-	-rm $(TARGETS)
-	-rm -r doc
+mostly-clean:
 	-rm *.o *.d *.pb.cc *.pb.h
 
+dist-clean: mostly-clean
+	-rm -r Makefile autom4te.cache config.h config.log config.status tags 
+
+clean: mostly-clean
+	-rm -r doc
+	-rm $(TARGETS) anfo-shell

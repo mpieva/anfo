@@ -1,3 +1,19 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
 /*!
  * \page fasta_to_dna FASTA to DNA file converter
  *
@@ -306,7 +322,6 @@ int main_( int argc, const char * argv[] )
 	enum option_tags { opt_none, opt_version } ;
 
 	const char* output_file = 0 ;
-	const char* output_dir  = "." ;
 	const char* description = 0 ;
 	const char* genome_name = 0 ;
 	int max_num_n = 2 ;
@@ -315,7 +330,6 @@ int main_( int argc, const char * argv[] )
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write DNA output to FILE", "FILE" },
-		{ "output-dir",  'O', POPT_ARG_STRING, &output_dir,  opt_none,    "Write output in folder DIR", "DIR" },
 		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "Treat N consecutive Ns as separator", "N" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "Set genome name to NAME", "NAME" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to genome", "TEXT" },
@@ -348,8 +362,8 @@ int main_( int argc, const char * argv[] )
 	else if( !poptPeekArg( pc ) ) g.set_name( "genome" ) ;
 	else g.set_name( drop_suffix( ".fa", drop_suffix( ".fas", drop_suffix( ".fna", poptPeekArg( pc ))))) ;
 
-	std::ofstream output_stream( (std::string(output_dir) + "/" + 
-				(output_file ? output_file : (g.name() + ".dna"))).c_str(),
+	std::ofstream output_stream( 
+			(output_file ? output_file : (g.name() + ".dna")).c_str(),
 			std::ios::trunc ) ;
 	FastaDecoder fd( output_stream, g, max_num_n, verbose ) ;
 

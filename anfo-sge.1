@@ -1,0 +1,128 @@
+.\" ANFO short read aligner
+.\" (C) 2009 Udo Stenzel
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 3 of the License, or (at
+.\" your option) any later version.  See the COPYING file for details.
+
+.\" Process this file with
+.\" groff -man -Tascii patman.1
+.\"
+.TH ANFO 1 "OCTOBER 2009" Applications "User Manuals"
+.SH NAME
+anfo-sge \- version of ANFO for hostile grid engines
+.SH SYNOPSIS
+.B anfo [
+.I option
+.B |
+.I file
+.B ... ]
+.SH DESCRIPTION
+.B anfo-sge
+is a castrated version of 
+.B anfo
+intended to be run in hostile environments, such as a misconfigured Sun
+Grid Engine.  It has provisions to split up both indices and input files
+and doesn't use pthreads.  Chances are, unless your pthreads
+implementation is unusable, you do not want to use this version, but
+.B anfo
+instead.
+
+If run as an array task, the total number of tasks must be evenly
+divisible by the number of slices in the index.  Each task then picks
+one slice of the index and one slice of the input and processes it in
+the ordinary way.  All output files must be merged (e.g. using the 
+.I mega-merge
+operation of
+.BR anfo-tool ") "
+to get the correct final result.
+
+.SH OPTIONS
+.IP "-V, --version"
+Print version number and exit.
+
+.IP "-o file, --output file"
+Write output to 
+.IR file ". " file
+will be written in the native
+.B anfo
+binary format, which can be operated upon using
+.B anfo-tool
+or the bindings to
+.BR guile .
+
+.IP "-c conffile, --config conffile"
+Read configuration from 
+.IR conffile .
+This file configures which indices are used, and by extension to which
+genomes an alignment is made, what parameters to use in the aligner and
+can set paths.  See the example file.
+
+.IP "--solexa-scale"
+When reading FastQ files, use the Solexa scale (log-odds-ratios) instead
+of the standard Phread scale (probabilities).  If you use
+Solexa/Illumina sequencers, refer to your documentation whether you need
+this, otherwise you don't.
+
+.IP "--fastq-origin ori"
+Set origin for FastQ decoding to
+.IR ori .
+The standard and default is 33, but it must be set to 64 for some
+versions of the Solexa/Illumina software.  If you use Solexa/Illumina
+sequencers, refer to your documentation whether you need this, otherwise
+you don't.
+
+.IP "-q, --quiet"
+Suppress all output except fatal errors.
+
+.IP "--sge-task-last id"
+Set the highest task number to
+.IR id ,
+overriding the environment variable
+.IR SGE_TASK_LAST .
+
+.SH ENVIRONMENT
+.IP ANFO_PATH
+Colon separated list of directories searched for genome files.
+
+.IP TASK_ID
+Task identifier given by SGE.  Determines which slice of the total
+workload is to be processed.
+
+.IP SGE_TASK_LAST
+Set by the SGE, determines how to slide the total workload.
+
+
+.SH FILES
+.I /etc/popt
+.RS
+The system wide configuration file for
+.BR popt (3).
+.B anfo-sge
+identifies itself as "anfo" to popt.
+.RE
+
+.I ~/.popt
+.RS
+Per user configuration file for
+.BR popt (3).
+.RE
+
+.I /usr/share/doc/anfo/example/*.cfg
+.RS
+Example configuration files to be used with 
+.BR anfo .
+.RE
+
+.SH BUGS
+None known.
+
+.SH AUTHOR
+Udo Stenzel <udo_stenzel@eva.mpg.de>
+
+.SH "SEE ALSO"
+http://bioinf.eva.mpg.de/anfo
+
+.BR anfo-tool "(1), " anfo "(1), " fa2dna "(1), " dnaindex "(1), " popt "(3), " fasta (5)
+

@@ -1,3 +1,19 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
 #ifndef INCLUDED_INDEX_H
 #define INCLUDED_INDEX_H
 
@@ -155,7 +171,8 @@ inline std::ostream& operator << ( std::ostream& o, const Seed& s )
 class FixedIndex 
 {
 	public:
-		enum { signature = 0x31584449u } ; // IDX1 
+		enum { old_signature = 0x31584449u     // IDX1 
+		     , signature     = 0x32584449u } ; // IDX2
 
 		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
 
@@ -166,7 +183,7 @@ class FixedIndex
 		FixedIndex( const std::string &name, const config::Config &c, int adv = MADV_NORMAL ) ;
 		~FixedIndex() ;
 
-		unsigned lookupS( const std::string& /*QSequence&*/ seq, std::vector<Seed>&,
+		unsigned lookupS( const std::string&  seq, std::vector<Seed>&,
 				bool near_perfect = false, int *num_useless = 0,
 				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
 		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offs, int *num_useless ) const ;

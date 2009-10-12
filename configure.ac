@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT([anfo], esyscmd([svnversion -n]), [udo_stenzel@eva.mpg.de])
+AC_INIT([anfo], [0.96], [udo_stenzel@eva.mpg.de])
 AC_CONFIG_SRCDIR([util.cc])
 AC_CONFIG_HEADER([config.h])
 

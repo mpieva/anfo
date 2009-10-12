@@ -1,3 +1,19 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
 /*! \page DNA indexer
  *
  * Scans a dna file, creating an index of fixed-size words.  We need a
@@ -181,8 +197,6 @@ int main_( int argc, const char * argv[] )
 	enum option_tags { opt_none, opt_version, opt_path } ;
 
 	const char* output_file = 0 ;
-	const char* output_dir  = "." ;
-	const char* config_file = 0 ;
 	const char* description = 0 ;
 	const char* genome_file = 0 ;
 
@@ -196,13 +210,11 @@ int main_( int argc, const char * argv[] )
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Output index to FILE", "FILE" },
-		{ "output-dir",  'O', POPT_ARG_STRING, &output_dir,  opt_none,    "Write output in folder DIR", "DIR" },
-		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Write configuration to FILE", "FILE" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_file, opt_none,    "Read genome from FILE", "FILE" },
 		{ "genome-dir",  'G', POPT_ARG_STRING, 0,            opt_path,    "Add DIR to genome search path", "DIR" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
-		{ "wordsize",    's', POPT_ARG_INT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
-		{ "stride",      'S', POPT_ARG_INT,    &stride,      opt_none,    "Index every Nth word", "N" },
+		{ "wordsize",    's', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
+		{ "stride",      'S', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &stride,      opt_none,    "Index every Nth word", "N" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
 		{ "histogram",   'h', POPT_ARG_NONE,   &histogram,   opt_none,    "Produce histogram of word frequencies", 0 },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
@@ -234,9 +246,7 @@ int main_( int argc, const char * argv[] )
 
 	CompactGenome genome( genome_file, MADV_SEQUENTIAL ) ;
 
-	// XXX next line is correct, need to rebuild indexes afterwards
-	// uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
-	uint64_t first_level_len = 1 << ((2 * wordsize) + 1) ;
+	uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
 	assert( std::numeric_limits<uint32_t>::max() > first_level_len ) ;
 	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
 
@@ -321,7 +331,6 @@ int main_( int argc, const char * argv[] )
  
 	std::clog << "Writing " << genome.name() << "..." << std::endl ;
 	std::stringstream output_path ;
-	output_path << output_dir << '/' ;
 	if( output_file ) output_path << output_file ;
 	else output_path << genome.name() << '_' << wordsize << ".idx" ;
 	int fd = throw_errno_if_minus1( creat( output_path.str().c_str(), 0644 ), "opening", output_path.str().c_str() ) ;

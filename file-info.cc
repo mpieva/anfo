@@ -1,4 +1,25 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
+#ifdef HAVE_CONFIG_H
 #include "config.h"
+#endif
+
+#include "align.h"
+#include "conffile.h"
 #include "config.pb.h"
 #include "index.h"
 #include "stream.h"
@@ -34,9 +55,11 @@ int main_( int argc, const char**argv )
 			google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
 			google::protobuf::TextFormat::Print( g, &os ) ;
 		}
-		else if( sig == FixedIndex::signature )
+		else if( sig == FixedIndex::signature || sig == FixedIndex::old_signature )
 		{
-			std::cout << "inverted list index" << std::endl ;
+			std::cout << "inverted list index"
+				<< ( sig == FixedIndex::old_signature ? " (legacy format)" : "" ) 
+				<< std::endl ;
 			uint32_t len = 0 ;
 			fd.read( (char*)&len, 4 ) ;
 			char buf[ len ] ;
@@ -46,18 +69,34 @@ int main_( int argc, const char**argv )
 			google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
 			google::protobuf::TextFormat::Print( ci, &os ) ;
 		}
-		else if( sig == 0x4F464E41 ) // "ANFO"
+		else 
 		{
-			std::cout << "ANFO output file" << std::endl ;
-			google::protobuf::io::IstreamInputStream iis( &fd ) ;
-			google::protobuf::io::CodedInputStream cis( &iis ) ;
-			config::Config c ;
-			streams::read_delimited_message( cis, c ) ;
-			google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
-			google::protobuf::TextFormat::Print( c, &os ) ;
-		}
+			config::Config conf ;
+			std::auto_ptr< streams::Stream > af( streams::make_input_stream( argv[argi] ) ) ;
+			try {
+				conf = af->fetch_header().config() ;
+				if( conf.has_aligner() )
+					std::cout << "ANFO stream file" << std::endl ;
+			} 
+			catch(...) {}
+			if( !conf.IsInitialized() ) try {
+					conf = parse_text_config( argv[argi] ) ;
+				std::cout << "ANFO configuration file" << std::endl ;
+			}
+			catch(...) { }
 
-		else std::cout << "unknown\n" ;
+			if( conf.has_aligner() ) 
+			{
+				google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
+				google::protobuf::TextFormat::Print( conf, &os ) ;
+				simple_adna::configure( conf.aligner(), &std::cout ) ;
+			}
+			else if( af->get_state() == streams::Stream::have_output )
+			{
+				std::cout << "FastA/FastQ sequence file(?)" << std::endl ;
+			}
+			else std::cout << "unknown\n" ;
+		}
 		std::cout << std::endl ;
 	}
 	return 0 ;

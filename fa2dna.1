@@ -1,0 +1,95 @@
+.\" ANFO short read aligner
+.\" (C) 2009 Udo Stenzel
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 3 of the License, or (at
+.\" your option) any later version.  See the COPYING file for details.
+
+.\" Process this file with
+.\" groff -man -Tascii patman.1
+.\"
+.TH FA2DNA 1 "OCTOBER 2009" Applications "User Manuals"
+.SH NAME
+fa2dna \- format fasta database for use with ANFO
+.SH SYNOPSIS
+.B fa2dna [
+.I option
+.B |
+.I file
+.B ... ]
+.SH DESCRIPTION
+.B fa2dna
+reads one or more files in fasta format and reformats them into a
+database suitable for 
+.BR anfo (1).
+The input file(s) can contain more than one
+sequence, and each sequence can be broken up into multiple contigs by a
+stretch of Ns.  All IUPAC ambiguity codes are fully supported.
+
+.SH OPTIONS
+.IP "-V, --version"
+Print version number and exit.
+
+.IP "-o file, --output file"
+Write output to 
+.IR file . file
+should end in 
+.IR .dna ,
+because 
+.B anfo
+and some downstream tools might stumble over a different
+extension.  Default is the genome name with the 
+.I .dna
+extension.
+
+.IP "-m N, --maxn N"
+Sets the maximum number of
+.IR N s
+to be interpreted as IUPAC ambiguity codes to
+.IR N ;
+any longer stretch is interpreted as separing contigs.  Default is 2.
+
+.IP "-g name, --genome name"
+Sets the genome name to
+.IR name .
+This name is stored in the output file and will be used by
+.B anfo
+to identify the matched genome in its output.  The genome should be a
+prefix of the output file name to allow downstream tools to find it.
+The name should be short, but unique, something like "hg18" or "pt2" for
+human or chimpanzee genomes would work fine.
+
+.IP "-d text, --description text"
+Adds
+.I text
+as description to the metadata.  This is purely informational.
+
+.IP "-v, --verbose"
+Causes a progress indicator to be printed.
+
+
+.SH FILES
+.I /etc/popt
+.RS
+The system wide configuration file for
+.BR popt (3).
+.B fa2dna
+identifies itself as "fa2dna" to popt.
+.RE
+
+.I ~/.popt
+.RS
+Per user configuration file for
+.BR popt (3).
+.RE
+
+.SH BUGS
+None known.
+
+.SH AUTHOR
+Udo Stenzel <udo_stenzel@eva.mpg.de>
+
+.SH "SEE ALSO"
+.BR anfo "(1), " fa2dna "(1) " popt "(3), " fasta (5)
+

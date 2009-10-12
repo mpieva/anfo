@@ -1,0 +1,125 @@
+.\" ANFO short read aligner
+.\" (C) 2009 Udo Stenzel
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 3 of the License, or (at
+.\" your option) any later version.  See the COPYING file for details.
+
+.\" Process this file with
+.\" groff -man -Tascii patman.1
+.\"
+.TH ANFO 1 "OCTOBER 2009" Applications "User Manuals"
+.SH NAME
+anfo \- find best alignment of short reads to database
+.SH SYNOPSIS
+.B anfo [
+.I option
+.B |
+.I file
+.B ... ]
+.SH DESCRIPTION
+.B anfo
+aligns (short) sequencing reads to a (gigabase sized) database.  It uses
+a heuristic seeding method, but then applies a genuine aligner that
+allows gaps, understands damage patterns in ancient dna and produces an
+easy to interpret score.
+
+Input files can be any variety of FastA or FastQ files, or a native
+.B anfo
+binary file, optinally compressed using 
+.BR gzip or bzip2 .
+The file format is automatically recognized and other formats may be
+added.
+
+
+.SH OPTIONS
+.IP "-V, --version"
+Print version number and exit.
+
+.IP "-o file, --output file"
+Write output to 
+.IR file ". " file
+will be written in the native
+.B anfo
+binary format, which can be operated upon using
+.B anfo-tool
+or the bindings to
+.BR guile .
+
+.IP "-c conffile, --config conffile"
+Read configuration from 
+.IR conffile .
+This file configures which indices are used, and by extension to which
+genomes an alignment is made, what parameters to use in the aligner and
+can set paths.  See the example file.
+
+.IP "-p num, --threads num"
+Start
+.I num
+threads for alignment.  One such thread per processor core is usually
+best.
+
+.IP "-x num, --ixthreads num"
+Start 
+.I num
+threads for indexing.  Indexing normally uses less cpu power than
+alignment, so fewer indexers than aligners is normally best.
+
+.IP "--solexa-scale"
+When reading FastQ files, use the Solexa scale (log-odds-ratios) instead
+of the standard Phread scale (probabilities).  If you use
+Solexa/Illumina sequencers, refer to your documentation whether you need
+this.  Else you don't.
+
+.IP "--fastq-origin ori"
+Set origin for FastQ decoding to
+.IR ori .
+The standard and default is 33, but it must be set to 64 for some
+versions of the Solexa/Illumina software.  If you use Solexa/Illumina
+sequencers, refer to your documentation whether you need this.  Else you
+don't.
+
+.IP "-q, --quiet"
+Suppress all output except fatal errors.
+
+.IP "-v, --verbose"
+Print a progress indicator during operation.
+
+
+.SH ENVIRONMENT
+.IP ANFO_PATH
+Colon separated list of directories searched for genome files.
+
+.SH FILES
+.I /etc/popt
+.RS
+The system wide configuration file for
+.BR popt (3).
+.B anfo
+identifies itself as "anfo" to popt.
+.RE
+
+.I ~/.popt
+.RS
+Per user configuration file for
+.BR popt (3).
+.RE
+
+.I /usr/share/doc/anfo/example/*.cfg
+.RS
+Example configuration files to be used with 
+.BR anfo .
+.RE
+
+.SH BUGS
+None known.
+
+.SH AUTHOR
+Udo Stenzel <udo_stenzel@eva.mpg.de>
+
+.SH "SEE ALSO"
+http://bioinf.eva.mpg.de/anfo
+
+.BR anfo-tool "(1), " anfo-sge "(1), " fa2dna "(1), " dnaindex "(1), " popt "(3), " fasta (5)
+

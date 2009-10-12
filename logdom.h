@@ -1,3 +1,19 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
 #ifndef INCLUDED_LOGDOM_H
 #define INCLUDED_LOGDOM_H
 
@@ -57,7 +73,7 @@ class Logdom {
 		static Logdom from_phred( int p ) { return Logdom( p ) ; }
 
 		int to_phred() const { return int( v_ + 0.5 ) ; }
-		uint8_t to_phred_byte() const { int p = to_phred() ; return p > 254 ? 254 : p ; }
+		uint8_t to_phred_byte() const { int p = to_phred() ; return p > 255 ? 255 : p ; }
 		double to_float() const { return exp( -log(10.0) * v_ / 10.0 ) ; }
 
 		// multiplication is addition, division is subtraction

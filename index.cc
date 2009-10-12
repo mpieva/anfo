@@ -1,3 +1,19 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
 #include "config.h"
 #include "index.h"
 #include "util.h"
@@ -93,17 +109,21 @@ FixedIndex::FixedIndex( const std::string& name, const config::Config& c, int ad
 
 		if( adv ) madvise( p, length, adv ) ;
 
-		if( *(const uint32_t*)p != signature ) 
+		if( *(const uint32_t*)p != signature && *(const uint32_t*)p != old_signature ) 
 			throw name + string(" does not have 'IDX1' signature") ;
 
 		uint32_t meta_len = ((const uint32_t*)p)[1] ;
 		if( !ci_.ParseFromArray( (const char*)p + 8, meta_len ) )
 			throw "error parsing meta information" ;
 
-		// XXX: this line is actually correct, but indexes need to be
-		// rebuilt
-		// first_level_len = (1 << (2 * ci_.wordsize())) + 1 ;
-		first_level_len = 1 << ((2 * ci_.wordsize()) + 1) ;
+		if( *(const uint32_t*)p == old_signature ) 
+			// this is actually buggy, but just wastes memory.  left in
+			// to support old indices
+			first_level_len = 1 << ((2 * ci_.wordsize()) + 1) ;
+		else
+			// correct version for new indices
+			first_level_len = (1 << (2 * ci_.wordsize())) + 1 ;
+
 		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
 	}

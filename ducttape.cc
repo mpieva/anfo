@@ -1,3 +1,19 @@
+//    Copyright 2009 Udo Stenzel
+//    This file is part of ANFO
+//
+//    ANFO is free software: you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation, either version 3 of the License, or
+//    (at your option) any later version.
+//
+//    Anfo is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
+
 #include "config.h"
 #include "ducttape.h"
 
@@ -32,6 +48,13 @@ void DuctTaper::put_header( const Header& h )
 //! attempted, as that would be pointless without applying a prior for
 //! the rate of het sites.  Finally store the new contig as an \c
 //! output::Result and update internal state.
+//!
+//! Storage of likelihoods is done the same way as in GLF: the highest
+//! likelihood (smallest log-likelihood) becomes the base's quality,
+//! clipped at 255 if necessary.  Likelihoods are stored as difference
+//! from the (true, unclipped) minimum, the difference being clipped at
+//! 255.  This means the basecall can be reproduced by seeing which
+//! likelihood value is zero.
 
 void DuctTaper::flush_contig()
 {
@@ -413,8 +436,11 @@ void GlzWriter::put_result( const Result& rr )
 
 	const Read& r = rr.read() ;
 	if( r.likelihoods_size() == 10 && has_hit_to( rr, 0 ) ) {
+		const Hit& h = hit_to( rr, 0 ) ;
+
 		chan_( Console::info, r.seqid() ) ;
 		google::protobuf::io::CodedOutputStream c( &gos_ ) ;
+
 		// Per chromosome
 		// int   chrNameLen ;         /* includes terminating 0 */
 		// char* chrName ;            /* chrNamelen chars including 0 */
@@ -422,13 +448,24 @@ void GlzWriter::put_result( const Result& rr )
 		c.WriteLittleEndian32( r.seqid().size()+1 ) ;
 		c.WriteString( r.seqid() ) ;
 		c.WriteTag( 0 ) ;
-		c.WriteLittleEndian32( r.sequence().size() ) ;
+		
+		int eff_size = 0 ;
+		for( int i = 0 ; i != h.cigar_size() ; ++i )
+		{
+			switch( cigar_op( h.cigar(i) ) )
+			{
+				case Hit::Match:
+				case Hit::Mismatch:
+					eff_size += cigar_len( h.cigar(i) ) ;
+				default:
+					break ;
+			}
+		}
+		c.WriteLittleEndian32( eff_size ) ;
 
-		const Hit& h = hit_to( rr, 0 ) ;
 		DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
 		char buf[12] ;
 		int i = 0 ;
-		uint8_t min_lk ;
 
 		for( AlnIter beg( r, h ), end( r, h, 1 ) ; beg != end ; ++beg )
 		{
@@ -443,19 +480,15 @@ void GlzWriter::put_result( const Result& rr )
 					//   unsigned min_lk:8,             /* minimum lk capped at 255
 					//   depth:24 ;            			/* and the number of mapped reads */
 
-					// I'm not sure what's the business about min_lk,
-					// I'll read it literally and take the smallest
-					// likelihood value.
-					min_lk = r.likelihoods(0)[i] ;
-					for( int j = 1 ; j != 10 ; ++j )
-						if( min_lk > r.likelihoods(j)[i] ) 
-							min_lk = r.likelihoods(j)[i] ; 
-
 					buf[0] = dna_to_glf_base[ *ref ] ;
 					buf[1] = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
-					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = (uint8_t)(r.likelihoods(j)[i]) - min_lk ;
+					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = (uint8_t)(r.likelihoods(j)[i]) ;
 					c.WriteRaw( buf, 12 ) ;
-					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | min_lk ) ;
+					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (uint8_t)r.quality()[i] ) ;
+
+					// this need to be reversed for GLF v3
+					// c.WriteLittleEndian32( r.depth(i) | ((unsigned)(uint8_t)r.quality(i) << 24) ) ;
+
 					++ref ;
 					++i ;
 					break ;

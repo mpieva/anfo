@@ -1,0 +1,128 @@
+.\" ANFO short read aligner
+.\" (C) 2009 Udo Stenzel
+.\"
+.\" This program is free software; you can redistribute it and/or modify
+.\" it under the terms of the GNU General Public License as published by
+.\" the Free Software Foundation; either version 3 of the License, or (at
+.\" your option) any later version.  See the COPYING file for details.
+
+.\" Process this file with
+.\" groff -man -Tascii patman.1
+.\"
+.TH DNAINDEX 1 "OCTOBER 2009" Applications "User Manuals"
+.SH NAME
+dnaindex \- index dna file for use with ANFO
+.SH SYNOPSIS
+.B dnaindex [
+.I option
+.B ... ]
+.SH DESCRIPTION
+.B dnaindex
+builds an index for a dna file.  Dna files must be indexed to be useable
+with 
+.BR anfo (1),
+it is possible to have multiple indices for the same dna file.
+
+.SH OPTIONS
+.IP "-V, --version"
+Print version number and exit.
+
+.IP "-o file, --output file"
+Write output to 
+.IR file ". " file
+customarily ends in 
+.IR .idx .
+Default is 
+.IR genomename_wordsize.idx .
+
+.IP "-g file, --genome file"
+Read the genome from
+.IR file .
+This file name is also stored in the resulting index so it can be found
+automatically whenever the index is used.  It is therefore best if
+.I file
+is just a file name without path.
+
+.IP "-G dir, --genome-dir dir"
+Add
+.I dir
+to the genome search path.  This is useful if the genome to be indexed
+is not yet in the place where it will later be used.
+
+.IP "-d text, --description text"
+Add
+.I text
+as description to the index.  This is purely informative.
+
+.IP "-s size, --wordsize size"
+Set the wordsize to
+.IR size .
+A smaller wordsize increases precision at the expense of higher
+computational investment.  The default is 12, which with a stride of 8
+yields a good compromise.
+
+.IP "-S num, --stride num"
+Set the stride to
+.IR num .
+Only one out of 
+.I num
+possible words of dna is actually indexed.  A smaller stride increases
+precicion at the expense of a bigger index.  The default is 8, which in
+conjunction with a wordsize of 12 yields a good compromise.
+
+.IP "-l lim, --limit lim"
+Prevents the indexing of words that occur more often than
+.I lim
+times.  This can be used to ignore repetitive seeds and save the space
+to store them.  A good default depends on the size of the genome being
+indexed, something like 500 works for the human genome with wordsize 12
+and stride 8.
+
+.IP "-h, --histogram"
+Produce a histogram of word frequencies.  This can be used to get an
+indea how the frequency distribution to select an appropriate value for 
+.IR --limit .
+
+.IP "-v, --verbose"
+Print a progress indicator during operation.
+
+
+.SH "NOTES"
+
+.B dnaindex
+is limited to genomes no longer than 4 gigabases due to its use of 32
+bit indices.  The index is quite large, so depending on parameters, a
+64 bit platform is needed for genomes in the gigabase range.
+
+If a genome contains IUPAC ambiguity codes, the affected seeds need to
+be expanded.  If there are many ambiguity codes in a small region, that
+results in an unacceptably large index.
+
+.SH ENVIRONMENT
+.IP ANFO_PATH
+Colon separated list of directories searched for genome files.
+
+.SH FILES
+.I /etc/popt
+.RS
+The system wide configuration file for
+.BR popt (3).
+.B dnaindex
+identifies itself as "dnaindex" to popt.
+.RE
+
+.I ~/.popt
+.RS
+Per user configuration file for
+.BR popt (3).
+.RE
+
+.SH BUGS
+None known.
+
+.SH AUTHOR
+Udo Stenzel <udo_stenzel@eva.mpg.de>
+
+.SH "SEE ALSO"
+.BR anfo "(1), " fa2dna "(1), " popt "(3), " fasta (5)
+
