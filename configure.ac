@@ -3,12 +3,12 @@
 
 AC_PREREQ(2.61)
 AC_INIT([anfo], [svn], [udo_stenzel@eva.mpg.de])
+AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_CONFIG_SRCDIR([src/util.cc])
 AC_CONFIG_HEADER([config.h])
 
 # Checks for programs.
 AC_PROG_CXX
-AC_PROG_CC
 AC_PROG_INSTALL
 AC_PATH_PROG([PROTOC], [protoc])
 AC_PATH_PROG([DOXYGEN], [doxygen])
@@ -18,7 +18,7 @@ AC_ARG_VAR([DOXYGEN], [location of documentation compiler])
 # Checks for libraries.
 AC_SEARCH_LIBS([exp], [m])
 AC_SEARCH_LIBS([log1p], [m])
-AC_SEARCH_LIBS([pthread_create], [pthread])
+AC_SEARCH_LIBS([pthread_create], [pthread], [have_pthread=1])
 AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
@@ -48,14 +48,17 @@ AC_COMPUTE_INT( SIZEOF_INT_P, sizeof( int* ) )
 AC_SUBST( SIZEOF_INT_P )
 
 # Checks for library functions.
-AC_REPLACE_FNMATCH
-AC_FUNC_MALLOC
-AC_FUNC_MMAP
 AC_TYPE_SIGNAL
-AC_FUNC_STAT
 AC_CHECK_FUNCS([memset munmap pow strerror])
 
 GUILE_FLAGS
 
-AC_CONFIG_FILES([Makefile])
+AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
+AM_CONDITIONAL([GUILE],[test "$GUILE_LDFLAGS"])
+
+AC_CONFIG_FILES([
+		 Makefile
+		 man/Makefile
+		 src/Makefile
+		 ])
 AC_OUTPUT
