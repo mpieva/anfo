@@ -256,6 +256,7 @@ anfo_sge_SOURCES = \
     sequence.cc stream.cc util.cc 
 
 anfo_SOURCES = \
+    config.proto output.proto \
     align.h anfo_common.h compress_stream.h conffile.h config.pb.h \
     ducttape.h index.h judy++.h logdom.h output.pb.h output_streams.h \
     queue.h sequence.h stream.h trim.h util.h \
