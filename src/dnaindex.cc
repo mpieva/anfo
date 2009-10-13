@@ -144,6 +144,27 @@ template< typename G > struct mk_dense_word {
 //! \internal
 template< typename G > mk_dense_word<G> make_dense_word( G g ) { return mk_dense_word<G>( g ) ; }
 
+//! \brief checks for self-overlapping seeds
+//! \internal
+//! We define a seed as useless if for any n in the range 1..o dropping
+//! the first n bases from the seed results in the same value as
+//! dropping the last n bases.
+//! \param w seed to test
+//! \param l length of the seed 
+//! \param o max. overlap length to check
+//! \return true iff the seed is good (i.e. doesn't self-overlap)
+inline bool check_repeat( uint32_t w, uint32_t l, uint32_t o )
+{
+	uint32_t mask = (1 << (2*l))-1, v = w ;
+	for( ; o ; --o )
+	{
+		mask >>= 2 ;
+		v    >>= 2 ;
+		if( v == (w & mask) ) return false ;
+	}
+	return true ;
+}
+
 //! \brief counts words in a genome
 //! This is passed as a worker to CompactGenome::scan_words, it only
 //! counts the words and stores the counts in what later becomes the
@@ -155,11 +176,14 @@ class count_word {
 		uint32_t *base_ ;
 		uint32_t cutoff_ ;
 		uint32_t stride_ ;
+		uint32_t size_ ;
+		uint32_t repeat_ ;
 		uint64_t &total_ ;
 
-		count_word( uint32_t *b, uint32_t c, uint32_t s, uint64_t &t ) : base_(b), cutoff_(c), stride_(s), total_(t) {}
+		count_word( uint32_t *b, uint32_t c, uint32_t s, uint32_t sz, uint32_t r, uint64_t &t )
+			: base_(b), cutoff_(c), stride_(s), size_(sz), repeat_(r), total_(t) {}
 		void operator()( uint32_t off, uint32_t ix ) const {
-			if( off % stride_ == 0 ) {
+			if( off % stride_ == 0 && check_repeat( ix, size_, repeat_ ) ) {
 				uint32_t x = ++base_[ix] ; 
 				if( x <= cutoff_ ) {
 					++total_ ;
@@ -182,12 +206,15 @@ class store_word {
 		uint32_t *index_1l_ ;
 		uint32_t *index_2l_ ;
 		uint32_t stride_ ;
+		uint32_t size_ ;
+		uint32_t repeat_ ;
 
 	public:
-		store_word( uint32_t s, uint32_t *i1, uint32_t *i2 ) : index_1l_(i1), index_2l_(i2), stride_(s) {}
+		store_word( uint32_t s, uint32_t *i1, uint32_t *i2, uint32_t sz, uint32_t r )
+			: index_1l_(i1), index_2l_(i2), stride_(s), size_(sz), repeat_(r) {}
 		void operator()( uint32_t off, uint32_t ix )
 		{ 
-			if( off % stride_ == 0 ) {
+			if( off % stride_ == 0 && check_repeat( ix, size_, repeat_ ) ) {
 				uint32_t& p = index_1l_[ (uint64_t)ix ] ;
 				if( p ) index_2l_[ (uint64_t)(--p) ] = off ;
 			}
@@ -205,6 +232,7 @@ int main_( int argc, const char * argv[] )
 
 	unsigned wordsize  = 12 ;
 	unsigned cutoff    = std::numeric_limits<unsigned>::max() ;
+	unsigned repeat    = std::numeric_limits<unsigned>::max() ;
 	unsigned stride    = 8 ;
 	int      verbose   = 0 ;
 	int 	 histogram = 0 ;
@@ -219,6 +247,7 @@ int main_( int argc, const char * argv[] )
 		{ "wordsize",    's', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
 		{ "stride",      'S', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &stride,      opt_none,    "Index every Nth word", "N" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
+		{ "repetitive",  'r', POPT_ARG_INT,    &repeat,      opt_none,    "Do not index words that self-overlap N bases", "N" },
 		{ "histogram",   'h', POPT_ARG_NONE,   &histogram,   opt_none,    "Produce histogram of word frequencies", 0 },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -249,9 +278,11 @@ int main_( int argc, const char * argv[] )
 
 	CompactGenome genome( genome_file, MADV_SEQUENTIAL ) ;
 
+	if( repeat == std::numeric_limits<uint32_t>::max() ) repeat = wordsize >> 1 ;
 	uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
-	assert( std::numeric_limits<uint32_t>::max() > first_level_len ) ;
-	assert( std::numeric_limits<size_t>::max() / 4 > first_level_len ) ;
+	if( std::numeric_limits<uint32_t>::max() <= first_level_len 
+			|| std::numeric_limits<size_t>::max() / 4 <= first_level_len ) 
+		throw "integer overflow in size calculation; cannot handle this word size" ;
 
 	uint32_t *base = (uint32_t*)malloc( 4 * first_level_len ) ;
 	throw_errno_if_null( base, "allocating first level index" ) ;
@@ -263,7 +294,7 @@ int main_( int argc, const char * argv[] )
 	// First scan: only count words.  We'll have to go over the whole
 	// table again to convert counts into offsets.
 	uint64_t total0 = 0;
-	genome.scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, total0 ) ), "Counting" ) ;
+	genome.scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, wordsize, repeat, total0 ) ), "Counting" ) ;
 	std::clog << "Need to store " << total0 << " pointers." << std::endl ;
 
 	// Histogram of word frequencies.
@@ -309,7 +340,7 @@ int main_( int argc, const char * argv[] )
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 
 	// Second scan: we actually store the offsets now.
-	genome.scan_words( wordsize, make_dense_word( store_word( stride, base, lists ) ), "Indexing" ) ;
+	genome.scan_words( wordsize, make_dense_word( store_word( stride, base, lists, wordsize, repeat ) ), "Indexing" ) ;
 
 	// need to fix 0-entries in 1L index
 	uint32_t last = total ;
