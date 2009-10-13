@@ -213,6 +213,7 @@ message Read {
     required string sequence = 2 ;
 
     // quality scores (Phred scale, raw, without silly offsets)
+	// also: min_lk in the sense iof GLF when applicable
     optional bytes quality = 14 ;
 
     // likelihoods of consensus sequence

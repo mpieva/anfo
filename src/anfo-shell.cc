@@ -14,7 +14,9 @@
 //    You should have received a copy of the GNU General Public License
 //    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "config.h"
+#ifdef HAVE_CONFIG_H
+#include "../config.h"
+#endif
 
 //! \page anfo-shell ANFO-tool with scripting language.
 //! The idea: use the Guile interpreter as a scripting engine for

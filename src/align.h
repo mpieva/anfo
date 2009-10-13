@@ -22,7 +22,7 @@
 #include "logdom.h"
 #include "stream.h"
 
-#include <output.pb.h>
+#include "output.pb.h"
 
 #include <cmath>
 #include <deque>

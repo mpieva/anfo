@@ -73,7 +73,7 @@ class Logdom {
 		static Logdom from_phred( int p ) { return Logdom( p ) ; }
 
 		int to_phred() const { return int( v_ + 0.5 ) ; }
-		uint8_t to_phred_byte() const { int p = to_phred() ; return p > 254 ? 254 : p ; }
+		uint8_t to_phred_byte() const { int p = to_phred() ; return p > 255 ? 255 : p ; }
 		double to_float() const { return exp( -log(10.0) * v_ / 10.0 ) ; }
 
 		// multiplication is addition, division is subtraction

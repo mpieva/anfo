@@ -14,9 +14,11 @@
 //    You should have received a copy of the GNU General Public License
 //    along with Anfo.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "config.h"
-#include "anfo_common.h"
+#ifdef HAVE_CONFIG_H
+#include "../config.h"
+#endif
 
+#include "anfo_common.h"
 #include "stream.h"
 #include "trim.h"
 
