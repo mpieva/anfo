@@ -336,7 +336,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 	else
 	{
 		// need to revcom sequence, reverse qual and cigar
-		decode_binCigar( out_, hit.cigar().begin(),  hit.cigar().end() ) ; /*CIGAR*/ 
+		decode_binCigar( out_, mk_rev_iter( hit.cigar().end() ), mk_rev_iter( hit.cigar().begin() ) ) ; /*CIGAR*/ 
 		// We don't have paired end reads (or don't deal with them)
 		out_ << "\t*\t0\t0\t" ; // MRNM, MPOS, ISIZE
 		const std::string& s = result.read().sequence() ;
