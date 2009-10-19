@@ -49,10 +49,13 @@ AC_SUBST( SIZEOF_INT_P )
 AC_TYPE_SIGNAL
 AC_CHECK_FUNCS([memset munmap pow strerror])
 
-GUILE_FLAGS
+AC_PATH_PROG(GUILE_CONFIG,guile-config)
+if test "$GUILE_CONFIG" ; then
+	GUILE_FLAGS
+fi
 
 AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
-AM_CONDITIONAL([GUILE],[test "$GUILE_LDFLAGS"])
+AM_CONDITIONAL([GUILE],[test "$GUILE_CONFIG"])
 
 AC_CONFIG_FILES([
 		 Makefile

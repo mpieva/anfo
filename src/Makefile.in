@@ -72,8 +72,7 @@ am_anfo_shell_OBJECTS = anfo_shell-align.$(OBJEXT) \
 	anfo_shell-sequence.$(OBJEXT) anfo_shell-stream.$(OBJEXT) \
 	anfo_shell-util.$(OBJEXT)
 anfo_shell_OBJECTS = $(am_anfo_shell_OBJECTS)
-am__DEPENDENCIES_1 =
-anfo_shell_DEPENDENCIES = $(am__DEPENDENCIES_1)
+anfo_shell_DEPENDENCIES =
 anfo_shell_LINK = $(CXXLD) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) \
 	$(AM_LDFLAGS) $(LDFLAGS) -o $@
 am_anfo_tool_OBJECTS = align.$(OBJEXT) anfo-tool.$(OBJEXT) \
@@ -151,11 +150,7 @@ ECHO_T = @ECHO_T@
 EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 GREP = @GREP@
-GUILE = @GUILE@
-GUILE_CFLAGS = @GUILE_CFLAGS@
 GUILE_CONFIG = @GUILE_CONFIG@
-GUILE_LDFLAGS = @GUILE_LDFLAGS@
-GUILE_TOOLS = @GUILE_TOOLS@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
