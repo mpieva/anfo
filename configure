@@ -702,6 +702,10 @@ GREP
 EGREP
 SIZEOF_INT_P
 GUILE_CONFIG
+GUILE
+GUILE_TOOLS
+GUILE_CFLAGS
+GUILE_LDFLAGS
 PTHREADS_TRUE
 PTHREADS_FALSE
 GUILE_TRUE
@@ -7236,7 +7240,153 @@ fi
 
 
 if test "$GUILE_CONFIG" ; then
-	GUILE_FLAGS
+	# Extract the first word of "guile", so it can be a program name with args.
+set dummy guile; ac_word=$2
+{ echo "$as_me:$LINENO: checking for $ac_word" >&5
+echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6; }
+if test "${ac_cv_path_GUILE+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  case $GUILE in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_GUILE="$GUILE" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+  for ac_exec_ext in '' $ac_executable_extensions; do
+  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
+    ac_cv_path_GUILE="$as_dir/$ac_word$ac_exec_ext"
+    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+GUILE=$ac_cv_path_GUILE
+if test -n "$GUILE"; then
+  { echo "$as_me:$LINENO: result: $GUILE" >&5
+echo "${ECHO_T}$GUILE" >&6; }
+else
+  { echo "$as_me:$LINENO: result: no" >&5
+echo "${ECHO_T}no" >&6; }
+fi
+
+
+  if test "$GUILE" = "" ; then
+      { { echo "$as_me:$LINENO: error: guile required but not found" >&5
+echo "$as_me: error: guile required but not found" >&2;}
+   { (exit 1); exit 1; }; }
+  fi
+
+  # Extract the first word of "guile-config", so it can be a program name with args.
+set dummy guile-config; ac_word=$2
+{ echo "$as_me:$LINENO: checking for $ac_word" >&5
+echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6; }
+if test "${ac_cv_path_GUILE_CONFIG+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  case $GUILE_CONFIG in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_GUILE_CONFIG="$GUILE_CONFIG" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+  for ac_exec_ext in '' $ac_executable_extensions; do
+  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
+    ac_cv_path_GUILE_CONFIG="$as_dir/$ac_word$ac_exec_ext"
+    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+GUILE_CONFIG=$ac_cv_path_GUILE_CONFIG
+if test -n "$GUILE_CONFIG"; then
+  { echo "$as_me:$LINENO: result: $GUILE_CONFIG" >&5
+echo "${ECHO_T}$GUILE_CONFIG" >&6; }
+else
+  { echo "$as_me:$LINENO: result: no" >&5
+echo "${ECHO_T}no" >&6; }
+fi
+
+
+  if test "$GUILE_CONFIG" = "" ; then
+      { { echo "$as_me:$LINENO: error: guile-config required but not found" >&5
+echo "$as_me: error: guile-config required but not found" >&2;}
+   { (exit 1); exit 1; }; }
+  fi
+
+  # Extract the first word of "guile-tools", so it can be a program name with args.
+set dummy guile-tools; ac_word=$2
+{ echo "$as_me:$LINENO: checking for $ac_word" >&5
+echo $ECHO_N "checking for $ac_word... $ECHO_C" >&6; }
+if test "${ac_cv_path_GUILE_TOOLS+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  case $GUILE_TOOLS in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_GUILE_TOOLS="$GUILE_TOOLS" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+  for ac_exec_ext in '' $ac_executable_extensions; do
+  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
+    ac_cv_path_GUILE_TOOLS="$as_dir/$ac_word$ac_exec_ext"
+    echo "$as_me:$LINENO: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+GUILE_TOOLS=$ac_cv_path_GUILE_TOOLS
+if test -n "$GUILE_TOOLS"; then
+  { echo "$as_me:$LINENO: result: $GUILE_TOOLS" >&5
+echo "${ECHO_T}$GUILE_TOOLS" >&6; }
+else
+  { echo "$as_me:$LINENO: result: no" >&5
+echo "${ECHO_T}no" >&6; }
+fi
+
+
+
+
+  { echo "$as_me:$LINENO: checking libguile compile flags" >&5
+echo $ECHO_N "checking libguile compile flags... $ECHO_C" >&6; }
+  GUILE_CFLAGS="`$GUILE_CONFIG compile`"
+  { echo "$as_me:$LINENO: result: $GUILE_CFLAGS" >&5
+echo "${ECHO_T}$GUILE_CFLAGS" >&6; }
+  { echo "$as_me:$LINENO: checking libguile link flags" >&5
+echo $ECHO_N "checking libguile link flags... $ECHO_C" >&6; }
+  GUILE_LDFLAGS="`$GUILE_CONFIG link`"
+  { echo "$as_me:$LINENO: result: $GUILE_LDFLAGS" >&5
+echo "${ECHO_T}$GUILE_LDFLAGS" >&6; }
+
+
+
 fi
 
  if test "$have_pthread"; then
@@ -8010,6 +8160,10 @@ GREP!$GREP$ac_delim
 EGREP!$EGREP$ac_delim
 SIZEOF_INT_P!$SIZEOF_INT_P$ac_delim
 GUILE_CONFIG!$GUILE_CONFIG$ac_delim
+GUILE!$GUILE$ac_delim
+GUILE_TOOLS!$GUILE_TOOLS$ac_delim
+GUILE_CFLAGS!$GUILE_CFLAGS$ac_delim
+GUILE_LDFLAGS!$GUILE_LDFLAGS$ac_delim
 PTHREADS_TRUE!$PTHREADS_TRUE$ac_delim
 PTHREADS_FALSE!$PTHREADS_FALSE$ac_delim
 GUILE_TRUE!$GUILE_TRUE$ac_delim
@@ -8018,7 +8172,7 @@ LIBOBJS!$LIBOBJS$ac_delim
 LTLIBOBJS!$LTLIBOBJS$ac_delim
 _ACEOF
 
-  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 93; then
+  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 97; then
     break
   elif $ac_last_try; then
     { { echo "$as_me:$LINENO: error: could not make $CONFIG_STATUS" >&5
@@ -8037,7 +8191,7 @@ fi
 
 cat >>$CONFIG_STATUS <<_ACEOF
 cat >"\$tmp/subs-1.sed" <<\CEOF$ac_eof
-/@[a-zA-Z_][a-zA-Z_0-9]*@/!b end
+/@[a-zA-Z_][a-zA-Z_0-9]*@/!b
 _ACEOF
 sed '
 s/[,\\&]/\\&/g; s/@/@|#_!!_#|/g
@@ -8050,8 +8204,6 @@ N; s/^.*\n//; s/[,\\&]/\\&/g; s/@/@|#_!!_#|/g; b n
 ' >>$CONFIG_STATUS <conf$$subs.sed
 rm -f conf$$subs.sed
 cat >>$CONFIG_STATUS <<_ACEOF
-:end
-s/|#_!!_#|//g
 CEOF$ac_eof
 _ACEOF
 
@@ -8305,7 +8457,7 @@ s&@abs_top_builddir@&$ac_abs_top_builddir&;t t
 s&@INSTALL@&$ac_INSTALL&;t t
 s&@MKDIR_P@&$ac_MKDIR_P&;t t
 $ac_datarootdir_hack
-" $ac_file_inputs | sed -f "$tmp/subs-1.sed" >$tmp/out
+" $ac_file_inputs | sed -f "$tmp/subs-1.sed" | sed 's/|#_!!_#|//g' >$tmp/out
 
 test -z "$ac_datarootdir_hack$ac_datarootdir_seen" &&
   { ac_out=`sed -n '/\${datarootdir}/p' "$tmp/out"`; test -n "$ac_out"; } &&
