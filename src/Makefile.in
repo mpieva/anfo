@@ -68,8 +68,7 @@ am_anfo_shell_OBJECTS = align.$(OBJEXT) anfo-shell.$(OBJEXT) \
 	index.$(OBJEXT) output.pb.$(OBJEXT) output_streams.$(OBJEXT) \
 	sequence.$(OBJEXT) stream.$(OBJEXT) util.$(OBJEXT)
 anfo_shell_OBJECTS = $(am_anfo_shell_OBJECTS)
-am__DEPENDENCIES_1 =
-anfo_shell_DEPENDENCIES = $(am__DEPENDENCIES_1)
+anfo_shell_DEPENDENCIES =
 am_anfo_tool_OBJECTS = align.$(OBJEXT) anfo-tool.$(OBJEXT) \
 	anfo_common.$(OBJEXT) config.pb.$(OBJEXT) ducttape.$(OBJEXT) \
 	index.$(OBJEXT) output.pb.$(OBJEXT) output_streams.$(OBJEXT) \
@@ -145,11 +144,7 @@ ECHO_T = @ECHO_T@
 EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 GREP = @GREP@
-GUILE = @GUILE@
-GUILE_CFLAGS = @GUILE_CFLAGS@
 GUILE_CONFIG = @GUILE_CONFIG@
-GUILE_LDFLAGS = @GUILE_LDFLAGS@
-GUILE_TOOLS = @GUILE_TOOLS@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@

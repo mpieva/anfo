@@ -86,7 +86,8 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 	return true ;
 }
 
-void sanitize( Header& hdr ) ;
+void sanitize( Header& ) ;
+void sanitize( Read& ) ;
 void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
@@ -531,6 +532,7 @@ class FastqReader : public Stream
 		void read_next_message() {
 			state_ = read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ )
 				? have_output : end_of_stream ;
+			sanitize( *res_.mutable_read() ) ;
 		}
 
 	public: 

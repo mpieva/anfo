@@ -48,9 +48,6 @@ inline bool all_ascii_qscores( const std::string& s )
 	return true ;
 }
 
-// inline double sol_to_err_prob( int sol ) { return 1.0 / ( 1.0 + std::pow( 10.0, sol / 10.0 ) ) ; }
-inline double phred_to_err_prob( int phred ) { return std::pow( 10.0, -phred / 10.0 ) ; }
-inline int err_prob_to_phred( double p ) { return (int)( -10.0 * std::log( p ) / std::log( 10.0 ) ) ; }
 inline int sol_to_phred( int sol ) { return sol + (int)( 0.5 + 10 * log1p( pow( 10.0, -sol / 10.0 ) ) / log( 10.0 ) ) ; }
 
 int bits_in[] = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 } ;
@@ -97,10 +94,10 @@ inline void getline( Reader& r, std::string& s )
 	while( r && r.peek() != '\n' ) s.push_back( r.get() ) ;
 	if( r ) r.get() ;
 }
-inline void skipline( Reader& r) { while( r && r.get() != '\n' ) ; }
 
-inline bool seq_continues( const Reader &s ) { return s && s.peek() != '@' && s.peek() != '>' && s.peek() != '+' && s.peek() != '*' ; }
+inline bool seq_continues( const Reader &s ) { char c = s.peek() ; return s && c != '@' && c != '>' && c != '+' && c != '*' ; }
 inline bool descr_follows( const Reader &s ) { return s && s.peek() == ';' ; } 
+inline void skipline     (       Reader &r ) { while( r && r.get() != '\n' ) ; }
 }
 
 QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
@@ -116,14 +113,20 @@ QSequence::Base::Base( uint8_t a, int q ) : ambicode( a ), qscore( q )
 
 QSequence::QSequence( const output::Read& r, int default_q )
 {
+	std::string::const_iterator p = r.sequence().begin() + r.trim_left(),
+		pe = r.has_trim_right() ? r.sequence().begin() + r.trim_right() : r.sequence().end() ;
+
 	seq_.push_back( Base() ) ;
 	if( r.has_quality() ) 
-		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end(),
-				q = r.quality().begin(), qe = r.quality().end() ; p != pe && q != qe ; ++p, ++q )
+	{
+		std::string::const_iterator q = r.quality().begin() + r.trim_left(),
+			qe = r.has_trim_right() ? r.quality().begin() + r.trim_right() : r.quality().end() ;
+		for( ; p != pe ; ++p, ++q )
 			seq_.push_back( Base( to_ambicode( *p ), *q ) ) ;
-	else
-		for( std::string::const_iterator p = r.sequence().begin(), pe = r.sequence().end() ; p != pe ; ++p )
+	}
+	else for( ; p != pe ; ++p )
 			seq_.push_back( Base( to_ambicode( *p ), default_q ) ) ;
+
 	seq_.push_back( Base() ) ;
 }
 					
@@ -161,8 +164,8 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 	{
 		string line ;
 		getline( s, line ) ;
-		// If line starts with "SQ ", we ignore it.  Scan the rest for
-		// nucleotide codes.
+		// If line starts with "SQ ", we ignore it (4Q support).  Scan
+		// the rest for nucleotide codes.
 		for( size_t i = line.substr(0,3) == "SQ " ? 3 : 0 ; i != line.size() ; ++i )
 		{
 			if( encodes_nuc( line[i] ) )
@@ -224,48 +227,6 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 			}
 		}
 	}
-#if 0
-	else
-	{
-		size_t pos[4] = {1,1,1,1} ;
-
-		// We might get quality in 4Q format.  We'll handle it as
-		// any number of optional quality lines, so FASTA degerates to a
-		// special case of 4Q.
-		while( s && s.peek() == '*' ) 
-		{
-			s.get() ;	// drop the star
-			int tag = s.get() & ~32 ;
-			tag = tag == 'A' ? 0 : tag == 'C' ? 1 : tag == 'T' ? 2 : tag == 'G' ? 3 : -1 ;
-			while( s && isspace(s.peek()) && s.peek() != '\n' ) s.get() ;
-
-			while( s && s.peek() != '\n' ) 
-			{
-				int q = s.get() ;
-				// skip lines with unrecognized tag, skip CRs
-				if( tag != -1 && q != 13 ) 
-				{
-					got_quals = true ;
-					if( pos[tag] == qs.seq_.size()-1 ) qs.seq_.push_back( QSequence::Base() ) ;
-					qs.seq_[pos[tag]].qualities[tag] = phred_to_err_prob( q-origin ) ;
-					qs.seq_[pos[tag]].qscores[tag] = q-origin ;
-				}
-			}
-		}
-		for( size_t p = qs.seq_.size()-2 ; p>0 ; --p )
-		{
-			// simple basecall, in case we have Q scores, but no
-			// sequence
-			if( !qs.seq_[p].ambicode ) qs.seq_[p].ambicode = 1 << (
-						std::max_element( qs.seq_[p].qualities, qs.seq_[p].qualities+4 ) 
-						- qs.seq_[p].qualities ) ;
-			// generate single Q-Score (take minimum, that's a good
-			// approximation) X X X probably wrong
-			qs.seq_[p].qscore = std::min( std::min( qs.seq_[p].qscores[0], qs.seq_[p].qscores[1] ),
-					                      std::min( qs.seq_[p].qscores[2], qs.seq_[p].qscores[3] ) ) ;
-		}
-	}
-#endif
 
 	// We did get a sequence, no matter the stream state now, so no
 	// failure.

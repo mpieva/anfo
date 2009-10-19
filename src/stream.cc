@@ -193,6 +193,7 @@ void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis 
 			{
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
+				sanitize( *res_.mutable_read() ) ;
 				return ;
 			}
 			if( tag == mk_msg_tag( 2 ) && ores.ParseFromCodedStream( &cis ) )
@@ -200,6 +201,7 @@ void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis 
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
 				res_ = upgrade( ores ) ;
+				sanitize( *res_.mutable_read() ) ;
 				return ;
 			}
 			if( tag == mk_msg_tag( 3 ) && foot_.ParseFromCodedStream( &cis ) )
@@ -313,6 +315,22 @@ void sanitize( Header& hdr )
 		}
 	}
 	hdr.clear_was_sorted_by_coordinate() ;
+}
+
+
+//! \brief sanity check, in case we are dealt broken files.
+//! This only sanitizes dangerous breakage.  Right now we fix out of
+//! range trim points and quality strings of the wrong length.  The
+//! fix is always to discard an optional field.
+//!
+//! \todo Check likelihood arrays and discard them in case of length
+//!       mismatch.
+void sanitize( Read& rd ) 
+{
+	unsigned l = rd.sequence().length() ;
+	if( rd.has_quality() && rd.quality().length() != l ) rd.clear_quality() ;
+	if( rd.has_trim_right() && rd.trim_right() > l ) rd.clear_trim_right() ;
+	if( rd.trim_left() > l ) rd.clear_trim_left() ;
 }
 
 //! \brief merges aln_stats by adding them up
@@ -486,8 +504,7 @@ bool MapqFilter::xform( Result& r ) {
 }
 
 bool LengthFilter::xform( Result& r ) {
-	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() )
-		    - ( r.read().has_trim_left() ? r.read().trim_left() : 0 ) ;
+	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
 	if( r.hit_size() && len < minlength_ )
 	{
 		r.clear_hit() ;

@@ -161,8 +161,12 @@ message OldResult {
     // something more compact?)
     required string sequence = 2 ;
 
-    // number of bases trimmed at 5' (at 3') end if trimming was done
-    optional uint32 trim_left = 11 ;
+    // index of first base that's not trimmed from 5' end
+    optional uint32 trim_left = 11 [ default = 0 ] ;
+
+	// index of first base that is trimmed from 3' end
+	// Note that the part trimmed from the 5' end still counts for this
+	// index.  If absent, nothing was trimmed from the 3' end.
     optional uint32 trim_right = 12 ;
 
     // Reason we arrived at this result

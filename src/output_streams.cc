@@ -428,7 +428,7 @@ void TableWriter::put_result( const Result& r )
 {
 	if( !has_hit_to( r, g_ ) ) return ;
 	int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
-	int b = r.read().has_trim_left() ? r.read().trim_left() : 0 ;
+	int b = r.read().trim_left() ;
 	int diff = hit_to( r, g_ ).has_diff_to_next() ? hit_to( r, g_ ).diff_to_next() : 9999 ;
 
 	out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
