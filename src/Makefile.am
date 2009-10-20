@@ -12,6 +12,8 @@ endif
 BUILT_SOURCES = config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 
+AM_CXXFLAGS = $(GUILE_CFLAGS)
+
 fa2dna_SOURCES = \
     align.h conffile.h config.pb.h \
     index.h sequence.h util.h \
@@ -52,7 +54,6 @@ anfo_SOURCES = \
     index.cc output.pb.cc output_streams.cc \
     sequence.cc stream.cc util.cc 
 
-anfo_shell_CXXFLAGS = $(GUILE_CFLAGS)
 anfo_shell_LDADD = $(GUILE_LDFLAGS)
 anfo_shell_SOURCES = \
     align.h anfo_common.h compress_stream.h conffile.h config.pb.h \

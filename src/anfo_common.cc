@@ -84,41 +84,43 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
 	// score is good enough, we trim.
 
+	const output::Read &rd = r.read() ;
+	const string &seq = rd.sequence() ;
+
 	if( mi.trim_right_size() || mi.trim_left_size() ) 
 	{
-		unsigned n = r.read().sequence().length() ; 
-		while( n && ( r.read().sequence()[n-1] == 'n' || r.read().sequence()[n-1] == 'N') ) --n ;
+		unsigned n = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
+		while( n && ( seq[n-1] == 'n' || seq[n-1] == 'N') ) --n ;
 		r.mutable_read()->set_trim_right( n ) ;
 	}
 
 	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
 	{
 		int ymax, xmax = mi.trim_right(i).size() ;
-		// XXX: already got a trim point
 		int diff = align(
-				r.read().sequence().rbegin(), r.read().sequence().rend(),
+				seq.rbegin() + ( rd.has_trim_right() ? seq.length() - rd.trim_right() : 0 ), seq.rend(),
 				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(),
 				maxd, overlap, 0, &ymax ) ;
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
-			r.mutable_read()->set_trim_right( r.read().sequence().length() - ymax ) ;
+			r.mutable_read()->set_trim_right(
+					(rd.has_trim_right() ? rd.trim_right() : seq.length()) - ymax ) ;
 	}
 
 	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
 	{
 		int ymax, xmax = mi.trim_left(i).size() ;
-		// XXX already got trim points
 		int diff = align(
-				r.read().sequence().begin(), r.read().sequence().end(),
+				seq.begin() + rd.trim_left(), seq.end(),
 				mi.trim_left(i).begin(), mi.trim_left(i).end(),
 				maxd, overlap, 0, &ymax ) ;
 		int score = xmax + ymax - 8 * diff ;
 		if( diff < maxd && score >= minscore && ymax > 0 )
-			r.mutable_read()->set_trim_left( r.read().trim_left() + ymax ) ;
+			r.mutable_read()->set_trim_left( rd.trim_left() + ymax ) ;
 	}
 
 	Policy p = select_policy( mi, r.read() ) ;
-	QSequence( r.read() ).swap( qs ) ;
+	QSequence( rd ).swap( qs ) ;
 
 	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )

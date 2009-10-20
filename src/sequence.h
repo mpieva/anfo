@@ -284,17 +284,10 @@ inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
 
 
 //! \brief sequence with quality scores
-//! We store four qualities for the four possible bases.  If the
-//! sequence was read from a 4Q file, that's okay.  If it came from
-//! FASTQ or even FASTA, they are just an extrapolation.  That's why we
-//! keep a flag saying which data set is actually valid.  Qualities are
-//! actual probabilities (they should sum to one), because calculation
-//! would involve logarithms anyway and we needn't fear loss of
-//! precision here.
-//! 
-//! In theory, we don't need to store the bases themselves.  However, to
-//! support weird base callers and to keep the legacy indexing code
-//! working, we still store them.
+//! We store four quality scores for the four possible bases.  If the
+//! sequence was read from a 4Q file (currently not supported, not that
+//! anyone cares), that's okay.  If it came from FASTQ or even FASTA,
+//! they are just an extrapolation.  
 class QSequence
 {
 	public:
@@ -314,13 +307,8 @@ class QSequence
 			Base( uint8_t a, int q_score ) ;
 		} ;
 
-		// enum Validity { bases_only, bases_with_quality, qualities_only, bases_with_qualities } ;
 	private:
 		std::vector< Base > seq_ ;
-		// output::Read read_ ;
-		// std::string name_ ;
-		// std::string description_ ;
-		// Validity validity_ ;
 
 	public:
 		typedef std::vector< Base >::const_iterator const_iterator ;
@@ -336,22 +324,18 @@ class QSequence
 		//! The sequence is terminated correctly by two gaps and has no
 		//! bases.  It is basically considered invalid and used as a
 		//! placeholder where necessary.
-		QSequence() // : seq_() // XXX , read_() // name_(), description_(), validity_( bases_only )
+		QSequence()
 		{
 			seq_.push_back( Base() ) ; 
 			seq_.push_back( Base() ) ; 
 		}
 
+		//! \brief creates a quality sequence from a generic Read
+		//! Missing qualities are set to a constant, which is equivalent
+		//! to a Q score of 30 by default.
 		QSequence( const output::Read& r, int default_q = 30 ) ;
 
 		void swap( QSequence& rhs ) { std::swap( seq_, rhs.seq_ ) ; }
-
-		//! \brief creates a sequence from ACSII encoded bases
-		//! All qualities are set to a reasonable constant, which is
-		//! equivalent to a Q score of 30 by default.  Useful mostly for
-		//! debugging.
-		// QSequence( const char* p, int q_score = 30 ) ;
-		// QSequence( const char* p, const uint8_t* q, const std::string &name, const std::string &descr ) ;
 
 		const_pointer start() const { return &seq_[1] ; }
 		unsigned length() const { return seq_.size() - 2 ; }
@@ -361,64 +345,8 @@ class QSequence
 		const_reverse_iterator rbegin() const { return seq_.rbegin() + 1 ; }
 		const_reverse_iterator rend() const { return seq_.rend() - 1 ; }
 
-		// const output::Read &get_read() const { return read_ ; } 
-		// const std::string &get_name() const { return name_ ; }
-		// const std::string &get_descr() const { return description_ ; } 
-
-		// Validity get_validity() const { return validity_ ; }
-
-		//! \brief returns the nucleotide sequence in ASCII coding
-		//! This will always work, if no nucleatides were known, they
-		//! are base called from the quality scores.
-		/* std::string as_string() const {
-			const_iterator a = seq_.begin(), b = seq_.end() ;
-			std::string r ;
-			for( ++a, --b ; a != b ; ++a ) r.push_back( from_ambicode( a->ambicode ) ) ;
-			return r ;
-		} */
-
-		//! \brief returns the quality scores (raw, Phred scale)
-		//! This will always work, if four qualities were given, the
-		//! right one is returned, if none were given, an appropriate
-		//! constant will be returned.
-		/* std::string qualities() const {
-			const_iterator a = seq_.begin(), b = seq_.end() ;
-			std::string r ;
-			for( ++a, --b ; a != b ; ++a ) r.push_back( a->qscore ) ;
-			return r ;
-		} */
-
-		//! \brief returns the four quality scores
-		//! This always works, if only one quality score was given, the
-		//! others are calculated by assuming equal error rates, if none
-		//! were given, a constant is assumed.
-		/* 
-		void four_qualities( std::string *q[4] ) const {
-			const_iterator a = seq_.begin(), b = seq_.end() ;
-			for( int i = 0 ; i != 4 ; ++i ) q[i]->clear() ;
-			for( ++a, --b ; a != b ; ++a ) 
-				for( int i = 0 ; i != 4 ; ++i )
-					q[i]->push_back( a->qscores[i] ) ;
-		}
-		*/
-
 		reference operator [] ( size_t ix ) { return seq_[1+ix] ; }
 		const_reference operator [] ( size_t ix ) const { return seq_[1+ix] ; }
-
-		// friend bool read_fastq(
-				// google::protobuf::io::ZeroCopyInputStream* zis,
-				// QSequence& qs, bool solexa_scores, char origin ) ;
-
-		/*
-		void trim_right( unsigned n ) 
-		{
-			if( n < length() ) seq_.erase( seq_.begin()+n+1, seq_.end()-1 ) ;
-		}
-		void trim_left( unsigned n )
-		{
-			if( n < length() ) seq_.erase( seq_.begin()+1, seq_.begin()+1+n ) ;
-		}
-		*/
 } ;
 
 //! \brief reads a sequence from a FASTA, FASTQ or 4Q file
@@ -436,12 +364,9 @@ class QSequence
 //!
 //!	\todo Add sensible error checking (e.g. consistent line lengths, no
 //!	      additional junk, no wrong characters).
-//!	\todo Going from log domain to probabilities and back to log domain
-//!	      may cause loss of precision.  Maybe unaltered Q scores should
-//!	      be stored, too.
 //!
 //! \param zis stream to read from
-//! \param qs sequence-with-quality to read into
+//! \param r read structure to place the sequence in
 //! \param solexa_scores 
 //!     If set, quality scores are converted from Solexa to Phred
 //!     conventions.
@@ -451,12 +376,6 @@ class QSequence
 //!     brain damage, in which case it may or may not have to be
 //!     combined with setting solexa_scores.
 //! \return true iff a sequence could be read
-// bool read_fastq(
-		// google::protobuf::io::ZeroCopyInputStream *zis,
-		// QSequence& qs,
-		// bool solexa_scores = false,
-		// char origin = 33 ) ;
-
 bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r, bool solexa_scores, char origin ) ;
 
 #endif

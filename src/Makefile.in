@@ -63,18 +63,13 @@ am_anfo_sge_OBJECTS = align.$(OBJEXT) anfo-sge.$(OBJEXT) \
 	sequence.$(OBJEXT) stream.$(OBJEXT) util.$(OBJEXT)
 anfo_sge_OBJECTS = $(am_anfo_sge_OBJECTS)
 anfo_sge_LDADD = $(LDADD)
-am_anfo_shell_OBJECTS = anfo_shell-align.$(OBJEXT) \
-	anfo_shell-anfo-shell.$(OBJEXT) \
-	anfo_shell-anfo_common.$(OBJEXT) \
-	anfo_shell-config.pb.$(OBJEXT) anfo_shell-ducttape.$(OBJEXT) \
-	anfo_shell-index.$(OBJEXT) anfo_shell-output.pb.$(OBJEXT) \
-	anfo_shell-output_streams.$(OBJEXT) \
-	anfo_shell-sequence.$(OBJEXT) anfo_shell-stream.$(OBJEXT) \
-	anfo_shell-util.$(OBJEXT)
+am_anfo_shell_OBJECTS = align.$(OBJEXT) anfo-shell.$(OBJEXT) \
+	anfo_common.$(OBJEXT) config.pb.$(OBJEXT) ducttape.$(OBJEXT) \
+	index.$(OBJEXT) output.pb.$(OBJEXT) output_streams.$(OBJEXT) \
+	sequence.$(OBJEXT) stream.$(OBJEXT) util.$(OBJEXT)
 anfo_shell_OBJECTS = $(am_anfo_shell_OBJECTS)
-anfo_shell_DEPENDENCIES =
-anfo_shell_LINK = $(CXXLD) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) \
-	$(AM_LDFLAGS) $(LDFLAGS) -o $@
+am__DEPENDENCIES_1 =
+anfo_shell_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am_anfo_tool_OBJECTS = align.$(OBJEXT) anfo-tool.$(OBJEXT) \
 	anfo_common.$(OBJEXT) config.pb.$(OBJEXT) ducttape.$(OBJEXT) \
 	index.$(OBJEXT) output.pb.$(OBJEXT) output_streams.$(OBJEXT) \
@@ -150,7 +145,11 @@ ECHO_T = @ECHO_T@
 EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 GREP = @GREP@
+GUILE = @GUILE@
+GUILE_CFLAGS = @GUILE_CFLAGS@
 GUILE_CONFIG = @GUILE_CONFIG@
+GUILE_LDFLAGS = @GUILE_LDFLAGS@
+GUILE_TOOLS = @GUILE_TOOLS@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
@@ -220,6 +219,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 BUILT_SOURCES = config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
+AM_CXXFLAGS = $(GUILE_CFLAGS)
 fa2dna_SOURCES = \
     align.h conffile.h config.pb.h \
     index.h sequence.h util.h \
@@ -260,7 +260,6 @@ anfo_SOURCES = \
     index.cc output.pb.cc output_streams.cc \
     sequence.cc stream.cc util.cc 
 
-anfo_shell_CXXFLAGS = $(GUILE_CFLAGS)
 anfo_shell_LDADD = $(GUILE_LDFLAGS)
 anfo_shell_SOURCES = \
     align.h anfo_common.h compress_stream.h conffile.h config.pb.h \
@@ -370,7 +369,7 @@ anfo-sge$(EXEEXT): $(anfo_sge_OBJECTS) $(anfo_sge_DEPENDENCIES)
 	$(CXXLINK) $(anfo_sge_OBJECTS) $(anfo_sge_LDADD) $(LIBS)
 anfo-shell$(EXEEXT): $(anfo_shell_OBJECTS) $(anfo_shell_DEPENDENCIES) 
 	@rm -f anfo-shell$(EXEEXT)
-	$(anfo_shell_LINK) $(anfo_shell_OBJECTS) $(anfo_shell_LDADD) $(LIBS)
+	$(CXXLINK) $(anfo_shell_OBJECTS) $(anfo_shell_LDADD) $(LIBS)
 anfo-tool$(EXEEXT): $(anfo_tool_OBJECTS) $(anfo_tool_DEPENDENCIES) 
 	@rm -f anfo-tool$(EXEEXT)
 	$(CXXLINK) $(anfo_tool_OBJECTS) $(anfo_tool_LDADD) $(LIBS)
@@ -395,20 +394,10 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/align.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-sge.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-shell.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-tool.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_common.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-align.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-anfo-shell.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-anfo_common.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-config.pb.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-ducttape.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-index.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-output.pb.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-output_streams.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-sequence.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-stream.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_shell-util.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/config.pb.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dnaindex.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ducttape.Po@am__quote@
@@ -435,160 +424,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCXX_FALSE@	$(CXXCOMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
-
-anfo_shell-align.o: align.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-align.o -MD -MP -MF $(DEPDIR)/anfo_shell-align.Tpo -c -o anfo_shell-align.o `test -f 'align.cc' || echo '$(srcdir)/'`align.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-align.Tpo $(DEPDIR)/anfo_shell-align.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='align.cc' object='anfo_shell-align.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-align.o `test -f 'align.cc' || echo '$(srcdir)/'`align.cc
-
-anfo_shell-align.obj: align.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-align.obj -MD -MP -MF $(DEPDIR)/anfo_shell-align.Tpo -c -o anfo_shell-align.obj `if test -f 'align.cc'; then $(CYGPATH_W) 'align.cc'; else $(CYGPATH_W) '$(srcdir)/align.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-align.Tpo $(DEPDIR)/anfo_shell-align.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='align.cc' object='anfo_shell-align.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-align.obj `if test -f 'align.cc'; then $(CYGPATH_W) 'align.cc'; else $(CYGPATH_W) '$(srcdir)/align.cc'; fi`
-
-anfo_shell-anfo-shell.o: anfo-shell.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-anfo-shell.o -MD -MP -MF $(DEPDIR)/anfo_shell-anfo-shell.Tpo -c -o anfo_shell-anfo-shell.o `test -f 'anfo-shell.cc' || echo '$(srcdir)/'`anfo-shell.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-anfo-shell.Tpo $(DEPDIR)/anfo_shell-anfo-shell.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='anfo-shell.cc' object='anfo_shell-anfo-shell.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-anfo-shell.o `test -f 'anfo-shell.cc' || echo '$(srcdir)/'`anfo-shell.cc
-
-anfo_shell-anfo-shell.obj: anfo-shell.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-anfo-shell.obj -MD -MP -MF $(DEPDIR)/anfo_shell-anfo-shell.Tpo -c -o anfo_shell-anfo-shell.obj `if test -f 'anfo-shell.cc'; then $(CYGPATH_W) 'anfo-shell.cc'; else $(CYGPATH_W) '$(srcdir)/anfo-shell.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-anfo-shell.Tpo $(DEPDIR)/anfo_shell-anfo-shell.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='anfo-shell.cc' object='anfo_shell-anfo-shell.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-anfo-shell.obj `if test -f 'anfo-shell.cc'; then $(CYGPATH_W) 'anfo-shell.cc'; else $(CYGPATH_W) '$(srcdir)/anfo-shell.cc'; fi`
-
-anfo_shell-anfo_common.o: anfo_common.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-anfo_common.o -MD -MP -MF $(DEPDIR)/anfo_shell-anfo_common.Tpo -c -o anfo_shell-anfo_common.o `test -f 'anfo_common.cc' || echo '$(srcdir)/'`anfo_common.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-anfo_common.Tpo $(DEPDIR)/anfo_shell-anfo_common.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='anfo_common.cc' object='anfo_shell-anfo_common.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-anfo_common.o `test -f 'anfo_common.cc' || echo '$(srcdir)/'`anfo_common.cc
-
-anfo_shell-anfo_common.obj: anfo_common.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-anfo_common.obj -MD -MP -MF $(DEPDIR)/anfo_shell-anfo_common.Tpo -c -o anfo_shell-anfo_common.obj `if test -f 'anfo_common.cc'; then $(CYGPATH_W) 'anfo_common.cc'; else $(CYGPATH_W) '$(srcdir)/anfo_common.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-anfo_common.Tpo $(DEPDIR)/anfo_shell-anfo_common.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='anfo_common.cc' object='anfo_shell-anfo_common.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-anfo_common.obj `if test -f 'anfo_common.cc'; then $(CYGPATH_W) 'anfo_common.cc'; else $(CYGPATH_W) '$(srcdir)/anfo_common.cc'; fi`
-
-anfo_shell-config.pb.o: config.pb.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-config.pb.o -MD -MP -MF $(DEPDIR)/anfo_shell-config.pb.Tpo -c -o anfo_shell-config.pb.o `test -f 'config.pb.cc' || echo '$(srcdir)/'`config.pb.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-config.pb.Tpo $(DEPDIR)/anfo_shell-config.pb.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='config.pb.cc' object='anfo_shell-config.pb.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-config.pb.o `test -f 'config.pb.cc' || echo '$(srcdir)/'`config.pb.cc
-
-anfo_shell-config.pb.obj: config.pb.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-config.pb.obj -MD -MP -MF $(DEPDIR)/anfo_shell-config.pb.Tpo -c -o anfo_shell-config.pb.obj `if test -f 'config.pb.cc'; then $(CYGPATH_W) 'config.pb.cc'; else $(CYGPATH_W) '$(srcdir)/config.pb.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-config.pb.Tpo $(DEPDIR)/anfo_shell-config.pb.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='config.pb.cc' object='anfo_shell-config.pb.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-config.pb.obj `if test -f 'config.pb.cc'; then $(CYGPATH_W) 'config.pb.cc'; else $(CYGPATH_W) '$(srcdir)/config.pb.cc'; fi`
-
-anfo_shell-ducttape.o: ducttape.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-ducttape.o -MD -MP -MF $(DEPDIR)/anfo_shell-ducttape.Tpo -c -o anfo_shell-ducttape.o `test -f 'ducttape.cc' || echo '$(srcdir)/'`ducttape.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-ducttape.Tpo $(DEPDIR)/anfo_shell-ducttape.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='ducttape.cc' object='anfo_shell-ducttape.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-ducttape.o `test -f 'ducttape.cc' || echo '$(srcdir)/'`ducttape.cc
-
-anfo_shell-ducttape.obj: ducttape.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-ducttape.obj -MD -MP -MF $(DEPDIR)/anfo_shell-ducttape.Tpo -c -o anfo_shell-ducttape.obj `if test -f 'ducttape.cc'; then $(CYGPATH_W) 'ducttape.cc'; else $(CYGPATH_W) '$(srcdir)/ducttape.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-ducttape.Tpo $(DEPDIR)/anfo_shell-ducttape.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='ducttape.cc' object='anfo_shell-ducttape.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-ducttape.obj `if test -f 'ducttape.cc'; then $(CYGPATH_W) 'ducttape.cc'; else $(CYGPATH_W) '$(srcdir)/ducttape.cc'; fi`
-
-anfo_shell-index.o: index.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-index.o -MD -MP -MF $(DEPDIR)/anfo_shell-index.Tpo -c -o anfo_shell-index.o `test -f 'index.cc' || echo '$(srcdir)/'`index.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-index.Tpo $(DEPDIR)/anfo_shell-index.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='index.cc' object='anfo_shell-index.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-index.o `test -f 'index.cc' || echo '$(srcdir)/'`index.cc
-
-anfo_shell-index.obj: index.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-index.obj -MD -MP -MF $(DEPDIR)/anfo_shell-index.Tpo -c -o anfo_shell-index.obj `if test -f 'index.cc'; then $(CYGPATH_W) 'index.cc'; else $(CYGPATH_W) '$(srcdir)/index.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-index.Tpo $(DEPDIR)/anfo_shell-index.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='index.cc' object='anfo_shell-index.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-index.obj `if test -f 'index.cc'; then $(CYGPATH_W) 'index.cc'; else $(CYGPATH_W) '$(srcdir)/index.cc'; fi`
-
-anfo_shell-output.pb.o: output.pb.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-output.pb.o -MD -MP -MF $(DEPDIR)/anfo_shell-output.pb.Tpo -c -o anfo_shell-output.pb.o `test -f 'output.pb.cc' || echo '$(srcdir)/'`output.pb.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-output.pb.Tpo $(DEPDIR)/anfo_shell-output.pb.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='output.pb.cc' object='anfo_shell-output.pb.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-output.pb.o `test -f 'output.pb.cc' || echo '$(srcdir)/'`output.pb.cc
-
-anfo_shell-output.pb.obj: output.pb.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-output.pb.obj -MD -MP -MF $(DEPDIR)/anfo_shell-output.pb.Tpo -c -o anfo_shell-output.pb.obj `if test -f 'output.pb.cc'; then $(CYGPATH_W) 'output.pb.cc'; else $(CYGPATH_W) '$(srcdir)/output.pb.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-output.pb.Tpo $(DEPDIR)/anfo_shell-output.pb.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='output.pb.cc' object='anfo_shell-output.pb.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-output.pb.obj `if test -f 'output.pb.cc'; then $(CYGPATH_W) 'output.pb.cc'; else $(CYGPATH_W) '$(srcdir)/output.pb.cc'; fi`
-
-anfo_shell-output_streams.o: output_streams.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-output_streams.o -MD -MP -MF $(DEPDIR)/anfo_shell-output_streams.Tpo -c -o anfo_shell-output_streams.o `test -f 'output_streams.cc' || echo '$(srcdir)/'`output_streams.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-output_streams.Tpo $(DEPDIR)/anfo_shell-output_streams.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='output_streams.cc' object='anfo_shell-output_streams.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-output_streams.o `test -f 'output_streams.cc' || echo '$(srcdir)/'`output_streams.cc
-
-anfo_shell-output_streams.obj: output_streams.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-output_streams.obj -MD -MP -MF $(DEPDIR)/anfo_shell-output_streams.Tpo -c -o anfo_shell-output_streams.obj `if test -f 'output_streams.cc'; then $(CYGPATH_W) 'output_streams.cc'; else $(CYGPATH_W) '$(srcdir)/output_streams.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-output_streams.Tpo $(DEPDIR)/anfo_shell-output_streams.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='output_streams.cc' object='anfo_shell-output_streams.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-output_streams.obj `if test -f 'output_streams.cc'; then $(CYGPATH_W) 'output_streams.cc'; else $(CYGPATH_W) '$(srcdir)/output_streams.cc'; fi`
-
-anfo_shell-sequence.o: sequence.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-sequence.o -MD -MP -MF $(DEPDIR)/anfo_shell-sequence.Tpo -c -o anfo_shell-sequence.o `test -f 'sequence.cc' || echo '$(srcdir)/'`sequence.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-sequence.Tpo $(DEPDIR)/anfo_shell-sequence.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='sequence.cc' object='anfo_shell-sequence.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-sequence.o `test -f 'sequence.cc' || echo '$(srcdir)/'`sequence.cc
-
-anfo_shell-sequence.obj: sequence.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-sequence.obj -MD -MP -MF $(DEPDIR)/anfo_shell-sequence.Tpo -c -o anfo_shell-sequence.obj `if test -f 'sequence.cc'; then $(CYGPATH_W) 'sequence.cc'; else $(CYGPATH_W) '$(srcdir)/sequence.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-sequence.Tpo $(DEPDIR)/anfo_shell-sequence.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='sequence.cc' object='anfo_shell-sequence.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-sequence.obj `if test -f 'sequence.cc'; then $(CYGPATH_W) 'sequence.cc'; else $(CYGPATH_W) '$(srcdir)/sequence.cc'; fi`
-
-anfo_shell-stream.o: stream.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-stream.o -MD -MP -MF $(DEPDIR)/anfo_shell-stream.Tpo -c -o anfo_shell-stream.o `test -f 'stream.cc' || echo '$(srcdir)/'`stream.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-stream.Tpo $(DEPDIR)/anfo_shell-stream.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='stream.cc' object='anfo_shell-stream.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-stream.o `test -f 'stream.cc' || echo '$(srcdir)/'`stream.cc
-
-anfo_shell-stream.obj: stream.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-stream.obj -MD -MP -MF $(DEPDIR)/anfo_shell-stream.Tpo -c -o anfo_shell-stream.obj `if test -f 'stream.cc'; then $(CYGPATH_W) 'stream.cc'; else $(CYGPATH_W) '$(srcdir)/stream.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-stream.Tpo $(DEPDIR)/anfo_shell-stream.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='stream.cc' object='anfo_shell-stream.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-stream.obj `if test -f 'stream.cc'; then $(CYGPATH_W) 'stream.cc'; else $(CYGPATH_W) '$(srcdir)/stream.cc'; fi`
-
-anfo_shell-util.o: util.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-util.o -MD -MP -MF $(DEPDIR)/anfo_shell-util.Tpo -c -o anfo_shell-util.o `test -f 'util.cc' || echo '$(srcdir)/'`util.cc
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-util.Tpo $(DEPDIR)/anfo_shell-util.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='util.cc' object='anfo_shell-util.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-util.o `test -f 'util.cc' || echo '$(srcdir)/'`util.cc
-
-anfo_shell-util.obj: util.cc
-@am__fastdepCXX_TRUE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -MT anfo_shell-util.obj -MD -MP -MF $(DEPDIR)/anfo_shell-util.Tpo -c -o anfo_shell-util.obj `if test -f 'util.cc'; then $(CYGPATH_W) 'util.cc'; else $(CYGPATH_W) '$(srcdir)/util.cc'; fi`
-@am__fastdepCXX_TRUE@	mv -f $(DEPDIR)/anfo_shell-util.Tpo $(DEPDIR)/anfo_shell-util.Po
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	source='util.cc' object='anfo_shell-util.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCXX_FALSE@	DEPDIR=$(DEPDIR) $(CXXDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCXX_FALSE@	$(CXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(anfo_shell_CXXFLAGS) $(CXXFLAGS) -c -o anfo_shell-util.obj `if test -f 'util.cc'; then $(CYGPATH_W) 'util.cc'; else $(CYGPATH_W) '$(srcdir)/util.cc'; fi`
 
 ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
