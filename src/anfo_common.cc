@@ -132,7 +132,8 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 
 		vector<Seed> seeds ;
 		num_raw += ix.lookupS( 
-				r.read().sequence(), seeds, cis.allow_near_perfect(), &num_useless,
+				seq.substr( rd.trim_left(), rd.has_trim_right() ? rd.trim_right() : std::string::npos ),
+				seeds, cis.allow_near_perfect(), &num_useless,
 				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
 		num_comb += seeds.size() ;
 		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
