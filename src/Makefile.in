@@ -33,7 +33,7 @@ POST_UNINSTALL = :
 bin_PROGRAMS = fa2dna$(EXEEXT) dnaindex$(EXEEXT) anfo-sge$(EXEEXT) \
 	anfo-tool$(EXEEXT) file-info$(EXEEXT) $(am__EXEEXT_1) \
 	$(am__EXEEXT_2)
-noinst_PROGRAMS = index-test$(EXEEXT)
+noinst_PROGRAMS = index-test$(EXEEXT) martin-table$(EXEEXT)
 EXTRA_PROGRAMS = anfo$(EXEEXT) anfo-shell$(EXEEXT)
 @GUILE_TRUE@am__append_1 = anfo-shell
 @PTHREADS_TRUE@am__append_2 = anfo
@@ -101,6 +101,11 @@ am_index_test_OBJECTS = align.$(OBJEXT) anfo_common.$(OBJEXT) \
 	util.$(OBJEXT)
 index_test_OBJECTS = $(am_index_test_OBJECTS)
 index_test_LDADD = $(LDADD)
+am_martin_table_OBJECTS = martin-table.$(OBJEXT) config.pb.$(OBJEXT) \
+	output.pb.$(OBJEXT) sequence.$(OBJEXT) stream.$(OBJEXT) \
+	util.$(OBJEXT)
+martin_table_OBJECTS = $(am_martin_table_OBJECTS)
+martin_table_LDADD = $(LDADD)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -115,10 +120,12 @@ CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 SOURCES = $(anfo_SOURCES) $(anfo_sge_SOURCES) $(anfo_shell_SOURCES) \
 	$(anfo_tool_SOURCES) $(dnaindex_SOURCES) $(fa2dna_SOURCES) \
-	$(file_info_SOURCES) $(index_test_SOURCES)
+	$(file_info_SOURCES) $(index_test_SOURCES) \
+	$(martin_table_SOURCES)
 DIST_SOURCES = $(anfo_SOURCES) $(anfo_sge_SOURCES) \
 	$(anfo_shell_SOURCES) $(anfo_tool_SOURCES) $(dnaindex_SOURCES) \
-	$(fa2dna_SOURCES) $(file_info_SOURCES) $(index_test_SOURCES)
+	$(fa2dna_SOURCES) $(file_info_SOURCES) $(index_test_SOURCES) \
+	$(martin_table_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -220,6 +227,11 @@ top_srcdir = @top_srcdir@
 BUILT_SOURCES = config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 AM_CXXFLAGS = $(GUILE_CFLAGS)
+martin_table_SOURCES = martin-table.cc \
+    config.pb.cc \
+    output.pb.cc \
+    sequence.cc stream.cc util.cc 
+
 fa2dna_SOURCES = \
     align.h conffile.h config.pb.h \
     index.h sequence.h util.h \
@@ -385,6 +397,9 @@ file-info$(EXEEXT): $(file_info_OBJECTS) $(file_info_DEPENDENCIES)
 index-test$(EXEEXT): $(index_test_OBJECTS) $(index_test_DEPENDENCIES) 
 	@rm -f index-test$(EXEEXT)
 	$(CXXLINK) $(index_test_OBJECTS) $(index_test_LDADD) $(LIBS)
+martin-table$(EXEEXT): $(martin_table_OBJECTS) $(martin_table_DEPENDENCIES) 
+	@rm -f martin-table$(EXEEXT)
+	$(CXXLINK) $(martin_table_OBJECTS) $(martin_table_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -405,6 +420,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file-info.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/index-test.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/index.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/martin-table.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/output.pb.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/output_streams.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sequence.Po@am__quote@

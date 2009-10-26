@@ -1,5 +1,5 @@
 bin_PROGRAMS =  fa2dna  dnaindex  anfo-sge  anfo-tool  file-info
-noinst_PROGRAMS =  index-test  
+noinst_PROGRAMS =  index-test  martin-table
 EXTRA_PROGRAMS =  anfo  anfo-shell
 
 if GUILE
@@ -13,6 +13,11 @@ BUILT_SOURCES = config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 
 AM_CXXFLAGS = $(GUILE_CFLAGS)
+
+martin_table_SOURCES = martin-table.cc \
+    config.pb.cc \
+    output.pb.cc \
+    sequence.cc stream.cc util.cc 
 
 fa2dna_SOURCES = \
     align.h conffile.h config.pb.h \
