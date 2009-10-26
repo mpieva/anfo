@@ -793,39 +793,42 @@ void StatStream::put_footer( const Footer& f )
 	}
 }
 
-static inline float std_dev( int n, uint64_t m1, uint64_t m2 )
-{ return sqrt( (m2 - m1*m1 / (float)n) / (n-1) ) ; }
-
 //! \brief prints statistics
 //! The fields are:
 //! -# some read name (as an audit trail)
 //! -# total number of reads
 //! -# number of mapped reads
 //! -# number of uniquely mapped reads
-//! -# percentage of mapped reads
 //! -# number of unique sequences mapped uniquely
 //! -# GC content in raw data
 //! -# GC content in mapped data
-//! -# average length of raw data
-//! -# standard deviation of raw data
-//! -# average length of mapped data
-//! -# standard deviation of length of mapped data
+//! -# total number of bases (== first moment of length dist.)
+//! -# sum of squared lengths (== second moment of length dist.)
+//! -# number of mapped bases (== first moment of mapped length dist.)
+//! -# sum of squared lengths of mapped reads (== second moment of
+//!    mapped length dist.)
+//! 
+//! Note that given first (m1) and second moment (m2) of a sample of size
+//! n, the average is simply
+//! \f[ m1 / n \f] 
+//! and the variance is
+//! \f[ (m2 - m1^2 / n) / (n-1) \f]
+//! Also, the mean of the weighted contig length (the median of this
+//! value would be the N50) is 
+//! \f[ m2 / m1 \f]
+
 void StatStream::printout( ostream& s, bool h )
 {
-	s << (h?"name\t#total\t#mapped\t#mapuniq\t%mapped\t#distinct\t"
-		    "GCraw\tGCmapped\trawlen\tdevrawlen\tmaplen\t"
-			"devmaplen\t~N50\n":"")
+	s << (h?"name\t#total\t#mapped\t#mapuniq\t#distinct\t"
+		    "GCraw\tGCmapped\trawbases\trawbases^2\t"
+			"mapbases\tmapbases^2\n":"")
 	  << name_ << '\t' << total_ << '\t' 							// arbitrary name, reads
 	  << mapped_ << '\t' << mapped_u_ << '\t' 						// mapped reads, uniquely mapped reads
-	  << 100*(float)mapped_/(float)total_ << '\t'					// percent hominid
 	  << different_ << '\t'
       << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
 	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
-	  << bases_ / (float)total_ << '\t'								// avg. length
-	  << std_dev( total_, bases_, bases_squared_ ) << '\t'       	// std.dev. length
-	  << bases_m_ / (float)mapped_ << '\t'  						// avg. mapped length
-	  << std_dev( mapped_, bases_m_, bases_m_squared_ ) << '\t'     // std.dev. mapped length
-	  << bases_squared_ / bases_ << endl ;
+	  << bases_  << '\t' << bases_squared_ << '\t'					// number of bases & 2nd moment
+	  << bases_m_ << '\t' << bases_m_squared_ << endl ;             // number of mapped bases & 2nd moment
 } 
 
 class IgnoreHit : public Filter
