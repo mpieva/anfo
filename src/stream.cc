@@ -543,7 +543,7 @@ bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs )
 void RmdupStream::add_read( const Result& rhs ) 
 {
 	// if the new member is itself a cluster, we add its member reads,
-	// no the single synthetic one
+	// not the single synthetic one
 	if( rhs.member_size() ) 
 		for( int i = 0 ; i != rhs.member_size() ; ++i )
 			*cur_.add_member() = rhs.member(i) ;
@@ -615,8 +615,14 @@ void RmdupStream::put_result( const Result& next )
 	if( !has_hit_to( next, g_ ) || hit_to( next, g_ ).score() >
 			slope_ * ( len_from_bin_cigar( hit_to( next, g_ ).cigar() ) - intercept_ ) )
 	{
-		// bad alignment -- this one passed through without merging
+		// bad alignment -- this one passes through without merging
+		// we clamp qualities, though
 		res_ = next ;
+		Read &r = *res_.mutable_read() ;
+		if( r.has_quality() ) 
+			for( int i = 0 ; i != r.quality().size() ; ++i )
+				if( r.quality()[i] > maxq_ )
+					(*r.mutable_quality())[i] = maxq_ ;
 		state_ = have_output ;
 	}
 	else if( !cur_.IsInitialized() ) {
