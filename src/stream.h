@@ -424,7 +424,8 @@ class QualFilter : public Filter
 } ;
 
 /*! \brief stream with PCR duplicates removed
-    A set of duplicate is (more or less by definition) a set of reads
+
+    A set of duplicates is (more or less by definition) a set of reads
     that map to the same position.
    
     \todo Refine the definition of 'duplicate'.  It appears sensible to
@@ -443,15 +444,16 @@ class QualFilter : public Filter
 	(\f$ P(A)=\frac{1}{4} \f$) and after base calling (\f$
 	P(\omega)=\frac{1}{4} \f$).
 
-	When combining observations \f$ \omega_1, \ldots, \omega_n \f$, they
-	are all independent, hence the probabilities conditioned on the
-	actual base can be multiplied.  To get the final quality when
-	calling an A:
+	When combining observations \f$ \omega_1, \ldots, \omega_n \f$
+	conditional on the same base, they are all independent, hence the
+	probabilities conditioned on the actual base can be multiplied.  To
+	get the final quality when calling an A:
 	\f[ P(A|\bigcap_n \omega_n) = \frac{ P(\bigcap_n \omega_n | A) P(A) }{ P(\bigcap_n \omega_n) }
 	                            = \frac{ P(A) \prod_n P(\omega_n | A) }{ P(\bigcap_n \omega_n) } \f]
 
 	The unconditional probabilities in the denominator are not
-	independent, we have to replace them by total probabilites:
+	independent (for they collectively depend on the true base), we have
+	to replace them by total probabilites:
 	\f[ = \frac{ P(A) \prod_n P(\omega_n | A) }{ \sum_N P(\bigcap_n \omega_n | N) P(N) } \f]
 
 	Again, assuming a uniform base composition, the priors are all equal
@@ -461,10 +463,14 @@ class QualFilter : public Filter
 
 	Tracking this incrementally is easy, we need to store the four
 	products.  Computation needs to be done in the log domain to avoid
-	loss of precision.  What remains is how to get an estimate of \f$
+	loss of precision.  Likewise, computation of a quality must not involve \f$ P(A|\omega) \f$,
+	since that is too close to one to be representable, so we calculate the quality as
+	\f[ Q := -10 \log_{10} P( \bar{A} | \omega ) = -10 \log_{10} ( P(C | \omega ) + P(G | \omega ) + P(T | \omega ) ) \f]
+
+	What remains is how to get an estimate of \f$
 	P(\omega | N) \f$.  We easily get \f$ P(\omega | A) \f$ (see above),
 	which will normally be very close to one, and the sum of the other
-	three.  To distribute the sum, we set
+	three.  To estimate the summands, we set
 	\f[ P(\omega|N) = \frac{P(N|\omega) * P(\omega)}{P(N)} =
 	P(N|\omega) = P(N|\bar{A}) * P(\bar{A}|\omega) \f]
 	and estimate \f$ P(N|\bar{A}) \f$ from misclassfication statistics
