@@ -579,6 +579,16 @@ Result RmdupStream::fetch_result()
 	return r ;
 }
 
+namespace {
+    void limit_quality( Read& r, uint8_t maxq ) 
+    {
+		if( !r.has_quality() ) return ;
+        for( int i = 0 ; i != r.quality().size() ; ++i )
+            if( r.quality()[i] > maxq )
+					(*r.mutable_quality())[i] = maxq ;
+    }
+} ;
+
 //! \brief signals end of input stream
 //! After the footer no more input is possible.  We were waiting for
 //! input, so no output was available.  cur_ might contain valid data,
@@ -619,10 +629,7 @@ void RmdupStream::put_result( const Result& next )
 		// we clamp qualities, though
 		res_ = next ;
 		Read &r = *res_.mutable_read() ;
-		if( r.has_quality() ) 
-			for( int i = 0 ; i != r.quality().size() ; ++i )
-				if( r.quality()[i] > maxq_ )
-					(*r.mutable_quality())[i] = maxq_ ;
+        limit_quality( r, maxq_ ) ;
 		state_ = have_output ;
 	}
 	else if( !cur_.IsInitialized() ) {
@@ -666,7 +673,10 @@ void RmdupStream::put_result( const Result& next )
 
 void RmdupStream::call_consensus()
 {
-	if( !cur_.member_size() ) return ;
+	if( !cur_.member_size() ) {
+        limit_quality( *cur_.mutable_read(), maxq_ ) ;
+        return ;
+    }
 
 	cur_.mutable_read()->clear_sequence() ;
 	cur_.mutable_read()->clear_quality() ;
