@@ -29,6 +29,8 @@
 #include <error.h>
 #include <malloc.h>
 
+static const int gap_buffer = 5 ; // must be this far from a gap to not set a flag
+
 using namespace std ;
 using namespace streams ;
 using namespace output ;
@@ -77,6 +79,8 @@ inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complemen
 template< typename C >
 istream& read_martin_table( istream& s, C& d )
 {
+	Chan ch ;
+
 	char hsa_strand_code, ptr_strand_code, hsa_base, ptr_base ;
 	string flags, hsa_chr, ptr_chr ;
 	const int inf = numeric_limits<int>::max() ;
@@ -86,6 +90,12 @@ istream& read_martin_table( istream& s, C& d )
 
 	for(;;)
 	{
+		if( d.size() % 1024 == 0 )
+		{
+			stringstream s ;
+			s << "reading SNPs: " << d.size() ; 
+			ch( Console::info, s.str() ) ;
+		}
 		d.push_back( new SnpRec() ) ;
 		SnpRec& r = *d.back() ;
 		string line ;
@@ -119,31 +129,38 @@ istream& read_martin_table( istream& s, C& d )
 template< typename C >
 ostream& write_martin_table( ostream& s, const C& d )
 {
+	Chan ch ;
 	s << "#HSA_Base	HSA_Chr	HSA_Strand	HSA_Pos	PAN_Base	PAN_Chr	PAN_Strand	PAN_Pos	OutBase	Flag	NEA_BaseH	NEA_BaseC\n" ;
-	for( typename C::const_iterator i = d.begin(), i_end = d.end() ; i != i_end ; ++i )
+	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
 	{
-		const SnpRec &r = **i ;
-		if( r.hsa_seen || r.ptr_seen ) 
+		if( (i-d.begin()) % 1024 == 0 )
 		{
-			s   << from_ambicode( maybe_compl( r.hsa_strand, r.hsa_base ) ) << '\t' 
-				<< symbols[r.hsa_chr] << '\t' << (r.hsa_strand ? '+' : '-') << '\t' << r.hsa_pos << '\t'
-				<< from_ambicode( maybe_compl( r.ptr_strand, r.ptr_base ) ) << '\t'
-				<< symbols[r.ptr_chr] << '\t' << (r.ptr_strand ? '+' : '-') << '\t' << r.ptr_pos << '\t'
-				<< r.out_base << '\t' << (r.gap_near_flag ? "GC" : "") << '\t' ;
-
-			if( r.hsa_seen ) 
-			{
-				if( r.nt_hsa_bases.empty() ) s << '-' ;
-				else s << r.nt_hsa_bases ;
-			}
-			s << '\t' ;
-			if( r.ptr_seen )
-			{
-				if( r.nt_ptr_bases.empty() ) s << '-' ;
-				else s << r.nt_ptr_bases ;
-			}
-			s << '\n' ;
+			stringstream s ;
+			s << "writing SNPs: " << i-d.begin() << '/' << d.size() ;
+			ch( Console::info, s.str() ) ;
 		}
+
+		const SnpRec &r = **i ;
+		// if( !r.hsa_seen && !r.ptr_seen ) continue ;
+		
+		s << from_ambicode( maybe_compl( r.hsa_strand, r.hsa_base ) ) << '\t' 
+		  << symbols[r.hsa_chr] << '\t' << (r.hsa_strand ? '+' : '-') << '\t' << r.hsa_pos << '\t'
+		  << from_ambicode( maybe_compl( r.ptr_strand, r.ptr_base ) ) << '\t'
+		  << symbols[r.ptr_chr] << '\t' << (r.ptr_strand ? '+' : '-') << '\t' << r.ptr_pos << '\t'
+		  << r.out_base << '\t' << (r.gap_near_flag ? "GC" : "") << '\t' ;
+
+		if( r.hsa_seen ) 
+		{
+			if( r.nt_hsa_bases.empty() ) s << '-' ;
+			else s << r.nt_hsa_bases ;
+		}
+		s << '\t' ;
+		if( r.ptr_seen )
+		{
+			if( r.nt_ptr_bases.empty() ) s << '-' ;
+			else s << r.nt_ptr_bases ;
+		}
+		s << '\n' ;
 	}
 	return s ;
 }
@@ -184,123 +201,132 @@ int main_( int argc, char const **argv )
 		error( 1, errno, "Parse error in 'Martin table'." ) ;
 	// cerr << mallinfo().arena << endl ;
 
-	sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
-	Stream *pt2_file = make_input_stream( argv[2] ) ;
-	deque<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
-	while( pt2_file->get_state() == Stream::have_output && first_snp != mt.end() )
 	{
-		Result res = pt2_file->fetch_result() ;
-		// check for overlap, extract base
-		// note: this is effectively broken for RC'ed alignments (but
-		// that doesn't matter in *this* application).
-		
-		if( has_hit_to( res, "pt2" ) )
+		Chan progress ;
+
+		sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
+		auto_ptr<Stream> pt2_file( make_input_stream( argv[2] ) ) ;
+		deque<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
+		while( pt2_file->get_state() == Stream::have_output && first_snp != mt.end() )
 		{
-			const Hit &h = hit_to( res, "pt2" ) ;
-			unsigned char cur_chr = lookup_sym( h.sequence() ) ;
+			Result res = pt2_file->fetch_result() ;
+			// check for overlap, extract base
+			// note: this is effectively broken for RC'ed alignments (but
+			// that doesn't matter in *this* application).
 
-			// skip ahead to correct chromosome
-			while( first_snp != mt.end() && (*first_snp)->ptr_chr != cur_chr )
-				++first_snp ;
-
-			CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
-			DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
-			int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
-
-			while( qry_pos != res.read().sequence().size() )
+			if( has_hit_to( res, "pt2" ) )
 			{
-				while( cigar_maj != h.cigar_size() &&
-						cigar_min == cigar_len( h.cigar(cigar_maj) ) )
-				{
-					cigar_min = 0 ;
-					++cigar_maj ;
-				}
-				if( cigar_maj == h.cigar().size() ) break ; // shouldn't happen (but you never know)
+				const Hit &h = hit_to( res, "pt2" ) ;
+				unsigned char cur_chr = lookup_sym( h.sequence() ) ;
 
-				// skip SNPs that cannot possibly overlap current position
-				// (note the +5 -- necessary for the GC flag)
-				while( first_snp != mt.end() && (*first_snp)->ptr_chr == cur_chr
-						&& (*first_snp)->ptr_pos + (*first_snp)->ptr_length /*+5*/ <= ref_pos )
+				// skip ahead to correct chromosome
+				while( first_snp != mt.end() && (*first_snp)->ptr_chr != cur_chr )
 					++first_snp ;
 
-				// bail if we left the current chromosome or no SNPs are left
-				if( first_snp == mt.end() || (*first_snp)->ptr_chr != cur_chr ) break ;
-
-				switch( cigar_op( h.cigar(cigar_maj) ) )
+				if( (first_snp - mt.begin()) % 1024 == 0 )
 				{
-					case Hit::Delete: // nothing here, don't need to extract anything; just increment
-					                  // However, sanity check if possible and set GC flag
-						for( deque<SnpRec*>::iterator cur_snp = first_snp ;
-								cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
-								(*cur_snp)->ptr_pos /*-5*/ < ref_pos ; ++cur_snp )
-						{
-							if( (*cur_snp)->ptr_pos == ref_pos && (*cur_snp)->ptr_base ) 
-								if( *ref != (*cur_snp)->ptr_base ) 
-									error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
-											ref_pos, from_ambicode(*ref), from_ambicode( (*cur_snp)->ptr_base ) ) ;
+					stringstream s ;
+					s << "SNPs vs. pt2: " << first_snp - mt.begin() << '/' << mt.size() ;
+					progress( Console::info, s.str() ) ;
+				}
 
-							if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
-								(*cur_snp)->ptr_seen =  1 ;
-							else 
-								(*cur_snp)->gap_near_flag = 1 ;
-						}
+				CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
+				DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
+				int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
 
-						++cigar_min ;
-						++ref_pos ;
-						++ref ;
-						break ;
+				while( qry_pos != res.read().sequence().size() )
+				{
+					while( cigar_maj != h.cigar_size() &&
+							cigar_min == cigar_len( h.cigar(cigar_maj) ) )
+					{
+						cigar_min = 0 ;
+						++cigar_maj ;
+					}
+					if( cigar_maj == h.cigar().size() ) break ; // shouldn't happen (but you never know)
 
-					case Hit::Insert: // inserted sequence: extract to current SNP if pos'n is right
-						              // Nothing to check sanity against, but set GC flag
-						for( deque<SnpRec*>::iterator cur_snp = first_snp ;
-								cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
-								(*cur_snp)->ptr_pos /*-5*/ < ref_pos ; ++cur_snp )
-						{
-							if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
+					// skip SNPs that cannot possibly overlap current position
+					// (note the +5 -- necessary for the GC flag)
+					while( first_snp != mt.end() && (*first_snp)->ptr_chr == cur_chr
+							&& (*first_snp)->ptr_pos + (*first_snp)->ptr_length + gap_buffer <= ref_pos )
+						++first_snp ;
+
+					// bail if we left the current chromosome or no SNPs are left
+					if( first_snp == mt.end() || (*first_snp)->ptr_chr != cur_chr ) break ;
+
+					switch( cigar_op( h.cigar(cigar_maj) ) )
+					{
+						case Hit::Delete: // nothing here, don't need to extract anything; just increment
+							// However, sanity check if possible and set GC flag
+							for( deque<SnpRec*>::iterator cur_snp = first_snp ;
+									cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
+									(*cur_snp)->ptr_pos - gap_buffer < ref_pos ; ++cur_snp )
 							{
-								(*cur_snp)->ptr_seen =  1 ;
-								(*cur_snp)->nt_ptr_bases.push_back( res.read().sequence()[qry_pos] ) ;
+								if( (*cur_snp)->ptr_pos == ref_pos && (*cur_snp)->ptr_base ) 
+									if( *ref != (*cur_snp)->ptr_base ) 
+										error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
+												ref_pos, from_ambicode(*ref), from_ambicode( (*cur_snp)->ptr_base ) ) ;
+
+								if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
+									(*cur_snp)->ptr_seen =  1 ;
+								else 
+									(*cur_snp)->gap_near_flag = 1 ;
 							}
-							else 
-								(*cur_snp)->gap_near_flag = 1 ;
-						}
 
-						++cigar_min ;
-						++qry_pos ;
-						break ;
+							++cigar_min ;
+							++ref_pos ;
+							++ref ;
+							break ;
 
-					case Hit::Match:
-					case Hit::Mismatch: // matched up sequence: check sanity, extract, don't set any flags
-						for( deque<SnpRec*>::iterator cur_snp = first_snp ;
-								cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
-								(*cur_snp)->ptr_pos /*-5*/ <= ref_pos ; ++cur_snp )
-						{
-							cerr <<  (*cur_snp)->ptr_pos << '+' << (int)(*cur_snp)->ptr_length << " ? " << ref_pos << endl ;
-							if( (*cur_snp)->ptr_pos == ref_pos && (*cur_snp)->ptr_base ) 
-								if( *ref != (*cur_snp)->ptr_base ) 
-									error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
-											ref_pos, from_ambicode(*ref), from_ambicode( (*cur_snp)->ptr_base ) ) ;
-
-							if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
+						case Hit::Insert: // inserted sequence: extract to current SNP if pos'n is right
+							// Nothing to check sanity against, but set GC flag
+							for( deque<SnpRec*>::iterator cur_snp = first_snp ;
+									cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
+									(*cur_snp)->ptr_pos - gap_buffer < ref_pos ; ++cur_snp )
 							{
-								(*cur_snp)->ptr_seen =  1 ;
-								(*cur_snp)->nt_ptr_bases.push_back( res.read().sequence()[qry_pos] ) ;
+								if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
+								{
+									(*cur_snp)->ptr_seen =  1 ;
+									(*cur_snp)->nt_ptr_bases.push_back( res.read().sequence()[qry_pos] ) ;
+								}
+								else 
+									(*cur_snp)->gap_near_flag = 1 ;
 							}
-						}
 
-						++cigar_min ;
-						++qry_pos ;
-						++ref_pos ;
-						++ref ;
-						break ;
+							++cigar_min ;
+							++qry_pos ;
+							break ;
 
-					default: // anything else: can't do anything  In fact, isn't even supported.
-						error( 1, 0, "Unexpected CIGAR operation %d.",  cigar_op( h.cigar(cigar_maj) ) ) ;
+						case Hit::Match:
+						case Hit::Mismatch: // matched up sequence: check sanity, extract, don't set any flags
+							for( deque<SnpRec*>::iterator cur_snp = first_snp ;
+									cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
+									(*cur_snp)->ptr_pos - gap_buffer <= ref_pos ; ++cur_snp )
+							{
+								if( (*cur_snp)->ptr_pos == ref_pos && (*cur_snp)->ptr_base ) 
+									if( *ref != (*cur_snp)->ptr_base ) 
+										error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
+												ref_pos, from_ambicode(*ref), from_ambicode( (*cur_snp)->ptr_base ) ) ;
+
+								if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
+								{
+									(*cur_snp)->ptr_seen =  1 ;
+									(*cur_snp)->nt_ptr_bases.push_back( res.read().sequence()[qry_pos] ) ;
+								}
+							}
+
+							++cigar_min ;
+							++qry_pos ;
+							++ref_pos ;
+							++ref ;
+							break ;
+
+						default: // anything else: can't do anything  In fact, isn't even supported.
+							error( 1, 0, "Unexpected CIGAR operation %d.",  cigar_op( h.cigar(cigar_maj) ) ) ;
+					}
 				}
 			}
 		}
 	}
-	delete pt2_file ;
 
 	sort( mt.begin(), mt.end(), ByHg18Coordinate() ) ;
 	/*
