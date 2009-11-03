@@ -17,7 +17,7 @@ AM_CXXFLAGS = $(GUILE_CFLAGS)
 martin_table_SOURCES = martin-table.cc \
     config.pb.cc \
     output.pb.cc \
-    sequence.cc stream.cc util.cc 
+    sequence.cc stream.cc util.cc index.cc
 
 fa2dna_SOURCES = \
     align.h conffile.h config.pb.h \

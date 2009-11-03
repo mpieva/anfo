@@ -103,7 +103,7 @@ index_test_OBJECTS = $(am_index_test_OBJECTS)
 index_test_LDADD = $(LDADD)
 am_martin_table_OBJECTS = martin-table.$(OBJEXT) config.pb.$(OBJEXT) \
 	output.pb.$(OBJEXT) sequence.$(OBJEXT) stream.$(OBJEXT) \
-	util.$(OBJEXT)
+	util.$(OBJEXT) index.$(OBJEXT)
 martin_table_OBJECTS = $(am_martin_table_OBJECTS)
 martin_table_LDADD = $(LDADD)
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
@@ -230,7 +230,7 @@ AM_CXXFLAGS = $(GUILE_CFLAGS)
 martin_table_SOURCES = martin-table.cc \
     config.pb.cc \
     output.pb.cc \
-    sequence.cc stream.cc util.cc 
+    sequence.cc stream.cc util.cc index.cc
 
 fa2dna_SOURCES = \
     align.h conffile.h config.pb.h \
