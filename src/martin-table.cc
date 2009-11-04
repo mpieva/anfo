@@ -25,6 +25,7 @@
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <error.h>
 #include <malloc.h>
@@ -50,27 +51,20 @@ char lookup_sym( const string &s )
 	return i-1 ;
 }
 
+struct SnpRec1 {
+	int pos ;
+	string nt_bases ;					// too bad we may observe more than a single base
+	unsigned char length ;				// one for SNPs, zero for inserts(!), length for deletions --- XXX mustn't be too big
+	unsigned char chr ;					// symbol index
+	unsigned char base : 4 ;			// base as an ambiguity code
+	unsigned char strand : 1 ;			// is this on the 'sense' strand?
+	unsigned char seen : 1 ;			// set once we have an observation
+	unsigned char gap_near_flag : 1 ;	// set if a gap was near (±5nt)
+	unsigned char edge_near_flag : 1 ;	// set if contig end was near (±5nt)
+} ;
+
 struct SnpRec {
-	int hsa_pos ;
-	int ptr_pos ;
-
-	string nt_hsa_bases ; // too bad we may observe more than a single base
-	string nt_ptr_bases ;
-
-	unsigned char hsa_length ; // one for SNPs, zero for inserts(!), length for deletions
-	unsigned char ptr_length ;
-
-	unsigned char hsa_strand : 1 ;
-	unsigned char ptr_strand : 1 ;
-	unsigned char gap_near_flag : 1 ;
-	unsigned char hsa_seen : 1 ; // set as soon as anything was seen
-	unsigned char ptr_seen : 1 ;
-
-	Ambicode hsa_chr ;	// index into symtab
-	Ambicode ptr_chr ;	// index into symtab
-
-	char hsa_base ;
-	char ptr_base ;
+	SnpRec1 hsa, ptr ;
 	char out_base ;
 } ;
 
@@ -101,28 +95,44 @@ istream& read_martin_table( istream& s, C& d )
 		string line ;
 		if( !getline( s, line ) ) break ;
 		stringstream ss( line ) ;
-		ss >> hsa_base >> hsa_chr >> hsa_strand_code >> r.hsa_pos
-		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr_pos
+		ss >> hsa_base >> hsa_chr >> hsa_strand_code >> r.hsa.pos
+		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr.pos
 		   >> r.out_base >> flags ;
 		if( !s ) break ;
 
-		r.hsa_chr = lookup_sym( hsa_chr ) ;
-		r.ptr_chr = lookup_sym( ptr_chr ) ;
+		r.hsa.chr = lookup_sym( hsa_chr ) ;
+		r.ptr.chr = lookup_sym( ptr_chr ) ;
 
-		r.hsa_strand = hsa_strand_code == '+' ;
-		r.ptr_strand = ptr_strand_code == '+' ;
-		r.hsa_length = 1 ;
-		r.ptr_length = 1 ;
-		r.hsa_base = maybe_compl( r.hsa_strand, to_ambicode( hsa_base ) ) ;
-		r.ptr_base = maybe_compl( r.ptr_strand, to_ambicode( ptr_base ) ) ;
+		r.hsa.strand = hsa_strand_code == '+' ;
+		r.ptr.strand = ptr_strand_code == '+' ;
+		r.hsa.length = 1 ;
+		r.ptr.length = 1 ;
+		r.hsa.base = maybe_compl( r.hsa.strand, to_ambicode( hsa_base ) ) ;
+		r.ptr.base = maybe_compl( r.ptr.strand, to_ambicode( ptr_base ) ) ;
 
-		if( !flags.empty() ) error( 0, 0, "Flags field not empty at %s:%d", r.hsa_chr, r.hsa_pos ) ;
-		r.gap_near_flag = 0 ;
-		r.hsa_seen = 0 ;
-		r.ptr_seen = 0 ;
+		if( !flags.empty() ) error( 0, 0, "Flags field not empty at %s:%d", symbols[r.hsa.chr].c_str(), r.hsa.pos ) ;
+		r.hsa.gap_near_flag = 0 ;
+		r.ptr.gap_near_flag = 0 ;
+		r.hsa.seen = 0 ;
+		r.ptr.seen = 0 ;
 	}
 	delete d.back() ;
 	d.pop_back() ;
+	return s ;
+}
+
+inline ostream& write_half_record( ostream& s, const SnpRec1& r )
+{
+	return s 
+		<< from_ambicode( maybe_compl( r.strand, r.base ) ) << '\t' 
+		<< symbols[r.chr] << '\t' << (r.strand ? '+' : '-') << '\t'
+		<< r.pos << '\t' ;
+}
+inline ostream& write_bases( ostream& s, const SnpRec1& r )
+{
+	s << '\t' ;
+	if( r.seen && r.nt_bases.empty() ) s << '-' ;
+	else if( r.seen ) s << r.nt_bases ;
 	return s ;
 }
 
@@ -143,192 +153,199 @@ ostream& write_martin_table( ostream& s, const C& d )
 		const SnpRec &r = **i ;
 		// if( !r.hsa_seen && !r.ptr_seen ) continue ;
 		
-		s << from_ambicode( maybe_compl( r.hsa_strand, r.hsa_base ) ) << '\t' 
-		  << symbols[r.hsa_chr] << '\t' << (r.hsa_strand ? '+' : '-') << '\t' << r.hsa_pos << '\t'
-		  << from_ambicode( maybe_compl( r.ptr_strand, r.ptr_base ) ) << '\t'
-		  << symbols[r.ptr_chr] << '\t' << (r.ptr_strand ? '+' : '-') << '\t' << r.ptr_pos << '\t'
-		  << r.out_base << '\t' << (r.gap_near_flag ? "GC" : "") << '\t' ;
-
-		if( r.hsa_seen ) 
-		{
-			if( r.nt_hsa_bases.empty() ) s << '-' ;
-			else s << r.nt_hsa_bases ;
-		}
-		s << '\t' ;
-		if( r.ptr_seen )
-		{
-			if( r.nt_ptr_bases.empty() ) s << '-' ;
-			else s << r.nt_ptr_bases ;
-		}
+		write_half_record( s, r.hsa ) ;
+		write_half_record( s, r.ptr ) ;
+		bool g = r.hsa.gap_near_flag || r.ptr.gap_near_flag ;
+		bool e = r.hsa.edge_near_flag || r.ptr.edge_near_flag ;
+		s << r.out_base << '\t' << (g ? e ? "GC:EC" : "GC" : e ? "EC" : "") ;
+		write_bases( s, r.hsa ) ;
+		write_bases( s, r.ptr ) ;
 		s << '\n' ;
 	}
 	return s ;
 }
 
+inline bool operator < ( const SnpRec1& l, const SnpRec1& r )
+{
+	if( symbols[l.chr] < symbols[r.chr] ) return true ;
+	if( symbols[r.chr] < symbols[l.chr] ) return false ;
+	return l.pos < r.pos ;
+}
+
 struct ByHg18Coordinate {
-	bool operator()( const SnpRec *l, const SnpRec *r ) {
-		if( symbols[l->hsa_chr] < symbols[r->hsa_chr] ) return true ;
-		if( symbols[r->hsa_chr] < symbols[l->hsa_chr] ) return false ;
-		if( l->hsa_pos < r->hsa_pos ) return true ;
-		if( r->hsa_pos < l->hsa_pos ) return false ;
-		return false ;
+	inline bool operator()( const SnpRec *l, const SnpRec *r ) {
+		return l->hsa < r->hsa ;
 	}
 } ;
 
 struct ByPt2Coordinate {
-	bool operator()( const SnpRec *l, const SnpRec *r ) {
-		if( l->ptr_chr < r->ptr_chr ) return true ;
-		if( r->ptr_chr < l->ptr_chr ) return false ;
-		if( l->ptr_pos < r->ptr_pos ) return true ;
-		if( r->ptr_pos < l->ptr_pos ) return false ;
-		return false ;
+	inline bool operator()( const SnpRec *l, const SnpRec *r ) {
+		return l->ptr < r->ptr ;
 	}
 } ;
+
+struct GetHg18Rec {
+	SnpRec1& operator()( vector<SnpRec*>::iterator i ) { return (*i)->hsa ; }
+} ;
+struct GetPt2Rec {
+	SnpRec1& operator()( vector<SnpRec*>::iterator i ) { return (*i)->ptr ; }
+} ;
+
+template< typename T >
+void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T get )
+{
+	Chan progress ;
+	auto_ptr<Stream> anfo_file( make_input_stream( fn ) ) ;
+
+	vector<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
+	while( anfo_file->get_state() == Stream::have_output && first_snp != mt.end() )
+	{
+		Result res = anfo_file->fetch_result() ;
+		// check for overlap, extract base
+		// note: this is effectively broken for RC'ed alignments (but
+		// that doesn't matter in *this* application).
+
+		if( has_hit_to( res, genome ) )
+		{
+			const Hit &h = hit_to( res, genome ) ;
+			unsigned char cur_chr = lookup_sym( h.sequence() ) ;
+
+			// skip ahead to correct chromosome
+			while( first_snp != mt.end() && get( first_snp ).chr != cur_chr )
+				++first_snp ;
+
+			// if( (first_snp - mt.begin()) % 1024 == 0 )
+			{
+				stringstream s ;
+				s << "SNPs vs. " << genome << ": " << first_snp - mt.begin() << '/' << mt.size() ;
+				progress( Console::info, s.str() ) ;
+			}
+
+			CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
+			DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
+			int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
+
+			while( qry_pos != res.read().sequence().size() )
+			{
+				while( cigar_maj != h.cigar_size() &&
+						cigar_min == cigar_len( h.cigar(cigar_maj) ) )
+				{
+					cigar_min = 0 ;
+					++cigar_maj ;
+				}
+				if( cigar_maj == h.cigar().size() ) break ; // shouldn't happen (but you never know)
+
+				// skip SNPs that cannot possibly overlap current position
+				// (note the +5 -- necessary for the GC flag)
+				while( first_snp != mt.end() && get( first_snp ).chr == cur_chr
+						&& get( first_snp ).pos + get( first_snp ).length + gap_buffer <= ref_pos )
+					++first_snp ;
+
+				// bail if we left the current chromosome or no SNPs are left
+				if( first_snp == mt.end() || get( first_snp ).chr != cur_chr ) break ;
+
+				for( vector<SnpRec*>::iterator cur_snp = first_snp ; cur_snp != mt.end() ; ++cur_snp )
+				{
+					SnpRec1 &snp = get( cur_snp ) ;
+					Hit::Operation op = cigar_op( h.cigar(cigar_maj) ) ;
+					if( snp.chr != cur_chr || snp.pos - gap_buffer >= ref_pos ) break ;
+
+					// close to contig edge? set flag
+					if( qry_pos < gap_buffer || qry_pos >= res.read().sequence().size() - gap_buffer )
+						snp.edge_near_flag = 1 ;
+
+					// sanity check: only possible if we're not looking
+					// at an insert
+					if( snp.pos == ref_pos && snp.base && *ref != snp.base ) switch( op )
+					{
+						case Hit::Delete:
+						case Hit::Match:
+						case Hit::Mismatch:
+							error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
+									ref_pos, from_ambicode(*ref), from_ambicode( snp.base ) ) ;
+					}
+					
+					if( snp.pos <= ref_pos && ref_pos < snp.pos + snp.length )
+					{
+						// SNP observed.  Anything to extract?
+						snp.seen = 1 ;
+						switch( op )
+						{
+							case Hit::Insert:
+							case Hit::Match:
+							case Hit::Mismatch:
+								snp.nt_bases.push_back( res.read().sequence()[qry_pos] ) ;
+						}
+					}
+					else switch( op )
+					{
+						// not observed, but close by.  Set gap flag?
+						case Hit::Delete:
+						case Hit::Insert:
+							snp.gap_near_flag = 1 ;
+					}
+				}
+
+				switch( cigar_op( h.cigar(cigar_maj) ) )
+				{
+					case Hit::Delete:
+						++cigar_min ;
+						++ref_pos ;
+						++ref ;
+						break ;
+
+					case Hit::Insert:
+						++cigar_min ;
+						++qry_pos ;
+						break ;
+
+					case Hit::Match:
+					case Hit::Mismatch:
+						++cigar_min ;
+						++qry_pos ;
+						++ref_pos ;
+						++ref ;
+						break ;
+
+					default: // anything else: can't do anything  In fact, isn't even supported.
+						error( 1, 0, "Unexpected CIGAR operation %d.",  cigar_op( h.cigar(cigar_maj) ) ) ;
+				}
+			}
+		}
+	}
+}
+
 
 int main_( int argc, char const **argv )
 {
 	console.loglevel = Console::debug ;
 
-	if( argc != 3 ) {
-		printf( "Usage: %s hg18.anfo pt2.anfo\n" 
-			"  Reads a 'Martin table' from stdin, fills in information from\n"
-			"  the two files on the command line assumed to contain McAssemblies\n"
-			"  and writes an augmented 'Martin table' to stdout.\n", argv[0] ) ;
+	if( argc <= 3 ) {
+		printf( "Usage: %s [hg18.anfo] [pt2.anfo] [martin-table.tsv...]\n" 
+			"  Reads 'Martin tables' from files, fills in information from\n"
+			"  the two Anfo files on the command line assumed to contain\n"
+			"  McAssemblies and writes an augmented 'Martin table' to stdout.\n", argv[0] ) ;
 		return 1 ;
 	}
-	std::deque<SnpRec*> mt ;
-	if( !read_martin_table( cin, mt ).eof() )
-		error( 1, errno, "Parse error in 'Martin table'." ) ;
-	// cerr << mallinfo().arena << endl ;
-
+	std::vector<SnpRec*> mt ;
+	for( char const **arg = argv+3 ; arg != argv+argc ; ++arg )
 	{
-		Chan progress ;
-
-		sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
-		auto_ptr<Stream> pt2_file( make_input_stream( argv[2] ) ) ;
-		deque<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
-		while( pt2_file->get_state() == Stream::have_output && first_snp != mt.end() )
-		{
-			Result res = pt2_file->fetch_result() ;
-			// check for overlap, extract base
-			// note: this is effectively broken for RC'ed alignments (but
-			// that doesn't matter in *this* application).
-
-			if( has_hit_to( res, "pt2" ) )
-			{
-				const Hit &h = hit_to( res, "pt2" ) ;
-				unsigned char cur_chr = lookup_sym( h.sequence() ) ;
-
-				// skip ahead to correct chromosome
-				while( first_snp != mt.end() && (*first_snp)->ptr_chr != cur_chr )
-					++first_snp ;
-
-				if( (first_snp - mt.begin()) % 1024 == 0 )
-				{
-					stringstream s ;
-					s << "SNPs vs. pt2: " << first_snp - mt.begin() << '/' << mt.size() ;
-					progress( Console::info, s.str() ) ;
-				}
-
-				CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
-				DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
-				int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
-
-				while( qry_pos != res.read().sequence().size() )
-				{
-					while( cigar_maj != h.cigar_size() &&
-							cigar_min == cigar_len( h.cigar(cigar_maj) ) )
-					{
-						cigar_min = 0 ;
-						++cigar_maj ;
-					}
-					if( cigar_maj == h.cigar().size() ) break ; // shouldn't happen (but you never know)
-
-					// skip SNPs that cannot possibly overlap current position
-					// (note the +5 -- necessary for the GC flag)
-					while( first_snp != mt.end() && (*first_snp)->ptr_chr == cur_chr
-							&& (*first_snp)->ptr_pos + (*first_snp)->ptr_length + gap_buffer <= ref_pos )
-						++first_snp ;
-
-					// bail if we left the current chromosome or no SNPs are left
-					if( first_snp == mt.end() || (*first_snp)->ptr_chr != cur_chr ) break ;
-
-					switch( cigar_op( h.cigar(cigar_maj) ) )
-					{
-						case Hit::Delete: // nothing here, don't need to extract anything; just increment
-							// However, sanity check if possible and set GC flag
-							for( deque<SnpRec*>::iterator cur_snp = first_snp ;
-									cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
-									(*cur_snp)->ptr_pos - gap_buffer < ref_pos ; ++cur_snp )
-							{
-								if( (*cur_snp)->ptr_pos == ref_pos && (*cur_snp)->ptr_base ) 
-									if( *ref != (*cur_snp)->ptr_base ) 
-										error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
-												ref_pos, from_ambicode(*ref), from_ambicode( (*cur_snp)->ptr_base ) ) ;
-
-								if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
-									(*cur_snp)->ptr_seen =  1 ;
-								else 
-									(*cur_snp)->gap_near_flag = 1 ;
-							}
-
-							++cigar_min ;
-							++ref_pos ;
-							++ref ;
-							break ;
-
-						case Hit::Insert: // inserted sequence: extract to current SNP if pos'n is right
-							// Nothing to check sanity against, but set GC flag
-							for( deque<SnpRec*>::iterator cur_snp = first_snp ;
-									cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
-									(*cur_snp)->ptr_pos - gap_buffer < ref_pos ; ++cur_snp )
-							{
-								if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
-								{
-									(*cur_snp)->ptr_seen =  1 ;
-									(*cur_snp)->nt_ptr_bases.push_back( res.read().sequence()[qry_pos] ) ;
-								}
-								else 
-									(*cur_snp)->gap_near_flag = 1 ;
-							}
-
-							++cigar_min ;
-							++qry_pos ;
-							break ;
-
-						case Hit::Match:
-						case Hit::Mismatch: // matched up sequence: check sanity, extract, don't set any flags
-							for( deque<SnpRec*>::iterator cur_snp = first_snp ;
-									cur_snp != mt.end() && (*cur_snp)->ptr_chr == cur_chr &&
-									(*cur_snp)->ptr_pos - gap_buffer <= ref_pos ; ++cur_snp )
-							{
-								if( (*cur_snp)->ptr_pos == ref_pos && (*cur_snp)->ptr_base ) 
-									if( *ref != (*cur_snp)->ptr_base ) 
-										error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
-												ref_pos, from_ambicode(*ref), from_ambicode( (*cur_snp)->ptr_base ) ) ;
-
-								if( (*cur_snp)->ptr_pos <= ref_pos && ref_pos < (*cur_snp)->ptr_pos + (*cur_snp)->ptr_length )
-								{
-									(*cur_snp)->ptr_seen =  1 ;
-									(*cur_snp)->nt_ptr_bases.push_back( res.read().sequence()[qry_pos] ) ;
-								}
-							}
-
-							++cigar_min ;
-							++qry_pos ;
-							++ref_pos ;
-							++ref ;
-							break ;
-
-						default: // anything else: can't do anything  In fact, isn't even supported.
-							error( 1, 0, "Unexpected CIGAR operation %d.",  cigar_op( h.cigar(cigar_maj) ) ) ;
-					}
-				}
-			}
-		}
+		ifstream f( *arg ) ;
+		if( !read_martin_table( f, mt ).eof() )
+			error( 1, errno, "Parse error in 'Martin table' %s.", *arg ) ;
 	}
 
+	// cerr << mallinfo().arena << endl ;
+
+	console.output( Console::info, "Sorting on pt2..." ) ;
+	sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
+	console.output( Console::info, "Done." ) ;
+	scan_anfo_file( mt, argv[2], "pt2", GetPt2Rec() ) ;
+
+	console.output( Console::info, "Sorting on hg18..." ) ;
 	sort( mt.begin(), mt.end(), ByHg18Coordinate() ) ;
+	console.output( Console::info, "Done." ) ;
+	scan_anfo_file( mt, argv[1], "hg18", GetHg18Rec() ) ;
 	/*
 	Stream *hg18_file = make_input_stream( argv[1] ) ;
 	first_snp = mt.begin() ;
