@@ -29,8 +29,9 @@
 
 #include <error.h>
 #include <malloc.h>
+#include <popt.h>
 
-static const int gap_buffer = 5 ; // must be this far from a gap to not set a flag
+static int gap_buffer = 5 ; // must be this far from a gap to not set a flag
 
 using namespace std ;
 using namespace streams ;
@@ -71,7 +72,7 @@ struct SnpRec {
 
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
 
-template< typename C > istream& read_martin_table_snp( istream& s, C& d )
+template< typename C > istream& read_martin_table_snp( istream& s, C& d, const char* fn )
 {
 	Chan ch ;
 
@@ -87,7 +88,7 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d )
 		if( d.size() % 1024 == 0 )
 		{
 			stringstream s ;
-			s << "reading SNPs: " << d.size() ; 
+			s << "reading " << fn << ": " << d.size() ; 
 			ch( Console::info, s.str() ) ;
 		}
 		d.push_back( new SnpRec() ) ;
@@ -321,19 +322,20 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 			unsigned char cur_chr = lookup_sym( h.sequence() ) ;
 
 			// skip ahead to correct chromosome
-			while( first_snp != mt.end() && get( first_snp ).chr != cur_chr )
+			while( first_snp != mt.end() && get( first_snp ).chr != cur_chr 
+					&& symbols[ get( first_snp ).chr ] < h.sequence() )
 				++first_snp ;
-
-			// if( (first_snp - mt.begin()) % 1024 == 0 )
-			{
-				stringstream s ;
-				s << "SNPs vs. " << genome << ": " << first_snp - mt.begin() << '/' << mt.size() ;
-				progress( Console::info, s.str() ) ;
-			}
 
 			CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
 			DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
 			int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
+
+			if( (first_snp - mt.begin()) % 1024 == 0 )
+			{
+				stringstream s ;
+				s << "SNPs vs. " << genome << " (" << h.sequence() << "): " << first_snp - mt.begin() << '/' << mt.size() ;
+				progress( Console::info, s.str() ) ;
+			}
 
 			while( qry_pos != res.read().sequence().size() )
 			{
@@ -428,40 +430,67 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 
 int main_( int argc, char const **argv )
 {
+	char *ptr_file = 0 ;
+	char *hsa_file = 0 ;
+	char *snp_out_file = 0 ;
+	char *indel_out_file = 0 ;
+
 	console.loglevel = Console::debug ;
 
-	if( argc <= 3 ) {
-		printf( "Usage: %s [hg18.anfo] [pt2.anfo] [martin-table.tsv...]\n" 
-			"  Reads 'Martin tables' from files, fills in information from\n"
-			"  the two Anfo files on the command line assumed to contain\n"
-			"  McAssemblies and writes an augmented 'Martin table' to stdout.\n", argv[0] ) ;
-		return 1 ;
-	}
-	std::vector<SnpRec*> mt ;
-	for( char const **arg = argv+3 ; arg != argv+argc ; ++arg )
-	{
-		ifstream f( *arg ) ;
-		if( strstr( *arg, "SNP" ) ) read_martin_table_snp( f, mt ) ;
-		else if( strstr( *arg, "indel" ) ) read_martin_table_indel( f, mt ) ;
-		else error( 1, errno, "cannot guess contents of %s", *arg ) ;
+	struct poptOption options[] = {
+		{ "hsa-file",     0 , POPT_ARG_STRING, &hsa_file,           0,    "Neandertalized Human is in FILE", "FILE" },
+		{ "ptr-file",     0 , POPT_ARG_STRING, &ptr_file,           0,    "Neandertalized Chimp is in FILE", "FILE" },
+		{ "output-snp",   0 , POPT_ARG_STRING, &snp_out_file,       0,    "Write SNPs table to FILE", "FILE" },
+		{ "output-indel", 0 , POPT_ARG_STRING, &indel_out_file,     0,    "Write indels table to FILE", "FILE" },
+		{ "buffer",      'q', POPT_ARG_INT,    &gap_buffer,         0,    "Flag gaps closer than N", "N" },
+		POPT_AUTOHELP POPT_TABLEEND
+	} ;
 
-		if( !f.eof() ) error( 1, errno, "Parse error in 'Martin table' %s.", *arg ) ;
+	poptContext pc = poptGetContext( "martin-table", argc, argv, options, 0 ) ;
+	poptSetOtherOptionHelp( pc, "[OPTION...] [martin-table...]" ) ;
+	poptReadDefaultConfig( pc, 0 ) ;
+
+	int rc = poptGetNextOpt( pc ) ; 
+	if( rc != -1 ) error( 1, 0, "%s %s", poptStrerror( rc ), poptBadOption( pc, 0 ) ) ;
+
+	if( !poptPeekArg( pc ) ) error( 1, 0, "no input files (try --help)" ) ;
+
+	std::vector<SnpRec*> mt ;
+	while( char const *arg = poptGetArg( pc ) )
+	{
+		ifstream f( arg ) ;
+		if( strstr( arg, "SNP" ) ) read_martin_table_snp( f, mt, arg ) ;
+		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt ) ;
+		else error( 1, errno, "cannot guess contents of %s", arg ) ;
+
+		if( !f.eof() ) error( 1, errno, "Parse error in 'Martin table' %s.", arg ) ;
 	}
 
 	// cerr << mallinfo().arena << endl ;
 
+	if( !ptr_file ) error( 1, 0, "missing Chimp alignments" ) ;
+	if( !hsa_file ) error( 1, 0, "missing Human alignments" ) ;
+	if( !snp_out_file && !indel_out_file ) error( 1, 0, "no output to write to" ) ;
+
 	console.output( Console::info, "Sorting on pt2..." ) ;
 	sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
 	console.output( Console::info, "Done." ) ;
-	scan_anfo_file( mt, argv[2], "pt2", GetPt2Rec() ) ;
+	scan_anfo_file( mt, ptr_file, "pt2", GetPt2Rec() ) ;
 
 	console.output( Console::info, "Sorting on hg18..." ) ;
 	sort( mt.begin(), mt.end(), ByHg18Coordinate() ) ;
 	console.output( Console::info, "Done." ) ;
-	scan_anfo_file( mt, argv[1], "hg18", GetHg18Rec() ) ;
+	scan_anfo_file( mt, hsa_file, "hg18", GetHg18Rec() ) ;
 
-	write_martin_table_snp( cout, mt ) ;
-	write_martin_table_indel( cout, mt ) ;
+	if( snp_out_file ) {
+		ofstream out( snp_out_file ) ;
+		write_martin_table_snp( out, mt ) ;
+	}
+	if( indel_out_file ) {
+		ofstream out( indel_out_file ) ;
+		write_martin_table_indel( out, mt ) ;
+	}
+	poptFreeContext( pc ) ;
 	return 0 ;
 }
 
