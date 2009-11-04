@@ -65,13 +65,13 @@ struct SnpRec1 {
 
 struct SnpRec {
 	SnpRec1 hsa, ptr ;
+	string sequence ;		// for indels: the original sequence
 	char out_base ;
 } ;
 
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
 
-template< typename C >
-istream& read_martin_table( istream& s, C& d )
+template< typename C > istream& read_martin_table_snp( istream& s, C& d )
 {
 	Chan ch ;
 
@@ -98,7 +98,6 @@ istream& read_martin_table( istream& s, C& d )
 		ss >> hsa_base >> hsa_chr >> hsa_strand_code >> r.hsa.pos
 		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr.pos
 		   >> r.out_base >> flags ;
-		if( !s ) break ;
 
 		r.hsa.chr = lookup_sym( hsa_chr ) ;
 		r.ptr.chr = lookup_sym( ptr_chr ) ;
@@ -121,12 +120,91 @@ istream& read_martin_table( istream& s, C& d )
 	return s ;
 }
 
-inline ostream& write_half_record( ostream& s, const SnpRec1& r )
+template< typename C > istream& read_martin_table_indel( istream& s, C& d )
+{
+	Chan ch ;
+
+	char hsa_strand_code, ptr_strand_code ;
+	string flags, hsa_chr, ptr_chr, type ;
+	int hsa_end, ptr_end ;
+	const int inf = numeric_limits<int>::max() ;
+	int x = s.get() ;
+	if( x == '#' ) s.ignore( inf, '\n' ) ; // drop header line
+	else s.putback( x ) ;
+
+	for(;;)
+	{
+		if( d.size() % 1024 == 0 )
+		{
+			stringstream s ;
+			s << "reading indels: " << d.size() ; 
+			ch( Console::info, s.str() ) ;
+		}
+		d.push_back( new SnpRec() ) ;
+		SnpRec& r = *d.back() ;
+		string line ;
+		if( !getline( s, line ) ) break ;
+		stringstream ss( line ) ;
+		ss >> type >> hsa_chr >> hsa_strand_code >> r.hsa.pos >> hsa_end
+		   >> ptr_chr >> ptr_strand_code >> r.ptr.pos >> ptr_end 
+		   >> r.sequence >> flags ;
+
+		r.hsa.chr = lookup_sym( hsa_chr ) ;
+		r.ptr.chr = lookup_sym( ptr_chr ) ;
+
+		r.hsa.strand = hsa_strand_code == '+' ;
+		r.ptr.strand = ptr_strand_code == '+' ;
+
+		if( r.sequence.size() > 255 )
+			error( 1, 0, "cannot represent long insert at %s:%d (%d)",
+					hsa_chr.c_str(), r.hsa.pos, r.sequence.size() ) ;
+
+		if( type == "deletion" )
+		{
+			if( r.hsa.pos != hsa_end )
+				error( 1, 0, "parse error: hsa should have length 0 for deletion at %s:%d", hsa_chr.c_str(), r.hsa.pos ) ;
+
+			// store (chimp) base, only for sanity check
+			r.ptr.base = r.sequence.size() == 1 ? maybe_compl( r.ptr.strand, to_ambicode( r.sequence[0] ) ) : 0 ;
+			r.hsa.base = 0 ;
+		}
+		else if( type == "insert" )
+		{
+			if( r.ptr.pos != ptr_end )
+				error( 1, 0, "parse error: ptr should have length 0 for insert at %s:%d", ptr_chr.c_str(), r.ptr.pos ) ;
+
+			// store (human) base, only for sanity check
+			r.hsa.base = r.sequence.size() == 1 ? maybe_compl( r.hsa.strand, to_ambicode( r.sequence[0] ) ) : 0 ;
+			r.ptr.base = 0 ;
+		}
+		else error( 1, 0, "parse error: unknown indel type %s at %s:%d", type.c_str(), ptr_chr.c_str(), r.ptr.pos ) ;
+
+		r.hsa.length = hsa_end - r.hsa.pos ;
+		r.ptr.length = ptr_end - r.ptr.pos ;
+
+		if( !flags.empty() ) error( 0, 0, "Flags field not empty at %s:%d", hsa_chr.c_str(), r.hsa.pos ) ;
+		r.hsa.gap_near_flag = 0 ;
+		r.ptr.gap_near_flag = 0 ;
+		r.hsa.seen = 0 ;
+		r.ptr.seen = 0 ;
+	}
+	delete d.back() ;
+	d.pop_back() ;
+	return s ;
+}
+
+inline ostream& write_half_record_snp( ostream& s, const SnpRec1& r )
 {
 	return s 
 		<< from_ambicode( maybe_compl( r.strand, r.base ) ) << '\t' 
 		<< symbols[r.chr] << '\t' << (r.strand ? '+' : '-') << '\t'
 		<< r.pos << '\t' ;
+}
+inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
+{
+	return s 
+		<< symbols[r.chr] << '\t' << (r.strand ? '+' : '-') << '\t'
+		<< r.pos << '\t' << r.pos + r.length << '\t' ;
 }
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
 {
@@ -135,12 +213,17 @@ inline ostream& write_bases( ostream& s, const SnpRec1& r )
 	else if( r.seen ) s << r.nt_bases ;
 	return s ;
 }
+inline const char* encode_flags( const SnpRec& r )
+{
+	bool g = r.hsa.gap_near_flag || r.ptr.gap_near_flag ;
+	bool e = r.hsa.edge_near_flag || r.ptr.edge_near_flag ;
+	return g ? e ? "GC:EC" : "GC" : e ? "EC" : "" ;
+}
 
-template< typename C >
-ostream& write_martin_table( ostream& s, const C& d )
+template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
 {
 	Chan ch ;
-	s << "#HSA_Base	HSA_Chr	HSA_Strand	HSA_Pos	PAN_Base	PAN_Chr	PAN_Strand	PAN_Pos	OutBase	Flag	NEA_BaseH	NEA_BaseC\n" ;
+	s << "#HSA_Base\tHSA_Chr\tHSA_Strand\tHSA_Pos\tPAN_Base\tPAN_Chr\tPAN_Strand\tPAN_Pos\tOutBase\tFlag\tNEA_BaseH\tNEA_BaseC\n" ;
 	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
 	{
 		if( (i-d.begin()) % 1024 == 0 )
@@ -151,13 +234,40 @@ ostream& write_martin_table( ostream& s, const C& d )
 		}
 
 		const SnpRec &r = **i ;
+		if( !r.sequence.empty() ) continue ; // this wasn't actually a SNP
 		// if( !r.hsa_seen && !r.ptr_seen ) continue ;
 		
-		write_half_record( s, r.hsa ) ;
-		write_half_record( s, r.ptr ) ;
-		bool g = r.hsa.gap_near_flag || r.ptr.gap_near_flag ;
-		bool e = r.hsa.edge_near_flag || r.ptr.edge_near_flag ;
-		s << r.out_base << '\t' << (g ? e ? "GC:EC" : "GC" : e ? "EC" : "") ;
+		write_half_record_snp( s, r.hsa ) ;
+		write_half_record_snp( s, r.ptr ) ;
+		s << r.out_base << '\t' << encode_flags(r) ;
+		write_bases( s, r.hsa ) ;
+		write_bases( s, r.ptr ) ;
+		s << '\n' ;
+	}
+	return s ;
+}
+
+template< typename C > ostream& write_martin_table_indel( ostream& s, const C& d )
+{
+	Chan ch ;
+	s << "#Type\tHSA_Chr\tHSA_Strand\tHSA_Start\tHSA_End\tPAN_Chr\tPAN_Strand\tPAN_Start\tPAN_End\tSeq\tFlag\tNEA_SeqH\tNEA_SeqC\n" ;
+	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
+	{
+		if( (i-d.begin()) % 1024 == 0 )
+		{
+			stringstream s ;
+			s << "writing indels: " << i-d.begin() << '/' << d.size() ;
+			ch( Console::info, s.str() ) ;
+		}
+
+		const SnpRec &r = **i ;
+		if( r.sequence.empty() ) continue ; // this wasn't actually an indel
+		// if( !r.hsa_seen && !r.ptr_seen ) continue ;
+		
+		s << (r.hsa.length ? "insert\t" : "deletion\t") ;
+		write_half_record_indel( s, r.hsa ) ;
+		write_half_record_indel( s, r.ptr ) ;
+		s << r.sequence << '\t' << encode_flags(r) ;
 		write_bases( s, r.hsa ) ;
 		write_bases( s, r.ptr ) ;
 		s << '\n' ;
@@ -331,8 +441,11 @@ int main_( int argc, char const **argv )
 	for( char const **arg = argv+3 ; arg != argv+argc ; ++arg )
 	{
 		ifstream f( *arg ) ;
-		if( !read_martin_table( f, mt ).eof() )
-			error( 1, errno, "Parse error in 'Martin table' %s.", *arg ) ;
+		if( strstr( *arg, "SNP" ) ) read_martin_table_snp( f, mt ) ;
+		else if( strstr( *arg, "indel" ) ) read_martin_table_indel( f, mt ) ;
+		else error( 1, errno, "cannot guess contents of %s", *arg ) ;
+
+		if( !f.eof() ) error( 1, errno, "Parse error in 'Martin table' %s.", *arg ) ;
 	}
 
 	// cerr << mallinfo().arena << endl ;
@@ -346,18 +459,9 @@ int main_( int argc, char const **argv )
 	sort( mt.begin(), mt.end(), ByHg18Coordinate() ) ;
 	console.output( Console::info, "Done." ) ;
 	scan_anfo_file( mt, argv[1], "hg18", GetHg18Rec() ) ;
-	/*
-	Stream *hg18_file = make_input_stream( argv[1] ) ;
-	first_snp = mt.begin() ;
-	while( hg18_file->get_state() == Stream::have_output && first_snp != mt.end() )
-	{
-		Result res = hg18_file->fetch_result() ;
-		// check for overlap, extract base
-	}
-	delete hg18_file ;
-	*/
 
-	write_martin_table( cout, mt ) ;
+	write_martin_table_snp( cout, mt ) ;
+	write_martin_table_indel( cout, mt ) ;
 	return 0 ;
 }
 
