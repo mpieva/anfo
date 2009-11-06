@@ -8,6 +8,7 @@ AC_CONFIG_SRCDIR([src/util.cc])
 AC_CONFIG_HEADER([config.h])
 
 # Checks for programs.
+AC_PROG_LIBTOOL
 AC_PROG_CXX
 AC_PROG_INSTALL
 AC_PATH_PROG([PROTOC], [protoc])

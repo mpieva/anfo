@@ -411,6 +411,7 @@ class Metagenome
 	public:
 		enum Persistence { persistent = 0, ephemeral = 1 } ;
 		static bool nommap ;
+		static void make_room() ;
 
 	private:
 		// maps file name to genome object

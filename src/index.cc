@@ -22,6 +22,7 @@
 #include "util.h"
 
 #include <cmath>
+#include <new>
 
 #include <fcntl.h>
 #include <glob.h>
@@ -291,6 +292,32 @@ DnaP CompactGenome::find_pos( const std::string& seq, uint32_t pos ) const
 
 Metagenome Metagenome::the_metagenome( getenv("ANFO_PATH") ) ;
 
+void Metagenome::make_room()
+{
+	// make room by forgetting about some genome
+	int nephemeral = 0 ;
+	for( Genomes::iterator gi = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; gi != ge ; ++gi )
+		if( gi->second.first == ephemeral ) ++nephemeral ;
+
+	if( !nephemeral ) throw std::bad_alloc() ;
+
+	Genomes::iterator gi = the_metagenome.genomes.begin() ;
+	for( int i = random() % nephemeral ; i || gi->second.first != ephemeral ; ++gi ) if( gi->second.first == ephemeral ) --i ;
+
+	for( SeqMap::iterator i = the_metagenome.seq_map.begin(), ie = the_metagenome.seq_map.end() ; i != ie ; ++i )
+	{
+		for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; )
+		{
+			SeqMap1::iterator k = j ; ++j ;
+			if( k->second == gi->second.second ) i->second.erase( k ) ;
+		}
+	}
+
+	console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
+	delete gi->second.second ;
+	the_metagenome.genomes.erase( gi ) ;
+}
+
 Metagenome::Metagenome( const char* p )
 {
 	if( p ) 
@@ -305,6 +332,7 @@ Metagenome::Metagenome( const char* p )
 			p = q ;
 		}
 	}
+	std::set_new_handler( &Metagenome::make_room ) ;
 }
 
 //! \brief searches genome path for matching files
@@ -436,29 +464,7 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd,
 			void *p = ::mmap( start, length, prot, flags, fd, offset ) ;
 			if( p != (void*)(-1) ) return p ;
 		}
-
-		// make room by forgetting about some genome
-		int nephemeral = 0 ;
-		for( Genomes::iterator gi = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; gi != ge ; ++gi )
-			if( gi->second.first == ephemeral ) ++nephemeral ;
-		
-		if( !nephemeral ) return (void*)(-1) ;
-
-		Genomes::iterator gi = the_metagenome.genomes.begin() ;
-		for( int i = random() % nephemeral ; i || gi->second.first != ephemeral ; ++gi ) if( gi->second.first == ephemeral ) --i ;
-
-		for( SeqMap::iterator i = the_metagenome.seq_map.begin(), ie = the_metagenome.seq_map.end() ; i != ie ; ++i )
-		{
-			for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; )
-			{
-				SeqMap1::iterator k = j ; ++j ;
-				if( k->second == gi->second.second ) i->second.erase( k ) ;
-			}
-		}
-
-		console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
-		delete gi->second.second ;
-		the_metagenome.genomes.erase( gi ) ;
+		make_room() ;
 	}
 }
 

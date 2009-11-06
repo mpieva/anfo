@@ -30,6 +30,7 @@
 #include <error.h>
 #include <malloc.h>
 #include <popt.h>
+#include <sys/resource.h>
 
 static int gap_buffer = 5 ; // must be this far from a gap to not set a flag
 
@@ -121,7 +122,7 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 	return s ;
 }
 
-template< typename C > istream& read_martin_table_indel( istream& s, C& d )
+template< typename C > istream& read_martin_table_indel( istream& s, C& d, const char* fn )
 {
 	Chan ch ;
 
@@ -138,7 +139,7 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d )
 		if( d.size() % 1024 == 0 )
 		{
 			stringstream s ;
-			s << "reading indels: " << d.size() ; 
+			s << "reading " << fn << ": " << d.size() ; 
 			ch( Console::info, s.str() ) ;
 		}
 		d.push_back( new SnpRec() ) ;
@@ -306,6 +307,7 @@ template< typename T >
 void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T get )
 {
 	Chan progress ;
+	int k = 0 ;
 	auto_ptr<Stream> anfo_file( make_input_stream( fn ) ) ;
 
 	vector<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
@@ -326,16 +328,20 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 					&& symbols[ get( first_snp ).chr ] < h.sequence() )
 				++first_snp ;
 
+			if( ++k % 1024 == 0 )
+			{
+				stringstream s ;
+				s   << "SNPs vs. " << genome << " (" << h.sequence() << '/' 
+					<< symbols[ get( first_snp ).chr ] << "): " 
+					<< first_snp - mt.begin() << '/' << mt.size() ;
+				progress( Console::info, s.str() ) ;
+			}
+
+			if( get( first_snp ).chr != cur_chr ) continue ;
+
 			CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
 			DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
 			int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
-
-			if( (first_snp - mt.begin()) % 1024 == 0 )
-			{
-				stringstream s ;
-				s << "SNPs vs. " << genome << " (" << h.sequence() << "): " << first_snp - mt.begin() << '/' << mt.size() ;
-				progress( Console::info, s.str() ) ;
-			}
 
 			while( qry_pos != res.read().sequence().size() )
 			{
@@ -348,26 +354,22 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 				if( cigar_maj == h.cigar().size() ) break ; // shouldn't happen (but you never know)
 
 				// skip SNPs that cannot possibly overlap current position
-				// (note the +5 -- necessary for the GC flag)
+				// (keep gap_buffer in mind, we need to look at a bit more)
 				while( first_snp != mt.end() && get( first_snp ).chr == cur_chr
 						&& get( first_snp ).pos + get( first_snp ).length + gap_buffer <= ref_pos )
 					++first_snp ;
 
-				// bail if we left the current chromosome or no SNPs are left
+				// bail if we left the current chromosome or no SNPs are left at all
 				if( first_snp == mt.end() || get( first_snp ).chr != cur_chr ) break ;
 
+				// iterate over SNPs sufficiently close to current position
 				for( vector<SnpRec*>::iterator cur_snp = first_snp ; cur_snp != mt.end() ; ++cur_snp )
 				{
 					SnpRec1 &snp = get( cur_snp ) ;
 					Hit::Operation op = cigar_op( h.cigar(cigar_maj) ) ;
 					if( snp.chr != cur_chr || snp.pos - gap_buffer >= ref_pos ) break ;
 
-					// close to contig edge? set flag
-					if( qry_pos < gap_buffer || qry_pos >= res.read().sequence().size() - gap_buffer )
-						snp.edge_near_flag = 1 ;
-
-					// sanity check: only possible if we're not looking
-					// at an insert
+					// sanity check: only possible if we're not looking at an insert
 					if( snp.pos == ref_pos && snp.base && *ref != snp.base ) switch( op )
 					{
 						case Hit::Delete:
@@ -377,24 +379,31 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 									ref_pos, from_ambicode(*ref), from_ambicode( snp.base ) ) ;
 					}
 					
-					if( snp.pos <= ref_pos && ref_pos < snp.pos + snp.length )
+
+					// Anything to extract? (coordinates hit and not a deletion
+					if( snp.pos <= ref_pos && ref_pos < snp.pos + snp.length ) switch( op )
 					{
-						// SNP observed.  Anything to extract?
-						snp.seen = 1 ;
-						switch( op )
-						{
-							case Hit::Insert:
-							case Hit::Match:
-							case Hit::Mismatch:
-								snp.nt_bases.push_back( res.read().sequence()[qry_pos] ) ;
-						}
+						case Hit::Insert:
+						case Hit::Match:
+						case Hit::Mismatch:
+							snp.nt_bases.push_back( res.read().sequence()[qry_pos] ) ;
 					}
 					else switch( op )
 					{
-						// not observed, but close by.  Set gap flag?
+						// nodirect hit, but close by.  Set gap flag?
 						case Hit::Delete:
 						case Hit::Insert:
 							snp.gap_near_flag = 1 ;
+					}
+
+					// SNP observed?  (hit coordinates or observed left and right adjacent positions)
+					if( (snp.pos <= ref_pos && ref_pos < snp.pos + snp.length) ||
+							(ref_pos == snp.pos && snp.length == 0 && qry_pos > 0) )
+					{
+						// close to contig edge? if so, set flag
+						if( qry_pos < gap_buffer || qry_pos >= res.read().sequence().size() - gap_buffer )
+							snp.edge_near_flag = 1 ;
+						snp.seen = 1 ;
 					}
 				}
 
@@ -434,6 +443,7 @@ int main_( int argc, char const **argv )
 	char *hsa_file = 0 ;
 	char *snp_out_file = 0 ;
 	char *indel_out_file = 0 ;
+	int core_limit = 0 ;
 
 	console.loglevel = Console::debug ;
 
@@ -442,7 +452,8 @@ int main_( int argc, char const **argv )
 		{ "ptr-file",     0 , POPT_ARG_STRING, &ptr_file,           0,    "Neandertalized Chimp is in FILE", "FILE" },
 		{ "output-snp",   0 , POPT_ARG_STRING, &snp_out_file,       0,    "Write SNPs table to FILE", "FILE" },
 		{ "output-indel", 0 , POPT_ARG_STRING, &indel_out_file,     0,    "Write indels table to FILE", "FILE" },
-		{ "buffer",      'q', POPT_ARG_INT,    &gap_buffer,         0,    "Flag gaps closer than N", "N" },
+		{ "buffer",       0 , POPT_ARG_INT,    &gap_buffer,         0,    "Flag gaps closer than N", "N" },
+		{ "vmem",         0 , POPT_ARG_INT,    &core_limit,         0, "limit virtual memory to X megabytes", "X" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -455,12 +466,19 @@ int main_( int argc, char const **argv )
 
 	if( !poptPeekArg( pc ) ) error( 1, 0, "no input files (try --help)" ) ;
 
+	if( core_limit ) {
+		struct rlimit lim ;
+		getrlimit( RLIMIT_AS, &lim ) ;
+		lim.rlim_cur = 1024*1024 * (long)core_limit ;
+		setrlimit( RLIMIT_AS, &lim ) ;
+	}
+
 	std::vector<SnpRec*> mt ;
 	while( char const *arg = poptGetArg( pc ) )
 	{
 		ifstream f( arg ) ;
 		if( strstr( arg, "SNP" ) ) read_martin_table_snp( f, mt, arg ) ;
-		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt ) ;
+		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt, arg ) ;
 		else error( 1, errno, "cannot guess contents of %s", arg ) ;
 
 		if( !f.eof() ) error( 1, errno, "Parse error in 'Martin table' %s.", arg ) ;
