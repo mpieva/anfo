@@ -24,38 +24,6 @@
 #include <memory>
 #include <ostream>
 
-//! \brief decompression filter that doesn't actually decompress
-//! A placeholder for cases where a filter is needed that does nothing.
-//! Forwards all calls to another stream
-class IdInputStream : public google::protobuf::io::ZeroCopyInputStream
-{
-	private:
-		google::protobuf::io::ZeroCopyInputStream *is_ ;
-
-	public:
-		IdInputStream( google::protobuf::io::ZeroCopyInputStream *is ) : is_( is ) {}
-		~IdInputStream() {}
-
-		bool Next( const void **data, int *size ) { return is_->Next( data, size ) ; }
-		void BackUp( int count ) { is_->BackUp( count ) ; }
-		bool Skip( int count ) { return is_->Skip( count ) ; }
-		int64_t ByteCount() const { return is_->ByteCount() ; }
-} ;
-
-class IdOutputStream : public google::protobuf::io::ZeroCopyOutputStream
-{
-	private:
-		google::protobuf::io::ZeroCopyOutputStream *is_ ;
-
-	public:
-		IdOutputStream( google::protobuf::io::ZeroCopyOutputStream *is ) : is_( is ) {}
-		~IdOutputStream() {}
-
-		bool Next( void **data, int *size ) { return is_->Next( data, size ) ; }
-		void BackUp( int count ) { is_->BackUp( count ) ; }
-		int64_t ByteCount() const { return is_->ByteCount() ; }
-} ;
-
 #if HAVE_LIBZ
 #include <zlib.h>
 
@@ -461,7 +429,7 @@ inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::
 {
 	try { return new BunzipStream( s ) ; } catch( ... ) {}
 	try { return new InflateStream( s ) ; } catch( ... ) {}
-	return new IdInputStream( s ) ;
+	return s ;
 }
 
 inline google::protobuf::io::FileOutputStream *make_output_stream( const char *name )
@@ -479,13 +447,12 @@ inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::proto
 {
 	try { return new BzipStream( s ) ; } catch( ... ) {}
 	try { return new DeflateStream( s, Z_BEST_COMPRESSION ) ; } catch( ... ) {}
-	return new IdOutputStream( s ) ;
+	return s ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_fast( google::protobuf::io::ZeroCopyOutputStream *s )
 {
-	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) {}
-	return new IdOutputStream( s ) ;
+	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) { return s ; }
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_any( bool expensive, google::protobuf::io::ZeroCopyOutputStream *s )

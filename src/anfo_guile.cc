@@ -48,19 +48,23 @@ extern "C" size_t free_stream( SCM stream_smob )
 	return 0 ;
 }
 
-extern "C" SCM s_make_input_stream( SCM name )
+extern "C" SCM s_make_input_stream( SCM name, SCM sol_scale, SCM origin )
 {
 	char *n = scm_to_locale_string( name ) ;
-	Stream *s = make_input_stream( n, false, 33 ) ;
+	Stream *s = make_input_stream( n, scm_is_true( sol_scale ), scm_to_int( origin ) ) ;
+	free( n ) ;
 	SCM smob ;
 	SCM_NEWSMOB( smob, stream_tag, s ) ;
 	return smob ;
 }
 
-extern "C" SCM s_make_output_stream( SCM name )
+extern "C" SCM s_make_output_stream( SCM name, SCM level )
 {
-	char *n = scm_to_locale_string( name ) ;
-	Stream *s = new AnfoWriter( n ) ;
+	char *n = scm_is_true( name ) ? scm_to_locale_string( name ) : 0 ;
+	int lv = scm_to_int( level ) ;
+	Stream *s = n ? new AnfoWriter( n, lv > 50 ) : new AnfoWriter( 1, "<stdout>", lv > 50 ) ;
+	free( n ) ;
+
 	SCM smob ;
 	SCM_NEWSMOB( smob, stream_tag, s ) ;
 	return smob ;
@@ -87,21 +91,15 @@ extern "C" SCM s_transfer( SCM input, SCM output )
 
 typedef SCM (*FCN)() ;
 
-extern "C" void inner_main( void *closure, int argc, char **argv )
+extern "C" void init_anfo_guile()
 {
+	console.more_verbose() ; // optional... should be an option?
 	console.more_verbose() ;
-	console.more_verbose() ;
+
 	stream_tag = scm_make_smob_type ("stream", sizeof (Stream*) ) ;
-	scm_c_define_gsubr( "read-file", 1, 0, 0, (FCN)s_make_input_stream ) ;
-	scm_c_define_gsubr( "write-file", 1, 0, 0, (FCN)s_make_output_stream ) ;
-	scm_c_define_gsubr( "transfer", 2, 0, 0, (FCN)s_transfer ) ;
-
 	scm_set_smob_free( stream_tag, free_stream ) ;
-	scm_shell( argc, argv ) ;
+	scm_c_define_gsubr( "prim-read-file", 3, 0, 0, (FCN)s_make_input_stream ) ;
+	scm_c_define_gsubr( "write-anfo-file", 3, 0, 0, (FCN)s_make_output_stream ) ;
+	scm_c_define_gsubr( "transfer", 2, 0, 0, (FCN)s_transfer ) ;
 }
 
-int main_( int argc, const char** argv )
-{
-	scm_boot_guile( argc, (char**)argv, inner_main, 0 ) ;
-	return 0 ;
-}

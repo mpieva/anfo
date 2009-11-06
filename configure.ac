@@ -53,6 +53,7 @@ AC_CHECK_FUNCS([memset munmap pow strerror])
 AC_PATH_PROG(GUILE_CONFIG,guile-config)
 if test "$GUILE_CONFIG" ; then
 	GUILE_FLAGS
+	GUILE_SITE_DIR
 fi
 
 AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
