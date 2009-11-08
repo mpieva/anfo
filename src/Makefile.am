@@ -5,7 +5,7 @@ lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
 dist_noinst_DATA = anfo.scm
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
-		     ducttape.h index.h logdom.h output_streams.h \
+			 ducttape.h index.h logdom.h misc_streams.h output_streams.h \
 		     sequence.h stream.h trim.h util.h 
 
 if PTHREADS
@@ -22,8 +22,8 @@ libanfo_la_LDFLAGS = -version-info 0:0:0
 
 libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h \
 		     align.cc anfo_common.cc config.pb.cc ducttape.cc \
-		     index.cc output.pb.cc output_streams.cc sequence.cc \
-		     stream.cc util.cc 
+			 index.cc misc_streams.cc output.pb.cc output_streams.cc \
+			 sequence.cc stream.cc util.cc 
 
 if GUILE
   libanfo_la_SOURCES += anfo_guile.cc

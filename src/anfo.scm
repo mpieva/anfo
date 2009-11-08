@@ -94,13 +94,21 @@
 ; Stream* mk_output_table( const ParamBlock& p )
 ; { return is_stdout( p.arg ) ? new TableWriter( cout.rdbuf(), p.genome ) : new TableWriter( p.arg, p.genome ) ; }
 ; 
-; Stream* mk_duct_tape( const ParamBlock& p )
-; { return new DuctTaper( p.genome, p.arg ? p.arg : "contig" ) ; }
 ; 
-; Stream* mk_stats( const ParamBlock& p )
-; { return new StatStream( p.arg, p.genome ) ; }
+;
+; Write statistics to file.
+; This is bit unwieldy; realistically we might want to put the
+; statistics somewhere in Scheme-land.  But where?
+(define*-public
+ (write-stats fn #:key genome)
+ (prim-write-stats fn genome))
 
-
+; Creates a pseudo-assembly.  Hits to the given genome are used, else
+; everything duct-tapes to the genome it hits best.  Contigs are names
+; by the given name followed by a number.
+(define*-public 
+ (duct-tape #:key genome (name "contig"))
+ (prim-duct-tape genome name))
 
 ; Reads a stream from a file.  All sorts of streams are supported,
 ; currently Anfo native files, FastA/FastQ, and the stream is

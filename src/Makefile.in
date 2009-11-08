@@ -67,12 +67,13 @@ am__DEPENDENCIES_1 =
 @GUILE_TRUE@libanfo_la_DEPENDENCIES = $(am__DEPENDENCIES_1)
 am__libanfo_la_SOURCES_DIST = config.pb.h output.pb.h judy++.h \
 	align.cc anfo_common.cc config.pb.cc ducttape.cc index.cc \
-	output.pb.cc output_streams.cc sequence.cc stream.cc util.cc \
-	anfo_guile.cc
+	misc_streams.cc output.pb.cc output_streams.cc sequence.cc \
+	stream.cc util.cc anfo_guile.cc
 @GUILE_TRUE@am__objects_1 = anfo_guile.lo
 am_libanfo_la_OBJECTS = align.lo anfo_common.lo config.pb.lo \
-	ducttape.lo index.lo output.pb.lo output_streams.lo \
-	sequence.lo stream.lo util.lo $(am__objects_1)
+	ducttape.lo index.lo misc_streams.lo output.pb.lo \
+	output_streams.lo sequence.lo stream.lo util.lo \
+	$(am__objects_1)
 libanfo_la_OBJECTS = $(am_libanfo_la_OBJECTS)
 libanfo_la_LINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(AM_CXXFLAGS) \
@@ -269,7 +270,7 @@ lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
 dist_noinst_DATA = anfo.scm
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
-		     ducttape.h index.h logdom.h output_streams.h \
+			 ducttape.h index.h logdom.h misc_streams.h output_streams.h \
 		     sequence.h stream.h trim.h util.h 
 
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
@@ -278,9 +279,9 @@ AM_CXXFLAGS = $(GUILE_CFLAGS)
 LDADD = libanfo.la
 libanfo_la_LDFLAGS = -version-info 0:0:0
 libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h align.cc \
-	anfo_common.cc config.pb.cc ducttape.cc index.cc output.pb.cc \
-	output_streams.cc sequence.cc stream.cc util.cc \
-	$(am__append_2)
+	anfo_common.cc config.pb.cc ducttape.cc index.cc \
+	misc_streams.cc output.pb.cc output_streams.cc sequence.cc \
+	stream.cc util.cc $(am__append_2)
 @GUILE_TRUE@libanfo_la_LIBADD = $(GUILE_LDFLAGS)
 @GUILE_TRUE@schemedir = $(GUILE_SITE)
 @GUILE_TRUE@scheme_DATA = anfo.scm
@@ -435,6 +436,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/index-test.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/index.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/martin-table.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/misc_streams.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/output.pb.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/output_streams.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sequence.Plo@am__quote@

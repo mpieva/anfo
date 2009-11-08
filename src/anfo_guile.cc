@@ -36,11 +36,16 @@
 
 #include <libguile.h>
 
+#include "misc_streams.h"
+#include "output_streams.h"
 #include "stream.h"
+#include "ducttape.h"
 
 using namespace streams ;
 
-static scm_t_bits stream_tag ;
+namespace {
+
+scm_t_bits stream_tag ;
      
 extern "C" size_t free_stream( SCM stream_smob )
 {
@@ -48,29 +53,39 @@ extern "C" size_t free_stream( SCM stream_smob )
 	return 0 ;
 }
 
-extern "C" SCM s_make_input_stream( SCM name, SCM sol_scale, SCM origin )
+class scm_to_str
 {
-	char *n = scm_to_locale_string( name ) ;
-	Stream *s = make_input_stream( n, scm_is_true( sol_scale ), scm_to_int( origin ) ) ;
-	free( n ) ;
+	private:
+		char *s_ ;
+
+	public:
+		scm_to_str( SCM s ) : s_( scm_is_string( s ) ? scm_to_locale_string( s ) : 0 ) {}
+		~scm_to_str() { free( s_ ) ; }
+		operator const char* () const { return s_ ; }
+		const char* alt( const char* a ) const { return s_ ? s_ : a ; }
+} ;
+
+SCM mk_str( Stream* s )
+{
 	SCM smob ;
 	SCM_NEWSMOB( smob, stream_tag, s ) ;
 	return smob ;
 }
 
-extern "C" SCM s_make_output_stream( SCM name, SCM level )
+extern "C" SCM scm_make_input_stream( SCM name, SCM sol_scale, SCM origin )
 {
-	char *n = scm_is_true( name ) ? scm_to_locale_string( name ) : 0 ;
-	int lv = scm_to_int( level ) ;
-	Stream *s = n ? new AnfoWriter( n, lv > 50 ) : new AnfoWriter( 1, "<stdout>", lv > 50 ) ;
-	free( n ) ;
-
-	SCM smob ;
-	SCM_NEWSMOB( smob, stream_tag, s ) ;
-	return smob ;
+	return mk_str( make_input_stream(
+				scm_to_str( name ), scm_is_true( sol_scale ), scm_to_int( origin ) ) ) ;
 }
 
-extern "C" SCM s_transfer( SCM input, SCM output ) 
+extern "C" SCM scm_make_output_stream( SCM name, SCM level )
+{
+	bool exp = scm_to_int( level ) > 50 ;
+	return mk_str( scm_is_true( name )
+		? new AnfoWriter( scm_to_str( name ), exp ) : new AnfoWriter( 1, "<stdout>", exp ) ) ;
+}
+
+extern "C" SCM scm_transfer( SCM input, SCM output ) 
 {
 	scm_assert_smob_type( stream_tag, input ) ;
 	scm_assert_smob_type( stream_tag, output ) ;
@@ -89,7 +104,15 @@ extern "C" SCM s_transfer( SCM input, SCM output )
 	return SCM_BOOL_T ;
 }
 
+extern "C" SCM scm_duct_tape( SCM genome, SCM name )
+{ return mk_str( new DuctTaper( scm_to_str( genome ), scm_to_str( name ) ) ) ; }
+
+extern "C" SCM scm_write_stats( SCM fn, SCM genome )
+{ return mk_str( new StatStream( scm_to_str( fn ), scm_to_str( genome ) ) ) ; }
+
 typedef SCM (*FCN)() ;
+
+} ; // namespace
 
 extern "C" void init_anfo_guile()
 {
@@ -98,8 +121,10 @@ extern "C" void init_anfo_guile()
 
 	stream_tag = scm_make_smob_type ("stream", sizeof (Stream*) ) ;
 	scm_set_smob_free( stream_tag, free_stream ) ;
-	scm_c_define_gsubr( "prim-read-file", 3, 0, 0, (FCN)s_make_input_stream ) ;
-	scm_c_define_gsubr( "write-anfo-file", 3, 0, 0, (FCN)s_make_output_stream ) ;
-	scm_c_define_gsubr( "transfer", 2, 0, 0, (FCN)s_transfer ) ;
+	scm_c_define_gsubr( "prim-read-file", 3, 0, 0, (FCN)scm_make_input_stream ) ;
+	scm_c_define_gsubr( "prim-write-anfo-file", 3, 0, 0, (FCN)scm_make_output_stream ) ;
+	scm_c_define_gsubr( "prim-duct-tape", 3, 0, 0, (FCN)scm_duct_tape ) ;
+	scm_c_define_gsubr( "prim-write-stats", 2, 0, 0, (FCN)scm_write_stats ) ;
+	scm_c_define_gsubr( "transfer", 2, 0, 0, (FCN)scm_transfer ) ;
 }
 
