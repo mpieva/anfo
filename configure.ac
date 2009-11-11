@@ -43,9 +43,6 @@ AC_TYPE_UINT32_T
 AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
 
-AC_COMPUTE_INT( SIZEOF_INT_P, sizeof( int* ) )
-AC_SUBST( SIZEOF_INT_P )
-
 # Checks for library functions.
 AC_TYPE_SIGNAL
 AC_CHECK_FUNCS([memset munmap pow strerror])

@@ -277,18 +277,18 @@ template < typename C > void combine_seeds( C& v )
 	if( !v.empty() )
 	{
 		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
+
 		typename C::const_iterator a = v.begin(), e = v.end() ;
 		typename C::iterator       d = v.begin() ;
 		Seed s = *a ; 
 		while( ++a != e )
 		{
-			if( a->diagonal == s.diagonal )
+			if( a->diagonal == s.diagonal &&
+					(a->offset >= 0) == (s.offset >= 0) &&
+					a->offset - s.offset <= (int32_t)s.size )
 			{
-				if( (a->offset >= 0) == (s.offset >= 0) &&
-						a->offset - s.offset <= (int32_t)s.size ) {
-					uint32_t size_ = a->offset - s.offset + a->size ;
-					if( size_ > s.size ) s.size = size_ ;
-				}
+				uint32_t size2 = a->offset - s.offset + a->size ;
+				if( size2 > s.size ) s.size = size2 ;
 			}
 			else
 			{
@@ -355,13 +355,13 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 				if( abs( candidate->offset - open_in_clump->offset ) <= r
 						&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
 				{
-					CompactGenome::ContigMap::const_iterator low = cm.lower_bound(
-							open_in_clump->offset + open_in_clump->diagonal + open_in_clump->size ) ;
-					CompactGenome::ContigMap::const_iterator high = cm.upper_bound(
+					// make sure both parts belong to the same contig
+					CompactGenome::ContigMap::const_iterator left = cm.upper_bound(
+							open_in_clump->offset + open_in_clump->diagonal ) ;
+					CompactGenome::ContigMap::const_iterator right = cm.upper_bound(
 							candidate->offset + candidate->diagonal ) ;
 
-					// make sure no contig start is in between
-					if( low == high ) {
+					if( left == right ) {
 						// Include the candidate by swapping it with the
 						// first seed not in our clump and extending the
 						// clump.  Remember that we swapped, we may have

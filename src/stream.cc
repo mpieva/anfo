@@ -583,7 +583,7 @@ namespace {
     void limit_quality( Read& r, uint8_t maxq ) 
     {
 		if( !r.has_quality() ) return ;
-        for( int i = 0 ; i != r.quality().size() ; ++i )
+        for( size_t i = 0 ; i != r.quality().size() ; ++i )
             if( r.quality()[i] > maxq )
 					(*r.mutable_quality())[i] = maxq ;
     }
