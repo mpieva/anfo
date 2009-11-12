@@ -282,7 +282,7 @@ extern "C" void init_anfo_guile()
 	scm_set_smob_free( stream_tag, free_stream ) ;
 
 	scm_c_define_gsubr( "verbosity",       1, 0, 0, (FCN)scm_verbosity ) ;
-	scm_c_define_gsubr( "anfo-run
+	// scm_c_define_gsubr( "anfo-run
 
 	scm_c_define_gsubr( "prim-sort-by-name",    2, 0, 0, (FCN)scm_sort_by_name ) ;
 	scm_c_define_gsubr( "prim-sort-by-pos",     3, 0, 0, (FCN)scm_sort_by_pos ) ;
