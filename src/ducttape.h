@@ -17,6 +17,7 @@
 #ifndef INCLUDED_DUCTTAPE_H
 #define INCLUDED_DUCTTAPE_H
 
+#include "align.h"
 #include "stream.h"
 #include "util.h"
 #include <string>
@@ -87,12 +88,15 @@ class DuctTaper : public Stream
 		// went into a contig.
 		int mapq_accum_ ;
 
+		// needed for probability calculations
+		adna_parblock adna_ ;
+
 		void flush_contig() ;
 
 	public:
 		DuctTaper( const char* g, const char* name )
 			: g_(g), name_(name), contig_start_(0), contig_end_(0)
-			, nreads_(0), num_(0), mapq_accum_(0) {}
+			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
 		virtual ~DuctTaper() {}
 
 		virtual void put_header( const Header& ) ;

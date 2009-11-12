@@ -89,7 +89,7 @@ int main_( int argc, const char**argv )
 			{
 				google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
 				google::protobuf::TextFormat::Print( conf, &os ) ;
-				simple_adna::configure( conf.aligner(), &std::cout ) ;
+				std::cout << adna_parblock( conf.aligner() ) ;
 			}
 			else if( af->get_state() == streams::Stream::have_output )
 			{

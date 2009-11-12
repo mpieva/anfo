@@ -174,6 +174,10 @@ class Stream
 		Footer foot_ ;
 		state state_ ;
 
+	private:
+		Stream( const Stream& ) ; 			// must not copy
+		void operator = ( const Stream& ) ;	// must not copy
+
 	public:
 		Stream() : state_( end_of_stream ) {}
 		virtual ~Stream() {}

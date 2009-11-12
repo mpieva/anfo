@@ -38,7 +38,7 @@ void DuctTaper::put_header( const Header& h )
 		throw "need sorted input for duct taping" ;
 
 	hdr_ = h ;
-	simple_adna::configure( h.config().aligner(), 0 ) ;
+	adna_ = adna_parblock( h.config().aligner() ) ;
 	state_ = need_input ;
 }
 
@@ -286,19 +286,19 @@ void DuctTaper::put_result( const Result& r )
 	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
 		if( !column->is_ins ) --offs ;
 
-	Logdom lk_ss_5 = simple_adna::overhang_enter_penalty, lk_ds_5 ;
-	Logdom lk_ss_3 = simple_adna::overhang_enter_penalty, lk_ds_3 ;
+	Logdom lk_ss_5 = adna_.overhang_enter_penalty, lk_ds_5 ;
+	Logdom lk_ss_3 = adna_.overhang_enter_penalty, lk_ds_3 ;
 
 	DnaP ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
 	for( AlnIter aln_i( r.read(), h ), aln_e( r.read(), h, 1 ) ; aln_i != aln_e ; ++aln_i )
 	{
 		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
 		{
-			lk_ss_3 *= simple_adna::ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
-			lk_ds_3 *= simple_adna::ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+			lk_ss_3 *= adna_.ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+			lk_ds_3 *= adna_.ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
 		}
 		if( aln_i.cigar_op() != Hit::Insert && aln_i.cigar_op() != Hit::SoftClip ) ++ref ;
-		if( aln_i.cigar_op() != Hit::Delete ) lk_ds_3 *= simple_adna::overhang_ext_penalty ;
+		if( aln_i.cigar_op() != Hit::Delete ) lk_ds_3 *= adna_.overhang_ext_penalty ;
 	}
 
 	ref = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ).find_pos( h.sequence(), h.start_pos() ) ;
@@ -325,14 +325,14 @@ void DuctTaper::put_result( const Result& r )
 				}
 				++ref ;
 
-				lk_ss_5 *= simple_adna::ss_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
-				lk_ds_5 *= simple_adna::ds_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
-				lk_ss_3 /= simple_adna::ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
-				lk_ds_3 /= simple_adna::ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+				lk_ss_5 *= adna_.ss_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
+				lk_ds_5 *= adna_.ds_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
+				lk_ss_3 /= adna_.ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+				lk_ds_3 /= adna_.ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
 
 no_match:
-				lk_ds_5 *= simple_adna::overhang_ext_penalty ;
-				lk_ds_3 /= simple_adna::overhang_ext_penalty ;
+				lk_ds_5 *= adna_.overhang_ext_penalty ;
+				lk_ds_3 /= adna_.overhang_ext_penalty ;
 
 				if( aln_i.base() != -1 ) {
 					++column->seen[ aln_i.base() ] ;

@@ -22,10 +22,9 @@
 #include "logdom.h"
 #include "stream.h"
 
-#include "output.pb.h"
-
 #include <cmath>
 #include <deque>
+#include <ostream>
 #include <sstream>
 
 /*!
@@ -377,6 +376,45 @@ template< typename F > void forward( const flat_alignment& s, F f )
 //! "from" (reference code), second index is "to" (query code).
 typedef Logdom subst_mat[16][16] ;
 
+namespace config { class Aligner ; } ;
+
+//! \brief parameters for simple_adna
+//! One such parblock is a static variable for the aligner proper,
+//! various support tools shunt additional structures around.
+struct adna_parblock
+{
+	adna_parblock() {} 
+	adna_parblock( const config::Aligner& conf ) ;
+
+	//! \brief DS substitution matrix, forward direction
+	subst_mat ds_mat ;
+
+	//! \brief SS substitution matrix, forward direction
+	//! Deamination shows up as C->T as it is best understood this way.
+	//! To process reverse-complemented deamination, we have to do
+	//! rev-complemented lookups while actually moving in the forward
+	//! (5'->3') direction.  \see simple_adna::subst_penalty()
+	subst_mat ss_mat ;
+
+	//! \brief Penalty for extending an overhang.
+	//! Having a constant penalty for the overhang length models its
+	//! length distribution as geometric.
+	Logdom overhang_ext_penalty ;
+
+	//! \brief penalty for entering SS state
+	//! This is essentially the probability of having an overhang at
+	//! all.
+	Logdom overhang_enter_penalty ;
+
+	//! \brief gap open penalty
+	Logdom gap_open_penalty ;
+
+	//! \brief gap extension penalty
+	Logdom gap_ext_penalty ;
+} ;
+
+std::ostream& operator << ( std::ostream&, const adna_parblock& ) ;
+
 //! \brief aDNA alignment automaton
 //! We encode the state as follows: Bit 0 is set if we're in the second
 //! half (5' end), bit 1 is set if we're threating DNA as single
@@ -385,15 +423,7 @@ typedef Logdom subst_mat[16][16] ;
 //! \see alignment_rep
 
 struct simple_adna : public gen_alignment<simple_adna> {
-	//! \brief DS substitution matrix, forward direction
-	static subst_mat ds_mat ;
-
-	//! \brief SS substitution matrix, forward direction
-	//! Deamination shows up as C->T as it is best understood this way.
-	//! To process reverse-complemented deamination, we have to do
-	//! rev-complemented lookups while actually moving in the forward
-	//! (5'->3') direction.  \see simple_adna::subst_penalty()
-	static subst_mat ss_mat ;
+	static adna_parblock pb ;
 
 	//! \brief does a lookup in the appropriate subst matrix
 	//! This retrieves the current codes in reference and query, if
@@ -410,30 +440,12 @@ struct simple_adna : public gen_alignment<simple_adna> {
 		for( uint8_t p = 0 ; p != 4 ; ++p )
 		{
 			Ambicode q = state & mask_dir ? (1<<p) : complement(1<<p) ;
-			prob += ( state & mask_ss ? ss_mat[r][q] : ds_mat[r][q] )
+			prob += ( state & mask_ss ? pb.ss_mat[r][q] : pb.ds_mat[r][q] )
 				* Logdom::from_phred( get_qry().qscores[p] ) ;
 		}
 		return prob ;
 	}
 
-	//! \brief Penalty for extending an overhang.
-	//! Having a constant penalty for the overhang length models its
-	//! length distribution as geometric.
-	static Logdom overhang_ext_penalty ;
-
-	//! \brief penalty for entering SS state
-	//! This is essentially the probability of having an overhang at
-	//! all.
-	static Logdom overhang_enter_penalty ;
-
-	//! \brief gap open penalty
-	static Logdom gap_open_penalty ;
-
-	//! \brief gap extension penalty
-	static Logdom gap_ext_penalty ;
-
-	//! \brief sets up parameters from configuration block
-	static void configure( const config::Aligner&, std::ostream* = 0 ) ;
 
 	simple_adna() : gen_alignment<simple_adna>() {}
 	simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}
@@ -458,7 +470,7 @@ inline void greedy( simple_adna& s )
 		while( s.get_qry().ambicode && s.get_ref() == s.get_qry().ambicode )
 		{
 			s.penalty += s.subst_penalty().to_phred() ;
-			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s.penalty += simple_adna::pb.overhang_ext_penalty.to_phred() ;
 			s.adv_ref() ;
 			s.adv_qry() ;
 		}
@@ -502,7 +514,7 @@ template< typename F > void forward( const simple_adna& s, F f )
 		while( s1.get_qry().ambicode )
 		{
 			s1.penalty += s1.subst_penalty().to_phred() ;
-			if( s1.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
+			if( s1.state & simple_adna::mask_ss ) s1.penalty += simple_adna::pb.overhang_ext_penalty.to_phred() ;
 			s1.adv_qry() ;
 			f( s1 ) ;
 		}
@@ -522,25 +534,25 @@ template< typename F > void forward( const simple_adna& s, F f )
 		{
 			simple_adna s1 = s ;
 			s1.penalty += s1.subst_penalty().to_phred() ;
-			if( s.state & simple_adna::mask_ss ) s1.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s1.penalty += simple_adna::pb.overhang_ext_penalty.to_phred() ;
 			s1.adv_ref() ;
 			s1.adv_qry() ;
 			f( s1 ) ;
 		}{
 			simple_adna s2 = s ;
-			s2.penalty += simple_adna::gap_open_penalty.to_phred() ;
+			s2.penalty += simple_adna::pb.gap_open_penalty.to_phred() ;
 			s2.state |= simple_adna::mask_gap_qry ;
 			s2.adv_ref() ;
 			f( s2 ) ;
 		}{
 			simple_adna s3 = s ;
-			s3.penalty += simple_adna::gap_open_penalty.to_phred() ;
-			if( s.state & simple_adna::mask_ss ) s3.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
+			s3.penalty += simple_adna::pb.gap_open_penalty.to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s3.penalty += simple_adna::pb.overhang_ext_penalty.to_phred() ;
 			s3.state |= simple_adna::mask_gap_ref ;
 			s3.adv_qry() ;
 			f( s3 ) ;
 		}
-		if( simple_adna::overhang_enter_penalty.is_finite() && (s.state & simple_adna::mask_ss) == 0 )
+		if( simple_adna::pb.overhang_enter_penalty.is_finite() && (s.state & simple_adna::mask_ss) == 0 )
 		{
 			// To enter single stranded we require that the penalty for
 			// doing so is immediately recovered by the better match.
@@ -548,8 +560,8 @@ template< typename F > void forward( const simple_adna& s, F f )
 			// rates in aDNA.
 			simple_adna s4 = s ;
 			s4.state |= simple_adna::mask_ss ;
-			uint32_t p4 = ( s4.subst_penalty() + simple_adna::overhang_enter_penalty 
-			                                   + simple_adna::overhang_ext_penalty ).to_phred() ;
+			uint32_t p4 = ( s4.subst_penalty() + simple_adna::pb.overhang_enter_penalty 
+			                                   + simple_adna::pb.overhang_ext_penalty ).to_phred() ;
 			uint32_t p0 = s.subst_penalty().to_phred() ;
 			if( p4 < p0 ) {
 				s4.penalty += p4 ;
@@ -564,16 +576,16 @@ template< typename F > void forward( const simple_adna& s, F f )
 		// already gapping (ref or qry) --> continue or close
 		{
 			simple_adna s1 = s ;
-			s1.penalty += simple_adna::gap_ext_penalty.to_phred() ;
+			s1.penalty += simple_adna::pb.gap_ext_penalty.to_phred() ;
 			bool which = (s.state & simple_adna::mask_gaps) == simple_adna::mask_gap_ref ;
-			if( which && (s.state & simple_adna::mask_ss) ) s1.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
+			if( which && (s.state & simple_adna::mask_ss) ) s1.penalty += simple_adna::pb.overhang_ext_penalty.to_phred() ;
 			if( which ) s1.adv_qry() ; else s1.adv_ref() ;
 			f( s1 ) ;
 		}{
 			simple_adna s2 = s ;
 			s2.state &= ~simple_adna::mask_gaps ;
 			s2.penalty += s2.subst_penalty().to_phred() ;
-			if( s.state & simple_adna::mask_ss ) s2.penalty += simple_adna::overhang_ext_penalty.to_phred() ;
+			if( s.state & simple_adna::mask_ss ) s2.penalty += simple_adna::pb.overhang_ext_penalty.to_phred() ;
 			s2.adv_ref() ;
 			s2.adv_qry() ;
 			f( s2 ) ;
