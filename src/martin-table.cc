@@ -55,8 +55,8 @@ char lookup_sym( const string &s )
 
 struct SnpRec1 {
 	int pos ;
-	string nt_bases ;					// too bad we may observe more than a single base
-	unsigned char length ;				// one for SNPs, zero for inserts(!), length for deletions --- XXX mustn't be too big
+	string nt_bases, nt_qual ; 			// too bad we may observe more than a single base
+	unsigned short length ;				// one for SNPs, zero for inserts(!), length for deletions
 	unsigned char chr ;					// symbol index
 	unsigned char base : 4 ;			// base as an ambiguity code
 	unsigned char strand : 1 ;			// is this on the 'sense' strand?
@@ -185,6 +185,8 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 		r.ptr.length = ptr_end - r.ptr.pos ;
 
 		if( !flags.empty() ) error( 0, 0, "Flags field not empty at %s:%d", hsa_chr.c_str(), r.hsa.pos ) ;
+		r.hsa.edge_near_flag = 0 ;
+		r.ptr.edge_near_flag = 0 ;
 		r.hsa.gap_near_flag = 0 ;
 		r.ptr.gap_near_flag = 0 ;
 		r.hsa.seen = 0 ;
@@ -211,8 +213,9 @@ inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
 {
 	s << '\t' ;
-	if( r.seen && r.nt_bases.empty() ) s << '-' ;
-	else if( r.seen ) s << r.nt_bases ;
+	// if( r.seen && r.nt_bases.empty() ) s << '-' ;
+	if( r.seen ) s << '"' << r.nt_bases << '"' << '\t' << r.nt_qual ;
+	else s << "n/a\tn/a" ;
 	return s ;
 }
 inline const char* encode_flags( const SnpRec& r )
@@ -225,7 +228,7 @@ inline const char* encode_flags( const SnpRec& r )
 template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
 {
 	Chan ch ;
-	s << "#HSA_Base\tHSA_Chr\tHSA_Strand\tHSA_Pos\tPAN_Base\tPAN_Chr\tPAN_Strand\tPAN_Pos\tOutBase\tFlag\tNEA_BaseH\tNEA_BaseC\n" ;
+	s << "#HSA_Base\tHSA_Chr\tHSA_Strand\tHSA_Pos\tPAN_Base\tPAN_Chr\tPAN_Strand\tPAN_Pos\tOutBase\tFlag\tNEA_BaseH\tNEA_QualH\tNEA_BaseC\tNEA_QualC\n" ;
 	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
 	{
 		if( (i-d.begin()) % 1024 == 0 )
@@ -252,7 +255,7 @@ template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
 template< typename C > ostream& write_martin_table_indel( ostream& s, const C& d )
 {
 	Chan ch ;
-	s << "#Type\tHSA_Chr\tHSA_Strand\tHSA_Start\tHSA_End\tPAN_Chr\tPAN_Strand\tPAN_Start\tPAN_End\tSeq\tFlag\tNEA_SeqH\tNEA_SeqC\n" ;
+	s << "#Type\tHSA_Chr\tHSA_Strand\tHSA_Start\tHSA_End\tPAN_Chr\tPAN_Strand\tPAN_Start\tPAN_End\tSeq\tFlag\tNEA_SeqH\tNEA_QualH\tNEA_SeqC\tNEA_QualC\n" ;
 	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
 	{
 		if( (i-d.begin()) % 1024 == 0 )
@@ -341,7 +344,8 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 
 			CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
 			DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
-			int cigar_maj = 0, cigar_min = 0, qry_pos = 0, ref_pos = h.start_pos() ;
+			int cigar_maj = 0, ref_pos = h.start_pos() ;
+			size_t cigar_min = 0, qry_pos = 0 ;
 
 			while( qry_pos != res.read().sequence().size() )
 			{
@@ -377,6 +381,8 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 						case Hit::Mismatch:
 							error( 1, 0, "at %d, %c != %c -- wrong coordinate system?", 
 									ref_pos, from_ambicode(*ref), from_ambicode( snp.base ) ) ;
+						default:
+							break ;
 					}
 					
 
@@ -386,7 +392,13 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 						case Hit::Insert:
 						case Hit::Match:
 						case Hit::Mismatch:
-							snp.nt_bases.push_back( res.read().sequence()[qry_pos] ) ;
+							{
+								uint8_t q = res.read().quality()[qry_pos] ;
+								snp.nt_bases.push_back( res.read().sequence()[qry_pos] ) ;
+								snp.nt_qual.push_back( q < 126-33 ? q+33 : 126 ) ;
+							}
+						default:
+							break ;
 					}
 					else switch( op )
 					{
@@ -394,6 +406,8 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 						case Hit::Delete:
 						case Hit::Insert:
 							snp.gap_near_flag = 1 ;
+						default:
+							break ;
 					}
 
 					// SNP observed?  (hit coordinates or observed left and right adjacent positions)
@@ -401,7 +415,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 							(ref_pos == snp.pos && snp.length == 0 && qry_pos > 0) )
 					{
 						// close to contig edge? if so, set flag
-						if( qry_pos < gap_buffer || qry_pos >= res.read().sequence().size() - gap_buffer )
+						if( (int)qry_pos < gap_buffer || qry_pos >= res.read().sequence().size() - gap_buffer )
 							snp.edge_near_flag = 1 ;
 						snp.seen = 1 ;
 					}
