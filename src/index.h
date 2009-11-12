@@ -42,7 +42,8 @@ class CompactGenome
 		// pointers would be internal and make copying of this object a
 		// lot harder.
 
-		// the pair is (index of sequence, index of contig)
+		// key is offset into genome, value is (index of sequence, index
+		// of contig)
 		typedef std::map< uint32_t, std::pair< int, int > > ContigMap ;
 		
 		// value is index of contig
@@ -332,8 +333,8 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 	typename C::iterator clump_begin = v.begin(),
 			 input_end = v.end(), out = v.begin() ;
 
-	// Start building a clump, assuming there's is still something
-	// to build from
+	// Start building a clump, assuming there is still something to
+	// build from
 	while( clump_begin != input_end )
 	{
 		typename C::iterator clump_end = clump_begin + 1 ;
@@ -345,7 +346,7 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 		{
 			// Decide whether open_in_clump and candidate are actually
 			// neighbors.  They are not if they end up in different
-			// contigs; else they are if their diagonals are dloser than
+			// contigs; else they are if their diagonals are closer than
 			// ±d and their offsets are closer than ±r.
 			for( typename C::iterator candidate = clump_end ;
 					candidate != input_end &&
