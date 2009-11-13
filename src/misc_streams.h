@@ -39,6 +39,11 @@ struct by_genome_coordinate {
 		h.clear_is_sorted_by_name() ;
 		h.set_is_sorted_by_coordinate( g_ ? g_ : "" ) ;
 	}
+
+    bool is_sorted( const output::Header& h ) {
+        return h.has_is_sorted_by_coordinate() 
+            && (!g_ || h.is_sorted_by_coordinate() == g_) ;
+    }
 } ;
 
 struct by_seqid {
@@ -49,6 +54,9 @@ struct by_seqid {
 		h.clear_is_sorted_by_coordinate() ;
 		h.set_is_sorted_by_name( true ) ;
 	}
+    bool is_sorted( const output::Header& h ) {
+        return h.is_sorted_by_name() ;
+    }
 } ;
 
 
@@ -289,7 +297,7 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::Stream* s, int level ) 
 {
 	Header h = s->fetch_header() ;
-	assert( h.has_is_sorted_by_coordinate() ) ;
+	assert( comp_.is_sorted( h ) ) ;
 	mergeable_queues_[ level ].push_back( s ) ;
 
 	if( AnfoReader::num_open_files() > max_que_size_ ) {
