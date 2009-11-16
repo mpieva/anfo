@@ -174,7 +174,7 @@ int main_( int argc, const char * argv[] )
 	ofoot.set_exit_code( exit_with ) ;
 	os.put_footer( ofoot ) ;
 
-	if( !exit_with ) std::rename( of.c_str(), output_file ) ;
+	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
 	return 0 ;
 }
 
