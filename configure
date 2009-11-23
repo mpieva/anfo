@@ -15809,7 +15809,7 @@ else
   PTHREADS_FALSE=
 fi
 
- if test "$GUILE_CONFIG"; then
+ if test "$GUILE_CFLAGS"; then
   GUILE_TRUE=
   GUILE_FALSE='#'
 else

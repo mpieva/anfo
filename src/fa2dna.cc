@@ -352,7 +352,7 @@ int main_( int argc, const char * argv[] )
 			return 0 ;
 
 		default:
-			std::cerr << argv[0] << ": " << poptStrerror( rc ) 
+			std::clog << argv[0] << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 	}

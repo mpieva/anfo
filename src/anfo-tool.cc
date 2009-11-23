@@ -230,7 +230,7 @@ void desc_concat( ostream& ss, const ParamBlock& )
 { ss << "concatenate streams" ; }
 
 Stream* mk_output( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new AnfoWriter( 1, "<stdout>", true ) : new AnfoWriter( p.arg, true ) ; } 
+{ return is_stdout( p.arg ) ? new ChunkedWriter( 1, 99, "<stdout>" ) : new ChunkedWriter( p.arg, 99 ) ; } 
 
 void desc_output( ostream& ss, const ParamBlock& p )
 { ss << "write native output to " << parse_fn( p.arg ) ; }
@@ -556,21 +556,21 @@ int main_( int argc, const char **argv )
 
 	if( !dry_run ) 
 	{
-		std::auto_ptr< StreamBundle > merging_stream( (merging_filter.maker)( merging_filter ) ) ;
+		Holder< StreamBundle > merging_stream( (merging_filter.maker)( merging_filter ) ) ;
 
 		// iterate over glob results
 		if( the_glob.gl_pathc )
 		{
-			vector< Compose* > cs ;
+			vector< Holder< Compose > > cs ;
 			for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 			{
-				Compose *c = new Compose ;
+				Holder< Compose > c( new Compose ) ;
 				c->add_stream( make_input_stream( *arg ) ) ;
 				for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
 					c->add_stream( (i->maker)( *i ) ) ;
 				cs.push_back( c ) ;
 			}
-			for( vector< Compose* >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
+			for( vector< Holder< Compose > >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
 				merging_stream->add_stream( *i ) ;
 		}
 		else merging_stream->add_stream( make_input_stream( dup( 0 ), "<stdin>" ) ) ;
@@ -578,10 +578,10 @@ int main_( int argc, const char **argv )
 		FanOut out ;
 		for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )
 		{
-			auto_ptr< Compose > c( new Compose ) ;
+			Holder< Compose > c( new Compose ) ;
 			for( FilterStack::const_iterator j = i->begin() ; j != i->end() ; ++j )
 				c->add_stream( (j->maker)( *j ) ) ;
-			out.add_stream( c.release() ) ;
+			out.add_stream( c ) ;
 		}
 
 		transfer( *merging_stream, out ) ;

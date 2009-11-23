@@ -20,10 +20,10 @@ LDADD = libanfo.la
 
 libanfo_la_LDFLAGS = -version-info 0:0:0
 
-libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h \
+libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h   fastlz.h \
 		     align.cc anfo_common.cc config.pb.cc ducttape.cc \
 			 index.cc misc_streams.cc output.pb.cc output_streams.cc \
-			 sequence.cc stream.cc util.cc 
+			 sequence.cc stream.cc util.cc   fastlz.c 
 
 if GUILE
   libanfo_la_SOURCES += anfo_guile.cc

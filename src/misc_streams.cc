@@ -26,15 +26,14 @@ Result MergeStream::fetch_result()
 			min_idx = i ;
 
 	Result res = rs_[ min_idx ] ;
-	Stream *sm = streams_[ min_idx ] ;
-	if( sm->get_state() == have_output )
+	Stream &sm = *streams_[ min_idx ] ;
+	if( sm.get_state() == have_output )
 	{
-		rs_[ min_idx ] = sm->fetch_result() ; 
+		rs_[ min_idx ] = sm.fetch_result() ; 
 	}
 	else
 	{
-		merge_sensibly( foot_, sm->fetch_footer() ) ;
-		delete sm ;
+		merge_sensibly( foot_, sm.fetch_footer() ) ;
 		streams_.erase( streams_.begin() + min_idx ) ;
 		rs_.erase( rs_.begin() + min_idx ) ;
 		if( rs_.empty() ) state_ = end_of_stream ;
@@ -64,14 +63,13 @@ Result BestHitStream::fetch_result()
 	while( !streams_.empty() ) {
 		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
 
-		Stream *s = *cur_input_ ;
-		assert( s->get_state() == have_output ) ;
+		Stream &s = **cur_input_ ;
+		assert( s.get_state() == have_output ) ;
 
-		Result r = s->fetch_result() ;
-		if( s->get_state() == end_of_stream )
+		Result r = s.fetch_result() ;
+		if( s.get_state() == end_of_stream )
 		{
-			merge_sensibly( foot_, s->fetch_footer() ) ;
-			delete s ;
+			merge_sensibly( foot_, s.fetch_footer() ) ;
 			cur_input_ = streams_.erase( cur_input_ ) ;
 		}
 		else ++cur_input_ ;
@@ -113,12 +111,12 @@ Result BestHitStream::fetch_result()
 
 unsigned SortingStream__ninstances = 0 ;
 
-void MegaMergeStream::add_stream( Stream* s ) 
+void MegaMergeStream::add_stream( StreamHolder s ) 
 {
 	Header h = s->fetch_header() ;
 	if( h.has_sge_slicing_stride() )
 	{
-		BestHitStream* &bhs = stream_per_slice_[ h.sge_slicing_index(0) ] ;
+		Holder< BestHitStream > bhs = stream_per_slice_[ h.sge_slicing_index(0) ] ;
 		if( !bhs ) bhs = new BestHitStream ;
 		bhs->add_stream( s ) ;
 
@@ -138,7 +136,7 @@ Header MegaMergeStream::fetch_header()
 	if( !stream_per_slice_.empty() ) 
 		console.output( Console::warning, "MegaMergeStream: input appears to be incomplete" ) ;
 
-	for( map< int, BestHitStream* >::iterator
+	for( map< int, Holder< BestHitStream > >::iterator
 			l = stream_per_slice_.begin(),
 			r = stream_per_slice_.end() ; l != r ; ++l )
 		ConcatStream::add_stream( l->second ) ;
@@ -188,7 +186,6 @@ void FanOut::put_footer( const Footer& f )
 		(*i)->put_footer( f ) ;
 }
 
-
 void Compose::put_header( const Header& h_ )
 {
 	Header h = h_ ;
@@ -199,7 +196,6 @@ void Compose::put_header( const Header& h_ )
 		h = (*i)->fetch_header() ;
 	}
 	(*i)->put_header( h ) ;
-	update_status() ;
 }
 
 Header Compose::fetch_header() 
@@ -211,43 +207,17 @@ Header Compose::fetch_header()
 		(*i)->put_header( h ) ;
 		h = (*i)->fetch_header() ;
 	}
-	update_status() ;
 	return h ;
 }
 
-void Compose::put_result( const Result& r )
-{
-	streams_.front()->put_result( r ) ;
-	update_status() ;
-}
-
-Result Compose::fetch_result()
-{
-	Result r = streams_.back()->fetch_result() ;
-	update_status() ;
-	return r ;
-}
-
-void Compose::put_footer( const Footer& f )
-{
-	streams_.front()->put_footer( f ) ;
-	update_status() ;
-}
-
-Footer Compose::fetch_footer() 
-{
-	Footer f = streams_.back()->fetch_footer() ;
-	update_status() ;
-	return f ;
-}
-
-void Compose::update_status()
+// note weird calls to base(): makes a weird compiler happy...
+Stream::state Compose::get_state()
 {
 	// look at a stream at a time, starting from the end
 	for( criter i = streams_.rbegin() ;; )
 	{
 		// if we fell of the far end, we need more input
-		if( i == streams_.rend() ) { state_ = need_input ; return ; }
+		if( i.base() == streams_.rend().base() ) { return need_input ; }
 		// else consider the state
 		state s = (*i)->get_state() ;
 		if( s == need_input ) {
@@ -257,7 +227,7 @@ void Compose::update_status()
 		else if( s == have_output ) {
 			// output's available, either to the outside or to
 			// downstream filters
-			if( i == streams_.rbegin() ) { state_ = have_output ; return ; }
+			if( i.base() == streams_.rbegin().base() ) { return have_output ; }
 			Result r = (*i)->fetch_result() ;
 			--i ;
 			(*i)->put_result( r ) ;
@@ -265,15 +235,14 @@ void Compose::update_status()
 		else if( s == end_of_stream ) {
 			// nothing left, pass the footer to see if some data is
 			// buffered
-			if( i == streams_.rbegin() ) { state_ = end_of_stream ; return ; }
+			if( i.base() == streams_.rbegin().base() ) { return end_of_stream ; }
 			Footer f = (*i)->fetch_footer() ;
 			--i ;
 			(*i)->put_footer( f ) ;
 		}
 		else {
 			// easy: something's broken
-			state_ = invalid ;
-			return ;
+			return invalid ;
 		}
 	}
 }

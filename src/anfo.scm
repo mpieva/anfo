@@ -143,3 +143,5 @@
 ; behave like 'transfer' (XXX check?), only filters results in a filter,
 ; and everything else will misbehave.
 (export chain)
+(export anfo-run)
+(verbosity 'info)

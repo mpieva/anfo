@@ -72,7 +72,7 @@ string expand( const string& s, int x )
 
     char u = 'a' + (x%26), v = 'a' + (x/26) ;
     string r ;
-    int i = 0 ;
+    size_t i = 0 ;
     for( ; i+1 != s.size() ; ++i )
     {
         if( s[i] == '%' && s[i+1] == '%' ) {
@@ -139,7 +139,7 @@ int main_( int argc, const char * argv[] )
 
     std::string of( expand( output_file, task_id ) ) ;
     of.append( ".#new#" ) ;
-	streams::AnfoWriter os( of.c_str() ) ;
+	streams::ChunkedWriter os( of.c_str(), 25 ) ;
 
 	output::Header ohdr ;
 	*ohdr.mutable_config() = conf ;
@@ -156,7 +156,7 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		std::auto_ptr< streams::Stream > inp(
+		streams::StreamHolder inp(
 				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )

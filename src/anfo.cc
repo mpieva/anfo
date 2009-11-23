@@ -87,11 +87,11 @@ struct CommonData
 	Queue<output::Result*, 8> output_queue ;
 	Queue<AlignmentWorkload*, 8> intermed_queue ;
 	Queue<output::Result*, 8> input_queue ;
-	streams::AnfoWriter output_stream ;
+	streams::ChunkedWriter output_stream ;
 	Mapper mapper ;
 
 	CommonData( const Config& conf, const char* fn )
-		: output_stream( fn ), mapper( conf ) {}
+		: output_stream( fn, 25 ), mapper( conf ) {}
 } ;
 
 void* run_output_thread( void* p )
@@ -243,7 +243,7 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		std::auto_ptr< streams::Stream > inp( 
+		streams::Holder< streams::Stream > inp( 
 				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )

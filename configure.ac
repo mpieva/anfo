@@ -54,7 +54,7 @@ if test "$GUILE_CONFIG" ; then
 fi
 
 AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
-AM_CONDITIONAL([GUILE],[test "$GUILE_CONFIG"])
+AM_CONDITIONAL([GUILE],[test "$GUILE_CFLAGS"])
 
 AC_CONFIG_FILES([
 		 Makefile

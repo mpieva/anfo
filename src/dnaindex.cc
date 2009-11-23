@@ -269,7 +269,7 @@ int main_( int argc, const char * argv[] )
 			return 0 ;
 
 		default:
-			std::cerr << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
+			std::clog << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 	}

@@ -32,6 +32,7 @@
 #include <fstream>
 #include <memory>
 
+
 namespace streams {
 	using namespace output ;
 
@@ -72,6 +73,13 @@ void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int t
 	os.WriteVarint32( m.ByteSize() ) ;
 	if( !m.SerializeToCodedStream( &os ) )
 		throw "error while serializing" ;
+}
+
+template< typename Msg >
+void write_delimited_message( google::protobuf::io::ZeroCopyOutputStream *os, int tag, const Msg& m )
+{
+	google::protobuf::io::CodedOutputStream o( os ) ;
+	write_delimited_message( o, tag, m ) ;
 }
 
 template< typename Msg >
@@ -161,9 +169,38 @@ inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, outp
 //! between need_input, have_output and end_of_stream.  It's undefined
 //! behaviour to call methods in states where they don't make sense.
 
+template< typename T > class Holder
+{
+	private:
+		T* s_ ;
+
+	public:
+		Holder<T>( const Holder<T>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
+		template< typename U > Holder<T>( const Holder<U>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
+		template< typename U > Holder<T>( U *s ) : s_( s ) { if( s_ ) ++s_->refcount_ ; }
+		Holder<T>() : s_(0) {}
+		~Holder<T>() { if( s_ && --s_->refcount_ == 0 ) delete s_ ; }
+
+		template< typename U > Holder<T>& operator = ( U *s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		template< typename U > Holder<T>& operator = ( const Holder<U>& s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		void swap( Holder<T>& s ) { std::swap( s_, s.s_ ) ; }
+
+		T* operator -> () const { return s_ ; }
+		T& operator * () const { return *s_ ; }
+
+		operator const void* () const { return s_ ; }
+} ;
+
 class Stream
 {
+	friend class Holder<Stream> ;
+
 	public:
+		int refcount_ ;
 		enum state { invalid, end_of_stream, need_input, have_output } ;
 
 	protected:
@@ -174,13 +211,14 @@ class Stream
 		Footer foot_ ;
 		state state_ ;
 
+		virtual ~Stream() {} 				// want control over instantiation
+
 	private:
 		Stream( const Stream& ) ; 			// must not copy
 		void operator = ( const Stream& ) ;	// must not copy
 
 	public:
-		Stream() : state_( end_of_stream ) {}
-		virtual ~Stream() {}
+		Stream() : refcount_(0), state_( end_of_stream ) {}
 
 		//! \brief returns stream state
 		//! The state determines which methods may be called: get_header
@@ -193,7 +231,7 @@ class Stream
 		//! to either need_input or have_output.  Particular streams may
 		//! need special initialization before the state bacomes
 		//! something other than invalid.
-		state get_state() const { return state_ ; }
+		virtual state get_state() { return state_ ; }
 
 		//! \brief returns the header
 		//! The header can be requested any time, unless the stream is
@@ -228,7 +266,12 @@ class Stream
 		//! signals that no more input is available.  A filter will then
 		//! flush internal buffers and signal end_of_stream.
 		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
+
+		// doesn't belong here, but is convenient
+		void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
 } ;
+
+typedef Holder<Stream> StreamHolder ;
 
 void transfer( Stream& in, Stream& out ) ;
 
@@ -236,18 +279,26 @@ void transfer( Stream& in, Stream& out ) ;
 class StreamBundle : public Stream
 {
 	protected:
-		std::deque< Stream* > streams_ ;
-		typedef std::deque< Stream* >::const_iterator citer ;
-		typedef std::deque< Stream* >::const_reverse_iterator criter ;
+		std::deque< StreamHolder > streams_ ;
+		typedef std::deque< StreamHolder >::const_iterator citer ;
+		typedef std::deque< StreamHolder >::const_reverse_iterator criter ;
 
 	public:
-		virtual ~StreamBundle() { for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
-		
-		//! \brief adds an input stream
-		//! The stream is taken ownership of and freed when the StreamBundle
-		//! is destroyed.
-		virtual void add_stream( Stream* ) = 0 ;
+		virtual ~StreamBundle() {}
+		virtual void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 } ;
+
+//! \internal
+//! Tracked to avoid bumping into the file descriptor limit
+//! (mostly important for merge sorting and mega-merge).
+extern int anfo_reader__num_files_ ;
+
+struct ParseError : public Exception {
+	std::string msg_ ;
+	ParseError( const std::string& m ) : msg_(m) {}
+	virtual void print_to( std::ostream& s ) const { s << "AnfoReader: " << msg_ ; }
+} ;
+
 
 //! \brief presents ANFO files as series of messages
 //! This class will read a possibly compressed result stream and present
@@ -259,27 +310,14 @@ class AnfoReader : public Stream
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
 
-		void read_next_message( google::protobuf::io::CodedInputStream& ) ;
-
-		//! \internal
-		//! Tracked to avoid bumping into the file descriptor limit
-		//! (mostly important for merge sorting and mega-merge).
-		static int num_files_ ;
-
 	public: 
-		struct ParseError : public Exception {
-			std::string msg_ ;
-			ParseError( const std::string& m ) : msg_(m) {}
-			virtual void print_to( std::ostream& ) const ;
-		} ;
+		AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
 
-		AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name ) ;
-
-		virtual ~AnfoReader() { --num_files_ ; }
+		virtual ~AnfoReader() { --anfo_reader__num_files_ ; }
 		virtual Result fetch_result() ;
 
 		//! \internal
-		static unsigned num_open_files() { return num_files_ ; }
+		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
 } ;
 
 //! \brief stream that writes result in native (ANFO) format
@@ -302,6 +340,71 @@ class AnfoWriter : public Stream
 		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; Stream::put_header( h ) ; } 
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
 		virtual void put_result( const Result& r ) ;
+} ;
+
+//! \brief new blocked native format
+//! Writes in a format that can be read by stream::ChunkedReader.  The
+//! file is made up of individually compressed blocks so that
+//! near-random access is possible... in principle.
+class ChunkedWriter : public Stream
+{
+	public:
+		enum method { none, fastlz, gzip, bzip } ;
+
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos_ ;	// final output
+		std::vector< char > buf_ ;											// in-memory buffer
+		std::auto_ptr< google::protobuf::io::ArrayOutputStream > aos_ ;		// output to buffer
+		Chan chan_ ;
+		std::string name_ ;
+		int64_t wrote_ ;
+		uint8_t method_, level_ ;
+
+		void flush_buffer( unsigned needed = 0 ) ;
+		void init() ;
+
+	public:
+		static uint8_t method_of( int l ) {
+			if( l >= 75 ) return bzip ;
+			if( l >= 50 ) return gzip ;
+			if( l >= 10 ) return fastlz ;
+			return none ;
+		}
+		static uint8_t level_of( int l ) {
+			if( l >= 65 ) return 9 ;	// thorough gzip or bzip
+			if( l >= 30 ) return 2 ;	// thorough fastlz or fast gzip
+			return 1 ;					// fast fastlz or none 
+		}
+
+		ChunkedWriter( std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream >, int, const char* = "<pipe>" ) ;
+		ChunkedWriter( int fd, int, const char* = "<pipe>" ) ;
+		ChunkedWriter( const char* fname, int ) ;
+		virtual ~ChunkedWriter() ;
+
+		virtual void put_header( const Header& h ) ;
+		virtual void put_result( const Result& r ) ;
+		virtual void put_footer( const Footer& f ) ;
+} ;
+
+class ChunkedReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		std::vector< char > buf_ ;											// in-memory buffer
+		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
+		std::string name_ ;
+
+		bool get_next_chunk() ;
+
+	public: 
+		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
+
+		virtual ~ChunkedReader() { --anfo_reader__num_files_ ; }
+		virtual Result fetch_result() ;
+		virtual Footer fetch_footer() ;
+
+		//! \internal
+		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
 } ;
 
 //! \brief filters that drop or modify isolated records
@@ -523,13 +626,13 @@ class ConcatStream : public StreamBundle
 		std::deque< output::Result > rs_ ;
 
 	public:
-		virtual void add_stream( Stream* ) ;
+		virtual void add_stream( StreamHolder ) ;
 		virtual Result fetch_result() ;
 } ;
 
-Stream* make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
-Stream* make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
-Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
+StreamHolder make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
+StreamHolder make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
+StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
 
 
 class FastqReader : public Stream
@@ -546,7 +649,7 @@ class FastqReader : public Stream
 		}
 
 	public: 
-		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, bool solexa_scores, char origin ) ;
+		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) ;
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 } ;
 

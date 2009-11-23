@@ -75,7 +75,7 @@ class MergeStream : public StreamBundle
 		MergeStream() : mode_( unknown ), g_(0) {}
 		virtual ~MergeStream() { free( const_cast<char*>( g_ ) ) ; }
 
-		virtual void add_stream( Stream* s )
+		virtual void add_stream( StreamHolder s )
 		{
 			Header h = s->fetch_header() ;
 			if( streams_.empty() ) hdr_ = h ;
@@ -105,7 +105,6 @@ class MergeStream : public StreamBundle
 			{
 				if( state_ == invalid ) state_ = end_of_stream ;
 				merge_sensibly( foot_, s->fetch_footer() ) ;
-				delete s ;
 			}
 		}
 
@@ -129,7 +128,7 @@ class BestHitStream : public StreamBundle
 		typedef map< string, pair< size_t, Result > > Buffer ;
 		Buffer buffer_ ;
 		size_t nread_, nwritten_, nstreams_ ;
-		deque< Stream* >::iterator cur_input_ ;
+		deque< StreamHolder >::iterator cur_input_ ;
 		Chan progress_ ;
 
 	public:
@@ -137,7 +136,7 @@ class BestHitStream : public StreamBundle
 		virtual ~BestHitStream() {}
 
 		//! \brief reads a stream's header and adds the stream as input
-		virtual void add_stream( Stream* s ) {
+		virtual void add_stream( StreamHolder s ) {
 			merge_sensibly( hdr_, s->fetch_header() ) ;
 			++nstreams_ ;
 			if( s->get_state() == have_output )
@@ -149,7 +148,6 @@ class BestHitStream : public StreamBundle
 			{
 				if( state_ == invalid ) state_ = end_of_stream ;
 				merge_sensibly( foot_, s->fetch_footer() ) ;
-				delete s ;
 			}
 			cur_input_ = streams_.begin() ;
 		}
@@ -212,7 +210,7 @@ extern unsigned SortingStream__ninstances ;
 template <class Comp> class SortingStream : public Stream
 {
 	private:
-		typedef deque< streams::Stream* > MergeableQueue ;
+		typedef deque< streams::Holder< streams::Stream > > MergeableQueue ;
 		typedef map< unsigned, MergeableQueue > MergeableQueues ;
 		typedef deque< Result* > ScratchSpace ;
 
@@ -246,7 +244,7 @@ template <class Comp> class SortingStream : public Stream
 			sort( scratch_space_.begin(), scratch_space_.end(), comp_ ) ;
 		}
 
-		void enqueue_stream( streams::Stream*, int = 0 ) ;
+		void enqueue_stream( streams::StreamHolder, int = 0 ) ;
 		void flush_scratch() ;
 
 	public:
@@ -257,8 +255,6 @@ template <class Comp> class SortingStream : public Stream
 		virtual ~SortingStream()
 		{
 			for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
-			for( MergeableQueues::iterator i = mergeable_queues_.begin(), e = mergeable_queues_.end() ; i != e ; ++i )
-				for_each( i->second.begin(), i->second.end(), delete_ptr<Stream>() ) ;
 			--SortingStream__ninstances ;
 		}
 
@@ -294,7 +290,7 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 	total_scratch_size_ = 0 ;
 }
 
-template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::Stream* s, int level ) 
+template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::StreamHolder s, int level ) 
 {
 	Header h = s->fetch_header() ;
 	assert( comp_.is_sorted( h ) ) ;
@@ -377,13 +373,13 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 class MegaMergeStream : public ConcatStream
 {
 	private:
-		map< int, BestHitStream* > stream_per_slice_ ;
+		map< int, Holder< BestHitStream > > stream_per_slice_ ;
 
 	public:
 		MegaMergeStream() {}
 		virtual ~MegaMergeStream() {}
 
-		virtual void add_stream( Stream* ) ;
+		virtual void add_stream( StreamHolder ) ;
 		virtual Header fetch_header() ;
 } ;
 
@@ -404,8 +400,6 @@ class FanOut : public StreamBundle
 		FanOut() {}
 		virtual ~FanOut() {}
 
-		virtual void add_stream( Stream* s ) { streams_.push_back( s ) ; }
-
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
@@ -413,22 +407,19 @@ class FanOut : public StreamBundle
 
 class Compose : public StreamBundle
 {
-	private:
-		void update_status() ;
-
 	public:
 		Compose() {}
 		virtual ~Compose() {}
 
-		virtual void add_stream( Stream* s ) { streams_.push_back( s ) ; }
+		virtual state get_state() ;
 
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
-		virtual void put_footer( const Footer& ) ;
+		virtual void put_header( const Header&   ) ;
+		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; }
+		virtual void put_footer( const Footer& f ) { streams_.front()->put_footer( f ) ; }
 
 		virtual Header fetch_header() ;
-		virtual Result fetch_result() ;
-		virtual Footer fetch_footer() ;
+		virtual Result fetch_result() { return streams_.back()->fetch_result() ; }
+		virtual Footer fetch_footer() { return streams_.back()->fetch_footer() ; }
 } ;
 
 class StatStream : public Stream

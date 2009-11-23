@@ -311,7 +311,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 {
 	Chan progress ;
 	int k = 0 ;
-	auto_ptr<Stream> anfo_file( make_input_stream( fn ) ) ;
+	Holder<Stream> anfo_file( make_input_stream( fn ) ) ;
 
 	vector<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
 	while( anfo_file->get_state() == Stream::have_output && first_snp != mt.end() )

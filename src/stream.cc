@@ -22,10 +22,14 @@
 #include "stream.h"
 #include "util.h"
 
+extern "C" {
+#include "fastlz.h"
+}
+
 #include <google/protobuf/repeated_field.h>
 
-#include <iostream>
 #include <set>
+#include <iostream>
 
 #if HAVE_FCNTL_H
 #include <fcntl.h>
@@ -53,7 +57,7 @@ void transfer( Stream& in, Stream& out )
 	out.put_footer( in.fetch_footer() ) ;
 }
 
-int AnfoReader::num_files_ = 0 ;
+int anfo_reader__num_files_ = 0 ;
 
 namespace {
 	string basename( const string& s )
@@ -63,10 +67,10 @@ namespace {
 	}
 } ;
 
-FastqReader::FastqReader( google::protobuf::io::ZeroCopyInputStream *is, bool solexa_scores, char origin ) 
+FastqReader::FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) 
 	: is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
 
-AnfoReader::AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name ) : is_( is ), name_( name )
+AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
 {
 	std::string magic ;
 	CodedInputStream cis( is_.get() ) ;
@@ -80,8 +84,8 @@ AnfoReader::AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std
 			if( hdr_.ParseFromCodedStream( &cis ) ) {
 				sanitize( hdr_ ) ;
 				cis.PopLimit( lim ) ;
-				++num_files_ ;
-				read_next_message( cis ) ;
+				++anfo_reader__num_files_ ;
+				read_next_message( cis, name_ ) ;
 				return ;
 			}
 		}
@@ -90,17 +94,12 @@ AnfoReader::AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std
 	foot_.set_exit_code(1) ;
 }
 
-void AnfoReader::ParseError::print_to( std::ostream& s ) const
-{
-	s << "AnfoReader: " << msg_ ;
-}
-
 Result AnfoReader::fetch_result()
 {
 	Result r ;
 	swap( r, res_ ) ;
 	CodedInputStream cis( is_.get() ) ;
-	read_next_message( cis ) ;
+	read_next_message( cis, name_ ) ;
 	return r ;
 }
 
@@ -174,12 +173,12 @@ namespace {
 	}
 } ;
 
-void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis )
+void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, const std::string& name )
 {
 	state_ = invalid ;
 	uint32_t tag = 0 ;
 	if( cis.ExpectAtEnd() ) {
-		throw ParseError( name_ + " ended unexpectedly" ) ;
+		throw ParseError( name + " ended unexpectedly" ) ;
 	}
 	else if( (tag = cis.ReadTag()) )
 	{
@@ -211,7 +210,7 @@ void AnfoReader::read_next_message( google::protobuf::io::CodedInputStream& cis 
 				return ; 
 			}
 
-			throw ParseError( "deserialization error in " + name_ ) ;
+			throw ParseError( "deserialization error in " + name ) ;
 		}
 	}
 }
@@ -246,6 +245,218 @@ void AnfoWriter::put_result( const Result& r )
 		s << name_ << ": " << wrote_ << " msgs" ;
 		chan_( Console::info, s.str() ) ;
 	}
+}
+
+void ChunkedWriter::init() 
+{
+	buf_.resize( 1024*1024 ) ;
+	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
+	CodedOutputStream o( zos_.get() ) ;
+	o.WriteRaw( "ANF1", 4 ) ;
+}
+
+ChunkedWriter::ChunkedWriter( std::auto_ptr< ZeroCopyOutputStream > zos, int l, const char* fname ) :
+	zos_( zos ), name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
+ChunkedWriter::ChunkedWriter( int fd, int l, const char* fname ) :
+	zos_( new FileOutputStream( fd ) ), name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
+ChunkedWriter::ChunkedWriter( const char* fname, int l ) :
+	zos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) ),
+	name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
+
+void ChunkedWriter::flush_buffer( unsigned needed ) 
+{
+	uint32_t uncomp_size = aos_->ByteCount() ;
+	if( uncomp_size == 0 ) return ;
+	if( needed && buf_.size() - uncomp_size >= needed+8 ) return ;
+	aos_.reset( 0 ) ;
+
+	CodedOutputStream o( zos_.get() ) ;
+	o.WriteLittleEndian32( uncomp_size ) ;	// uncompressed size
+
+	if( uncomp_size < 16 || method_ == none ) {
+		// very small chunk: confuses compressors, so write uncompressed
+		o.WriteLittleEndian32( uncomp_size ) ;	// compressed size & compression method
+		o.WriteRaw( &buf_[0], uncomp_size ) ;
+	}
+	else
+	{
+		vector< char > tmp ;
+		uint32_t comp_size ;
+		uLong comp_size_l ;
+		switch( method_ )
+		{
+			case fastlz:
+				tmp.resize( uncomp_size * 21 / 20 + 67 ) ;
+				comp_size = fastlz_compress_level( level_, &buf_[0], uncomp_size, &tmp[0] ) ;
+				break ;
+
+			case gzip:
+				comp_size_l = compressBound( uncomp_size ) ;
+				tmp.resize( comp_size_l ) ;
+				if( Z_OK != compress2( (Bytef*)&tmp[0], &comp_size_l, (const Bytef*)&buf_[0], uncomp_size, level_ ) )
+					throw "cannot happen!  overflow in compress2" ;
+				comp_size = comp_size_l ;
+				break ;
+
+			case bzip:
+				comp_size = uncomp_size * 101 / 100 + 601 ;
+				tmp.resize( comp_size ) ;
+				if( BZ_OK != BZ2_bzBuffToBuffCompress( &tmp[0], &comp_size, &buf_[0], uncomp_size, level_, 0, 0 ) )
+					throw "cannot happen!  overflow in BZ2_bzBuffToBuffCompress" ;
+				break ;
+
+			default:
+				throw "cannot happen!  unknown compression method" ;
+		}
+
+		o.WriteLittleEndian32( (uint32_t)(method_) << 28 | comp_size ) ;	// compressed size & compression method
+		o.WriteRaw( &tmp[0], comp_size ) ;
+	}
+	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
+}
+
+void ChunkedWriter::put_header( const Header& h )
+{
+	write_delimited_message( aos_.get(), 1, h ) ;
+	Stream::put_header( h ) ;
+	flush_buffer() ;
+}
+
+void ChunkedWriter::put_footer( const Footer& f ) 
+{
+	flush_buffer() ;
+	int64_t footer_start = zos_->ByteCount() ;
+	write_delimited_message( aos_.get(), 3, f ) ;
+	flush_buffer() ;
+	CodedOutputStream cos( zos_.get() ) ;
+	std::cerr << "footer chunk starts at " << footer_start << std::endl ;
+	cos.WriteLittleEndian64( footer_start ) ;
+	Stream::put_footer( f ) ;
+}
+
+void ChunkedWriter::put_result( const Result& r )
+{
+	flush_buffer( r.ByteSize() ) ;
+	write_delimited_message( aos_.get(), 4, r ) ; 
+	++wrote_ ;
+	if( wrote_ % 1024 == 0 )
+	{
+		stringstream s ;
+		s << name_ << ": " << wrote_ << " msgs" ;
+		chan_( Console::info, s.str() ) ;
+	}
+}
+
+ChunkedWriter::~ChunkedWriter()
+{
+	flush_buffer() ;
+}
+
+bool ChunkedReader::get_next_chunk() 
+{
+	if( ais_.get() && ais_->ByteCount() < buf_.size() ) return true ;
+	ais_.reset( 0 ) ;
+
+	CodedInputStream cis( is_.get() ) ;
+	if( cis.ExpectAtEnd() ) return false ;
+
+	uint32_t uncomp_size, comp_size ;
+	if( !cis.ReadLittleEndian32( &uncomp_size ) || !cis.ReadLittleEndian32( &comp_size ) ) 
+		throw ParseError( "couldn't read chunk header from " + name_ ) ;
+
+	int m = comp_size >> 28 ;
+	comp_size &= ~(~0 << 28) ;
+
+	std::cerr << "found chunk of " << comp_size << " bytes, originally " << uncomp_size << ", method " 
+		<< (m == ChunkedWriter::none ? "none" : m == ChunkedWriter::fastlz ? "fastlz" : m == ChunkedWriter::gzip ? "gzip" : m ==ChunkedWriter::bzip ? "bzip" : "unknown" ) << std::endl ;
+
+	vector< char > tmp ;
+	buf_.resize( uncomp_size ) ;
+	tmp.resize( comp_size ) ;
+	if( !cis.ReadRaw( &tmp[0], comp_size ) ) 
+		throw ParseError( "couldn't read  whole chunk from " + name_ ) ;
+
+	uLongf dlen = uncomp_size ;
+	switch( m )
+	{
+		case ChunkedWriter::none:
+			if( comp_size != uncomp_size ) throw "size of uncompressed chunk is wrong" ;
+			buf_.swap( tmp ) ;
+			break ;
+
+		case ChunkedWriter::fastlz:
+			if( (int)uncomp_size != fastlz_decompress( &tmp[0], comp_size, &buf_[0], uncomp_size ) )
+				throw "FastLZ decompression failed" ;
+			break ;
+
+		case ChunkedWriter::gzip: 
+			if( Z_OK != uncompress( (Bytef*)&buf_[0], &dlen, (const Bytef*)&tmp[0], comp_size ) 
+					|| uncomp_size != dlen )
+				throw "GZip decompression failed" ;
+			break ;
+
+		case ChunkedWriter::bzip:
+			if( BZ_OK != BZ2_bzBuffToBuffDecompress( &buf_[0], &uncomp_size, &tmp[0], comp_size, 0, 0 ) )
+				throw "BZip2 decompression failed" ;
+			break ;
+
+		default:
+			throw "unknown compression method" ;
+	}
+
+	ais_.reset( new ArrayInputStream( &buf_[0], uncomp_size ) ) ;
+	return true ;
+}
+
+ChunkedReader::ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
+{
+	{
+		std::string magic ;
+		CodedInputStream cis( is_.get() ) ;
+		if( !cis.ReadString( &magic, 4 ) || magic != "ANF1" ) 
+			throw ParseError( name_ + " is not an ANFO file" ) ;
+	}
+	if( !get_next_chunk() ) throw ParseError( "EOF before header in " + name_ ) ;
+
+	{
+		CodedInputStream cis( ais_.get() ) ;
+		uint32_t tag ;
+		if( !cis.ReadVarint32( &tag ) || tag != mk_msg_tag( 1 ) || !cis.ReadVarint32( &tag ) )
+			throw ParseError( "couldn't read message tag in " +name_ ) ;
+
+		int lim = cis.PushLimit( tag ) ;
+		if( !hdr_.ParseFromCodedStream( &cis ) ) 
+			throw ParseError( "deserialization error in header of " + name_ ) ;
+		cis.PopLimit( lim ) ;
+	}
+
+	sanitize( hdr_ ) ;
+	++anfo_reader__num_files_ ;
+
+	if( !get_next_chunk() ) throw ParseError( "EOF before payload in " + name_ ) ;
+	
+	CodedInputStream cis2( ais_.get() ) ;
+	read_next_message( cis2, name_ ) ;
+}
+
+Result ChunkedReader::fetch_result()
+{
+	Result r ;
+	swap( r, res_ ) ;
+	if( get_next_chunk() )
+	{
+		CodedInputStream cis( ais_.get() ) ;
+		read_next_message( cis, name_ ) ;
+	}
+	else state_ = end_of_stream ;
+	return r ;
+}
+
+Footer ChunkedReader::fetch_footer()
+{
+	// skip backwards link
+	is_->Skip( 8 ) ;
+	return Stream::fetch_footer() ;
 }
 
 template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
@@ -705,7 +916,7 @@ void RmdupStream::call_consensus()
 	}
 }
 
-void ConcatStream::add_stream( Stream* s )
+void ConcatStream::add_stream( StreamHolder s )
 {
 	merge_sensibly( hdr_, s->fetch_header() ) ;
 	if( s->get_state() == have_output )
@@ -716,8 +927,7 @@ void ConcatStream::add_stream( Stream* s )
 	else
 	{
 		if( state_ == invalid ) state_ = end_of_stream ;
-		merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
-		delete s ;
+		merge_sensibly( foot_, s->fetch_footer() ) ;
 	}
 }
 
@@ -727,7 +937,6 @@ Result ConcatStream::fetch_result()
 	if( streams_[0]->get_state() != have_output )
 	{
 		merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
-		delete streams_[0] ;
 		streams_.pop_front() ;
 	}
 	if( streams_.empty() ) state_ = end_of_stream ;
@@ -767,7 +976,7 @@ namespace {
 			}
 
 		public:
-			StreamWithProgress( google::protobuf::io::ZeroCopyInputStream *is, const char* name, int64_t total )
+			StreamWithProgress( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name, int64_t total )
 				: is_( is ), name_( basename( name ) ), total_( total ), read_( 0 ) {}
 
 			virtual bool Next( const void **data, int *size ) { return check( is_->Next( data, size ) ) ; }
@@ -778,7 +987,7 @@ namespace {
 
 	} ;
 
-	Stream* make_input_stream_( google::protobuf::io::ZeroCopyInputStream *is, const char* name, bool solexa_scores, char origin )
+	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name, bool solexa_scores, char origin )
 	{
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
@@ -790,18 +999,25 @@ namespace {
 		if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == 'O' )
 			return new AnfoReader( is, name ) ;
 
+		else if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == '1' )
+			return new ChunkedReader( is, name ) ;
+
 		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
-			return make_input_stream_( new BunzipStream( is ), name, solexa_scores, origin ) ;
-
+		{
+			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
+			return make_input_stream_( bs, name, solexa_scores, origin ) ;
+		}
 		else if( l >= 2 && q[0] == 31 && q[1] == 139 )
-			return make_input_stream_( new InflateStream( is ), name, solexa_scores, origin ) ;
-
+		{
+			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
+			return make_input_stream_( zs, name, solexa_scores, origin ) ;
+		}
 		else return new FastqReader( is, solexa_scores, origin ) ;
 	}
 } ;
 
 
-Stream* make_input_stream( const char *name, bool solexa_scores, char origin )
+StreamHolder make_input_stream( const char *name, bool solexa_scores, char origin )
 {
 	return name && *name && strcmp( name, "-" ) 
 		? make_input_stream( throw_errno_if_minus1(
@@ -809,18 +1025,19 @@ Stream* make_input_stream( const char *name, bool solexa_scores, char origin )
 		: make_input_stream( dup( 0 ), "<stdin>", solexa_scores, origin ) ;
 }
 
-Stream* make_input_stream( int fd, const char *name, bool solexa_scores, char origin )
+StreamHolder make_input_stream( int fd, const char *name, bool solexa_scores, char origin )
 {
 	struct stat st ;
-	google::protobuf::io::FileInputStream *s = new google::protobuf::io::FileInputStream( fd ) ;
+	std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
 	s->SetCloseOnDelete( true ) ;
-	return make_input_stream( s, name, fstat( fd, &st ) ? -1 : st.st_size, solexa_scores, origin ) ;
+	return make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream >(s), name, fstat( fd, &st ) ? -1 : st.st_size, solexa_scores, origin ) ;
 }
 
-Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const char *name,
+StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char *name,
 		int64_t total, bool solexa_scores, char origin )
 {
-	return make_input_stream_( new StreamWithProgress( is, name, total ), name, solexa_scores, origin ) ;
+	std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > s( new StreamWithProgress( is, name, total ) ) ;
+	return make_input_stream_( s, name, solexa_scores, origin ) ;
 }
 
 } ; // namespace

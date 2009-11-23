@@ -51,6 +51,30 @@ using namespace streams ;
 
 namespace {
 
+typedef SCM (*FCN)() ;
+
+const char *mk_str( SCM s, deque<char*> &stab )
+{
+	stab.push_back( scm_to_locale_string( s ) ) ;
+	return stab.back() ;
+}
+
+extern "C" SCM scm_verbosity( SCM v )
+{
+	if( scm_is_integer( v ) ) console.loglevel = (Console::Loglevel)scm_to_int( v ) ;
+	else if( !scm_is_symbol( v ) ) console.set_quiet() ;
+	else {
+		if( scm_is_eq( scm_from_locale_symbol(    "debug" ), v ) ) console.loglevel = Console::debug ;
+		if( scm_is_eq( scm_from_locale_symbol(     "info" ), v ) ) console.loglevel = Console::info ;
+		if( scm_is_eq( scm_from_locale_symbol(   "notice" ), v ) ) console.loglevel = Console::notice ;
+		if( scm_is_eq( scm_from_locale_symbol(  "warning" ), v ) ) console.loglevel = Console::warning ;
+		if( scm_is_eq( scm_from_locale_symbol(    "error" ), v ) ) console.loglevel = Console::error ;
+		if( scm_is_eq( scm_from_locale_symbol( "critical" ), v ) ) console.loglevel = Console::critical ;
+	}
+	return SCM_BOOL_T ;
+}
+
+/*
 scm_t_bits stream_tag ;
      
 extern "C" size_t free_stream( SCM stream_smob )
@@ -79,19 +103,6 @@ SCM mk_str( Stream* s )
 	return smob ;
 }
 
-extern "C" SCM scm_make_input_stream( SCM name, SCM sol_scale, SCM origin )
-{
-	return mk_str( make_input_stream(
-				scm_to_str( name ), scm_is_true( sol_scale ), scm_to_int( origin ) ) ) ;
-}
-
-extern "C" SCM scm_make_output_stream( SCM name, SCM level )
-{
-	bool exp = scm_to_int( level ) > 50 ;
-	return mk_str( scm_is_true( name )
-		? new AnfoWriter( scm_to_str( name ), exp ) : new AnfoWriter( 1, "<stdout>", exp ) ) ;
-}
-
 extern "C" SCM scm_transfer( SCM input, SCM output ) 
 {
 	scm_assert_smob_type( stream_tag, input ) ;
@@ -109,19 +120,6 @@ extern "C" SCM scm_transfer( SCM input, SCM output )
 	}
 	out->put_footer( in->fetch_footer() ) ;
 	return SCM_BOOL_T ;
-}
-
-extern "C" SCM scm_chain( SCM args )
-{
-	Compose* c = new Compose ;
-	for( ; scm_is_pair( args ) ; args = scm_cdr( args ) )
-	{
-		scm_assert_smob_type( stream_tag, scm_car( args ) ) ;
-		Stream* s  = (Stream*)SCM_SMOB_DATA( scm_car( args ) ) ;
-		c->add_stream( s ) ;
-	}
-	assert( scm_is_null( args ) ) ;
-	return mk_str( c ) ;
 }
 
 extern "C" SCM scm_write_text( SCM fn )
@@ -205,23 +203,6 @@ extern "C" SCM scm_concat( SCM args )
 extern "C" SCM scm_mega_merge( SCM args )
 { return scm_make_merger( args, new MegaMergeStream() ) ; }
 
-extern "C" SCM scm_verbosity( SCM v )
-{
-	if( scm_is_integer( v ) ) console.loglevel = (Console::Loglevel)scm_to_int( v ) ;
-	else if( !scm_is_symbol( v ) ) console.set_quiet() ;
-	else {
-		char *s = scm_to_locale_string( scm_symbol_to_string( v ) ) ;
-		if( !strcasecmp( s, "debug" ) ) console.loglevel = Console::debug ;
-		if( !strcasecmp( s, "info" ) ) console.loglevel = Console::info ;
-		if( !strcasecmp( s, "notice" ) ) console.loglevel = Console::notice ;
-		if( !strcasecmp( s, "warning" ) ) console.loglevel = Console::warning ;
-		if( !strcasecmp( s, "error" ) ) console.loglevel = Console::error ;
-		if( !strcasecmp( s, "critical" ) ) console.loglevel = Console::critical ;
-		free( s ) ;
-	}
-	return SCM_BOOL_T ;
-}
-
 extern "C" SCM scm_sort_by_pos( SCM mem, SCM handles, SCM genome )
 {
  return mk_str( new SortingStream<by_genome_coordinate>( 
@@ -250,9 +231,6 @@ extern "C" SCM scm_ensure_hit( SCM g, SCM s )
 extern "C" SCM scm_delete_hit( SCM g, SCM s )
 { return mk_str( new IgnoreHit( scm_to_str( g ), scm_to_str( s ) ) ) ; } // XXX
 
-extern "C" SCM scm_filter_by_qual( SCM q )
-{ return mk_str( new QualFilter( scm_to_int( q ) ) ) ; }
-
 extern "C" SCM scm_ensure_multi( SCM m )
 { return mk_str( new MultiFilter( scm_is_integer( m ) ? scm_to_int( m ) : 2 ) ) ; }
 
@@ -270,20 +248,164 @@ extern "C" SCM scm_regions_only( SCM fn )
 
 extern "C" SCM scm_not_regions( SCM fn )
 { return mk_str( new OutsideRegion( scm_to_str( fn ) ) ) ; }
+*/
 
 
-typedef SCM (*FCN)() ;
+//!	- a string: read the file
+//!	- an integer: read from the fd
+//!	- a scheme port: read from the port (?) 
+
+Stream* stream_from_literal( SCM lit, deque<char*> &stab, bool solexa = false, int origin = 33 )
+{
+	if( scm_is_string( lit ) )
+	{
+		return make_input_stream( mk_str( lit, stab ), solexa, origin ) ;
+	}
+	else if( scm_is_integer( lit ) )
+	{
+		return make_input_stream( scm_to_int( lit ), "<pipe>", solexa, origin ) ;
+	}
+	// handle port?  How?
+	else
+		throw "cannot handle literal" ;
+}
+
+Stream* stream_from_sym( SCM sym, SCM args, deque<char*> &stab )
+{
+	SCM arg[5] ;
+	for( int i = 0 ; i != 5 ; ++i )
+	{
+		if( scm_is_pair( args ) )
+		{
+			arg[i] = scm_car( args ) ;
+			args = scm_cdr( args ) ;
+		}
+		else arg[i] = SCM_BOOL_F ;
+	}
+
+	if( scm_is_eq( sym, scm_from_locale_symbol( "read-file" ) ) )
+	{
+		cerr << "reading anything: " << scm_to_locale_string( scm_symbol_to_string( sym ) ) << ' ' << scm_to_locale_string( arg[0] ) << endl ;
+		return stream_from_literal( arg[0], stab, scm_is_true( arg[1] ),
+				scm_is_integer( arg[2] ) ? scm_to_int( arg[2] ) : 33 ) ;
+	}
+	else if( scm_is_eq( sym, scm_from_locale_symbol( "write-anfo" ) ) )
+	{
+		cerr << "writing native" << endl ;
+		bool exp = scm_is_integer( arg[1] ) ? scm_to_int( arg[1] ) > 50 : false ;
+		SCM name = arg[0] ;
+		return scm_is_false( name )   ? new AnfoWriter( 1, "<stdout>", exp ) :
+			   scm_is_string( name )  ? new AnfoWriter( mk_str( name, stab ), exp ) :
+			   scm_is_integer( name ) ? new AnfoWriter( scm_to_int( name ), "<pipe>", exp ) :
+			   throw "cannot handle weird file name" ;
+	}
+	else if( scm_is_eq( sym, scm_from_locale_symbol( "filter-qual" ) ) )
+	{
+		SCM qual = arg[0] ;
+		return new QualFilter( scm_is_integer( qual ) ? scm_to_int( qual ) : 30 ) ;
+	}
+	else throw "I don't understand" ;
+}
+
+Stream* stream_from_list( SCM list, deque<char*> &stab ) ;
+
+//!	Possible arguments:
+//!	- a keyword: stream without arguments
+//!	- a list starting with a keyword: stream with arguments
+//!	- any other list: compose the elements
+//!	- just about everything else: read a file
+Stream* stream_from_args( SCM args, deque<char*> &stab )
+{
+	if( scm_is_symbol( args ) )
+	{
+		cerr << "symbol found" << endl ;
+		return stream_from_sym( args, SCM_EOL, stab ) ;
+	}
+	else if( scm_is_pair( args ) && scm_is_symbol( scm_car( args ) ) )
+	{
+		cerr << "list w/ symbol found" << endl ;
+		return stream_from_sym( scm_car( args ), scm_cdr( args ), stab ) ;
+	}
+	else if( scm_is_pair( args ) )
+	{
+		cerr << "list found" << endl ;
+		return stream_from_list( args, stab ) ;
+	}
+	else 
+	{
+		cerr << "literal found" << endl ;
+		return stream_from_literal( args, stab ) ;
+	}
+}
+
+Stream* stream_from_list( SCM list, deque<char*> &stab )
+{
+	Compose *s = new Compose ;
+	for( ; scm_is_pair( list ) ; list = scm_cdr( list ) )
+	{
+		cerr << "recurse for stream" << endl ;
+		s->add_stream( stream_from_args( scm_car( list ), stab ) ) ;
+	}
+	return s ; 
+}
+
+//! \brief interprets a description of a streaming operation
+//! What to do?  We effectively construct a single stream as composition
+//! of whatever, then determine its status.  Something should result
+//! from that...  we might even return a tree of status values!
+//!
+//!	
+//!	If a file argument is needed:
+//!	- #f: stdin or stdout
+//!	- string: file name
+//!	- int: file descriptor
+//!	- scheme port: read or write to port (?)
+//!
+//! We need some memory management: strings are malloc()ed, we pass them
+//! around, but finally need to free them.  We pass around a deque of
+//! pointers.
+
+extern "C" SCM scm_anfo_run( SCM args )
+{
+	try
+	{
+		// construct whatever stream is needed
+		deque<char*> stringtab ;
+		Stream *s = stream_from_args( args, stringtab ) ;
+
+		// top level is probably of type 'Compose'; get it to calculate
+		if( Compose *c = dynamic_cast<Compose*>( s ) ) c->update_status() ;
+
+		// cleanup
+		for_each( stringtab.begin(), stringtab.end(), free ) ;
+
+		// extract some sort of result and return it?
+		return SCM_BOOL_T ;
+	} 
+	catch( const Exception& e ) { 
+		stringstream s ;
+		s << e ;
+		scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( s.str().c_str() ) ) ;
+	}
+	catch( const string& s ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( s.c_str() ) ) ; }
+	catch( const char* s ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( s ) ) ; }
+	catch( const exception& e ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( e.what() ) ) ; }
+	catch( ... ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), SCM_BOOL_F ) ; }
+	return SCM_BOOL_F ;
+}
+
 
 } ; // namespace
 
 extern "C" void init_anfo_guile()
 {
-	stream_tag = scm_make_smob_type ("stream", sizeof (Stream*) ) ;
-	scm_set_smob_free( stream_tag, free_stream ) ;
+	// stream_tag = scm_make_smob_type ("stream", sizeof (Stream*) ) ;
+	// scm_set_smob_free( stream_tag, free_stream ) ;
 
 	scm_c_define_gsubr( "verbosity",       1, 0, 0, (FCN)scm_verbosity ) ;
-	// scm_c_define_gsubr( "anfo-run
+	scm_c_define_gsubr( "anfo-run",        0, 0, 1, (FCN)scm_anfo_run ) ;
 
+	/*
 	scm_c_define_gsubr( "prim-sort-by-name",    2, 0, 0, (FCN)scm_sort_by_name ) ;
 	scm_c_define_gsubr( "prim-sort-by-pos",     3, 0, 0, (FCN)scm_sort_by_pos ) ;
 	scm_c_define_gsubr(     "filter-by-length", 1, 0, 0, (FCN)scm_filter_by_length ) ;
@@ -320,5 +442,6 @@ extern "C" void init_anfo_guile()
 
 	scm_c_define_gsubr(      "transfer",        2, 0, 0, (FCN)scm_transfer ) ;
 	scm_c_define_gsubr(      "chain",           0, 0, 1, (FCN)scm_chain ) ;
+	*/
 }
 
