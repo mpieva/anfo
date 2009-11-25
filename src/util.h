@@ -267,4 +267,30 @@ class Chan
 		void operator()( Console::Loglevel l, const std::string& s ) { console.progress( n_, l, s ) ; }
 } ;
 
+template< typename T > class Holder
+{
+	private:
+		T* s_ ;
+
+	public:
+		Holder<T>( const Holder<T>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
+		template< typename U > Holder<T>( const Holder<U>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
+		template< typename U > Holder<T>( U *s ) : s_( s ) { if( s_ ) ++s_->refcount_ ; }
+		Holder<T>() : s_(0) {}
+		~Holder<T>() { if( s_ && --s_->refcount_ == 0 ) T::cleanup( s_ ) ; }
+
+		template< typename U > Holder<T>& operator = ( U *s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		template< typename U > Holder<T>& operator = ( const Holder<U>& s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		void swap( Holder<T>& s ) { std::swap( s_, s.s_ ) ; }
+
+		T* operator -> () const { return s_ ; }
+		T& operator * () const { return *s_ ; }
+
+		operator const void* () const { return s_ ; }
+} ;
+
 #endif

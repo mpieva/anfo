@@ -42,11 +42,11 @@ void show_alignment(
 		std::string& c,
 		int context = 0 ) 
 {
-	CompactGenome *g = 0 ;
+	GenomeHolder g ;
 	DnaP ref( 0 ) ;
 
 	try {
-		g = &Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
+		g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
 		if( g ) ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
 		if( ref && h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 		if( !ref ) throw "sequence not found: " + h.sequence() ;

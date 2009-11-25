@@ -276,7 +276,7 @@ int main_( int argc, const char * argv[] )
 
 	if( !genome_file ) throw "missing --genome option" ;
 
-	CompactGenome genome( genome_file, MADV_SEQUENTIAL ) ;
+	GenomeHolder genome = Metagenome::find_genome( genome_file ) ;
 
 	if( repeat == std::numeric_limits<uint32_t>::max() ) repeat = wordsize >> 1 ;
 	uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
@@ -294,7 +294,7 @@ int main_( int argc, const char * argv[] )
 	// First scan: only count words.  We'll have to go over the whole
 	// table again to convert counts into offsets.
 	uint64_t total0 = 0;
-	genome.scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, wordsize, repeat, total0 ) ), "Counting" ) ;
+	genome->scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, wordsize, repeat, total0 ) ), "Counting" ) ;
 	std::clog << "Need to store " << total0 << " pointers." << std::endl ;
 
 	// Histogram of word frequencies.
@@ -340,7 +340,7 @@ int main_( int argc, const char * argv[] )
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 
 	// Second scan: we actually store the offsets now.
-	genome.scan_words( wordsize, make_dense_word( store_word( stride, base, lists, wordsize, repeat ) ), "Indexing" ) ;
+	genome->scan_words( wordsize, make_dense_word( store_word( stride, base, lists, wordsize, repeat ) ), "Indexing" ) ;
 
 	// need to fix 0-entries in 1L index
 	uint32_t last = total ;
@@ -363,10 +363,10 @@ int main_( int argc, const char * argv[] )
 	// Note to self: creating and mmapping a sparse file, then filling
 	// it in random order is an exceptionally bad idea...
  
-	std::clog << "Writing " << genome.name() << "..." << std::endl ;
+	std::clog << "Writing " << genome->name() << "..." << std::endl ;
 	std::stringstream output_path ;
 	if( output_file ) output_path << output_file ;
-	else output_path << genome.name() << '_' << wordsize << ".idx" ;
+	else output_path << genome->name() << '_' << wordsize << ".idx" ;
 	int fd = throw_errno_if_minus1( creat( output_path.str().c_str(), 0644 ), "opening", output_path.str().c_str() ) ;
 
 	uint32_t sig = FixedIndex::signature, len = metainfo.size() ; 

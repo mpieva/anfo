@@ -72,7 +72,7 @@ int main_( int argc, const char**argv )
 		else 
 		{
 			config::Config conf ;
-			streams::Holder< streams::Stream > af( streams::make_input_stream( argv[argi] ) ) ;
+			Holder< streams::Stream > af( streams::make_input_stream( argv[argi] ) ) ;
 			try {
 				conf = af->fetch_header().config() ;
 				if( conf.has_aligner() )

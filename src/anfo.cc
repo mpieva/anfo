@@ -243,7 +243,7 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		streams::Holder< streams::Stream > inp( 
+		Holder< streams::Stream > inp( 
 				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )

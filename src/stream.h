@@ -169,39 +169,15 @@ inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, outp
 //! between need_input, have_output and end_of_stream.  It's undefined
 //! behaviour to call methods in states where they don't make sense.
 
-template< typename T > class Holder
-{
-	private:
-		T* s_ ;
-
-	public:
-		Holder<T>( const Holder<T>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
-		template< typename U > Holder<T>( const Holder<U>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
-		template< typename U > Holder<T>( U *s ) : s_( s ) { if( s_ ) ++s_->refcount_ ; }
-		Holder<T>() : s_(0) {}
-		~Holder<T>() { if( s_ && --s_->refcount_ == 0 ) delete s_ ; }
-
-		template< typename U > Holder<T>& operator = ( U *s ) 
-		{ Holder<T>( s ).swap( *this ) ; return *this ; }
-
-		template< typename U > Holder<T>& operator = ( const Holder<U>& s ) 
-		{ Holder<T>( s ).swap( *this ) ; return *this ; }
-
-		void swap( Holder<T>& s ) { std::swap( s_, s.s_ ) ; }
-
-		T* operator -> () const { return s_ ; }
-		T& operator * () const { return *s_ ; }
-
-		operator const void* () const { return s_ ; }
-} ;
-
 class Stream
 {
-	friend class Holder<Stream> ;
+	friend class ::delete_ptr<Stream> ;
 
 	public:
 		int refcount_ ;
 		enum state { invalid, end_of_stream, need_input, have_output } ;
+
+		static void cleanup( Stream* p ) { delete p ; }
 
 	protected:
 		// internal state---not strictly necessary here, but used almost
@@ -271,7 +247,7 @@ class Stream
 		void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
 } ;
 
-typedef Holder<Stream> StreamHolder ;
+typedef ::Holder<Stream> StreamHolder ;
 
 void transfer( Stream& in, Stream& out ) ;
 

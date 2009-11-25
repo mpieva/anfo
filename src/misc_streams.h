@@ -210,7 +210,7 @@ extern unsigned SortingStream__ninstances ;
 template <class Comp> class SortingStream : public Stream
 {
 	private:
-		typedef deque< streams::Holder< streams::Stream > > MergeableQueue ;
+		typedef deque< Holder< streams::Stream > > MergeableQueue ;
 		typedef map< unsigned, MergeableQueue > MergeableQueues ;
 		typedef deque< Result* > ScratchSpace ;
 

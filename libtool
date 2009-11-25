@@ -132,7 +132,7 @@ old_postuninstall_cmds=""
 LTCC="gcc"
 
 # LTCC compiler flags.
-LTCFLAGS="-Wall -ggdb -ggdb"
+LTCFLAGS="-Wall"
 
 # Take the output of nm and produce a listing of raw symbols and C names.
 global_symbol_pipe="sed -n -e 's/^.*[	 ]\\([ABCDGIRSTW][ABCDGIRSTW]*\\)[	 ][	 ]*\\([_A-Za-z][_A-Za-z0-9]*\\)\$/\\1 \\2 \\2/p'"
@@ -234,7 +234,7 @@ finish_eval=""
 hardcode_into_libs=yes
 
 # Compile-time system search path for libraries.
-sys_lib_search_path_spec="/r1/people/udo_stenzel/usr/lib /home/udo_stenzel/.toast/armed/lib /usr/lib/gcc/i486-linux-gnu/4.2.4 /usr/lib /lib"
+sys_lib_search_path_spec="/home/udo_stenzel/.toast/armed/lib /usr/lib/gcc/i486-linux-gnu/4.2.4 /usr/lib /lib"
 
 # Run-time system search path for libraries.
 sys_lib_dlsearch_path_spec="/lib /usr/lib /usr/lib/sse/atlas /usr/lib/sse /usr/lib/sse2/atlas /usr/lib/sse2 /usr/lib/atlas /lib/i486-linux-gnu /usr/lib/i486-linux-gnu /usr/lib/atlas/sse2 /usr/lib/sse2 /usr/lib/atlas/sse /usr/lib/sse /usr/lib/atlas "
@@ -9040,7 +9040,7 @@ file_list_spec=""
 hardcode_action=immediate
 
 # The directories searched by this compiler when creating a shared library.
-compiler_lib_search_dirs="/r1/people/udo_stenzel/usr/lib/../lib /r1/people/udo_stenzel/usr/lib/../lib /home/udo_stenzel/.toast/armed/lib/../lib /usr/lib/gcc/i486-linux-gnu/4.2.4 /usr/lib/gcc/i486-linux-gnu/4.2.4 /usr/lib/gcc/i486-linux-gnu/4.2.4/../../../../lib /lib/../lib /usr/lib/../lib /r1/people/udo_stenzel/usr/lib /r1/people/udo_stenzel/usr/lib /home/udo_stenzel/.toast/armed/lib /usr/lib/gcc/i486-linux-gnu/4.2.4/../../.."
+compiler_lib_search_dirs="/home/udo_stenzel/.toast/armed/lib/../lib /usr/lib/gcc/i486-linux-gnu/4.2.4 /usr/lib/gcc/i486-linux-gnu/4.2.4 /usr/lib/gcc/i486-linux-gnu/4.2.4/../../../../lib /lib/../lib /usr/lib/../lib /home/udo_stenzel/.toast/armed/lib /usr/lib/gcc/i486-linux-gnu/4.2.4/../../.."
 
 # Dependencies to place before and after the objects being linked to
 # create a shared library.
@@ -9051,6 +9051,6 @@ postdeps="-lstdc++ -lm -lgcc_s -lc -lgcc_s"
 
 # The library search path used internally by the compiler when linking
 # a shared library.
-compiler_lib_search_path="-L/r1/people/udo_stenzel/usr/lib/../lib -L/r1/people/udo_stenzel/usr/lib/../lib -L/home/udo_stenzel/.toast/armed/lib/../lib -L/usr/lib/gcc/i486-linux-gnu/4.2.4 -L/usr/lib/gcc/i486-linux-gnu/4.2.4 -L/usr/lib/gcc/i486-linux-gnu/4.2.4/../../../../lib -L/lib/../lib -L/usr/lib/../lib -L/r1/people/udo_stenzel/usr/lib -L/r1/people/udo_stenzel/usr/lib -L/home/udo_stenzel/.toast/armed/lib -L/usr/lib/gcc/i486-linux-gnu/4.2.4/../../.."
+compiler_lib_search_path="-L/home/udo_stenzel/.toast/armed/lib/../lib -L/usr/lib/gcc/i486-linux-gnu/4.2.4 -L/usr/lib/gcc/i486-linux-gnu/4.2.4 -L/usr/lib/gcc/i486-linux-gnu/4.2.4/../../../../lib -L/lib/../lib -L/usr/lib/../lib -L/home/udo_stenzel/.toast/armed/lib -L/usr/lib/gcc/i486-linux-gnu/4.2.4/../../.."
 
 # ### END LIBTOOL TAG CONFIG: CXX

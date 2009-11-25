@@ -66,7 +66,7 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 			if( !ix ) {
 				FixedIndex( ixs.name(), mi, MADV_WILLNEED ).swap( ix ) ;
 				const string& genome_name = ix.ci_.genome_name() ; 
-				Metagenome::find_genome( genome_name, Metagenome::persistent ) ;
+				Metagenome::find_genome( genome_name ) ;
 			}
 		}
 	}
@@ -127,8 +127,8 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
 		const FixedIndex &ix = indices[ cis.name() ] ;
-		const CompactGenome &g = Metagenome::find_genome( ix.ci_.genome_name(), Metagenome::persistent ) ;
-		assert( ix ) ; assert( g.get_base() ) ;
+		GenomeHolder g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
+		assert( ix ) ; assert( g->get_base() ) ;
 
 		vector<Seed> seeds ;
 		num_raw += ix.lookupS( 
@@ -136,10 +136,11 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 				seeds, cis.allow_near_perfect(), &num_useless,
 				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
 		num_comb += seeds.size() ;
-		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
+		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g->get_contig_map() ) ;
 		num_clumps += seeds.size() ;
 
-		setup_alignments( g, qs, seeds.begin(), seeds.end(), ol ) ;
+		g->add_ref() ; // XXX dirty hack
+		setup_alignments( *g, qs, seeds.begin(), seeds.end(), ol ) ;
 	}
 	AlnStats *as = r.mutable_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;

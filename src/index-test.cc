@@ -83,7 +83,7 @@ int main_( int argc, const char * argv[] )
 	unsigned total_seeded = 0, total_failures = 0 ;
 	while( const char* arg = poptGetArg( pc ) ) 
 	{
-		streams::Holder< streams::Stream > inp( streams::make_input_stream( arg ) ) ;
+		Holder< streams::Stream > inp( streams::make_input_stream( arg ) ) ;
 		while( inp->get_state() == streams::Stream::have_output )
 		{
 			QSequence ps ;

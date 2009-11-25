@@ -212,11 +212,9 @@ inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
 }
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
 {
-	s << '\t' ;
-	// if( r.seen && r.nt_bases.empty() ) s << '-' ;
-	if( r.seen ) s << '"' << r.nt_bases << '"' << '\t' << r.nt_qual ;
-	else s << "n/a\tn/a" ;
-	return s ;
+	return r.seen
+		? s << '\t' << '"' << r.nt_bases << '"' << '\t' << r.nt_qual
+	    : s << "\tn/a\tn/a" ;
 }
 inline const char* encode_flags( const SnpRec& r )
 {
@@ -240,7 +238,6 @@ template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
 
 		const SnpRec &r = **i ;
 		if( !r.sequence.empty() ) continue ; // this wasn't actually a SNP
-		// if( !r.hsa_seen && !r.ptr_seen ) continue ;
 		
 		write_half_record_snp( s, r.hsa ) ;
 		write_half_record_snp( s, r.ptr ) ;
@@ -267,7 +264,6 @@ template< typename C > ostream& write_martin_table_indel( ostream& s, const C& d
 
 		const SnpRec &r = **i ;
 		if( r.sequence.empty() ) continue ; // this wasn't actually an indel
-		// if( !r.hsa_seen && !r.ptr_seen ) continue ;
 		
 		s << (r.hsa.length ? "insert\t" : "deletion\t") ;
 		write_half_record_indel( s, r.hsa ) ;
@@ -342,8 +338,8 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 
 			if( get( first_snp ).chr != cur_chr ) continue ;
 
-			CompactGenome &g = Metagenome::find_sequence( h.genome_name(), h.sequence(), Metagenome::ephemeral ) ;
-			DnaP ref = g.find_pos( h.sequence(), h.start_pos() ) ;
+			GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
+			DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ;
 			int cigar_maj = 0, ref_pos = h.start_pos() ;
 			size_t cigar_min = 0, qry_pos = 0 ;
 
@@ -386,8 +382,11 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 					}
 					
 
-					// Anything to extract? (coordinates hit and not a deletion
-					if( snp.pos <= ref_pos && ref_pos < snp.pos + snp.length ) switch( op )
+					// Anything to extract? (coordinates hit and not a deletion)
+					// Note that matches must be within range, but
+					// inserts count even if they are on the right edge.
+					if( snp.pos <= ref_pos && ref_pos <= snp.pos + snp.length &&
+							( ref_pos != snp.pos + snp.length || op == Hit::Insert ) ) switch( op )
 					{
 						case Hit::Insert:
 						case Hit::Match:
@@ -402,7 +401,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 					}
 					else switch( op )
 					{
-						// nodirect hit, but close by.  Set gap flag?
+						// no direct hit, but close by.  Set gap flag?
 						case Hit::Delete:
 						case Hit::Insert:
 							snp.gap_near_flag = 1 ;
