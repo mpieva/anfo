@@ -1,4 +1,4 @@
-bin_PROGRAMS =  fa2dna  dnaindex  anfo-sge  anfo-tool  file-info
+bin_PROGRAMS =  fa2dna  dnaindex  anfo-sge  anfo-tool  file-info  anfo-elk
 libexec_PROGRAMS =  index-test  martin-table
 EXTRA_PROGRAMS =  anfo
 lib_LTLIBRARIES = libanfo.la
@@ -42,6 +42,9 @@ fa2dna_SOURCES = fa2dna.cc
 file_info_SOURCES = file-info.cc
 index_test_SOURCES = index-test.cc
 martin_table_SOURCES = martin-table.cc 
+
+anfo_elk_SOURCE = anfo-elk.cc
+anfo_elk_LDADD = $(LDADD) -lelk
 
 config.pb.cc: config.proto
 	$(PROTOC) --cpp_out=. config.proto

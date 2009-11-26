@@ -38,7 +38,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = fa2dna$(EXEEXT) dnaindex$(EXEEXT) anfo-sge$(EXEEXT) \
-	anfo-tool$(EXEEXT) file-info$(EXEEXT) $(am__EXEEXT_1)
+	anfo-tool$(EXEEXT) file-info$(EXEEXT) anfo-elk$(EXEEXT) \
+	$(am__EXEEXT_1)
 libexec_PROGRAMS = index-test$(EXEEXT) martin-table$(EXEEXT)
 EXTRA_PROGRAMS = anfo$(EXEEXT)
 @PTHREADS_TRUE@am__append_1 = anfo
@@ -100,6 +101,9 @@ am_anfo_OBJECTS = anfo.$(OBJEXT)
 anfo_OBJECTS = $(am_anfo_OBJECTS)
 anfo_LDADD = $(LDADD)
 anfo_DEPENDENCIES = libanfo.la
+anfo_elk_SOURCES = anfo-elk.c
+anfo_elk_OBJECTS = anfo-elk.$(OBJEXT)
+anfo_elk_DEPENDENCIES = $(LDADD)
 am_anfo_sge_OBJECTS = anfo-sge.$(OBJEXT)
 anfo_sge_OBJECTS = $(am_anfo_sge_OBJECTS)
 anfo_sge_LDADD = $(LDADD)
@@ -150,14 +154,14 @@ CXXLD = $(CXX)
 CXXLINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-SOURCES = $(libanfo_la_SOURCES) $(anfo_SOURCES) $(anfo_sge_SOURCES) \
-	$(anfo_tool_SOURCES) $(dnaindex_SOURCES) $(fa2dna_SOURCES) \
-	$(file_info_SOURCES) $(index_test_SOURCES) \
-	$(martin_table_SOURCES)
-DIST_SOURCES = $(am__libanfo_la_SOURCES_DIST) $(anfo_SOURCES) \
+SOURCES = $(libanfo_la_SOURCES) $(anfo_SOURCES) anfo-elk.c \
 	$(anfo_sge_SOURCES) $(anfo_tool_SOURCES) $(dnaindex_SOURCES) \
 	$(fa2dna_SOURCES) $(file_info_SOURCES) $(index_test_SOURCES) \
 	$(martin_table_SOURCES)
+DIST_SOURCES = $(am__libanfo_la_SOURCES_DIST) $(anfo_SOURCES) \
+	anfo-elk.c $(anfo_sge_SOURCES) $(anfo_tool_SOURCES) \
+	$(dnaindex_SOURCES) $(fa2dna_SOURCES) $(file_info_SOURCES) \
+	$(index_test_SOURCES) $(martin_table_SOURCES)
 DATA = $(dist_noinst_DATA) $(dist_pkgdata_DATA) $(scheme_DATA)
 HEADERS = $(pkginclude_HEADERS)
 ETAGS = etags
@@ -308,6 +312,8 @@ fa2dna_SOURCES = fa2dna.cc
 file_info_SOURCES = file-info.cc
 index_test_SOURCES = index-test.cc
 martin_table_SOURCES = martin-table.cc 
+anfo_elk_SOURCE = anfo-elk.cc
+anfo_elk_LDADD = $(LDADD) -lelk
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -465,6 +471,9 @@ clean-libexecPROGRAMS:
 anfo$(EXEEXT): $(anfo_OBJECTS) $(anfo_DEPENDENCIES) 
 	@rm -f anfo$(EXEEXT)
 	$(CXXLINK) $(anfo_OBJECTS) $(anfo_LDADD) $(LIBS)
+anfo-elk$(EXEEXT): $(anfo_elk_OBJECTS) $(anfo_elk_DEPENDENCIES) 
+	@rm -f anfo-elk$(EXEEXT)
+	$(LINK) $(anfo_elk_OBJECTS) $(anfo_elk_LDADD) $(LIBS)
 anfo-sge$(EXEEXT): $(anfo_sge_OBJECTS) $(anfo_sge_DEPENDENCIES) 
 	@rm -f anfo-sge$(EXEEXT)
 	$(CXXLINK) $(anfo_sge_OBJECTS) $(anfo_sge_LDADD) $(LIBS)
@@ -494,6 +503,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/align.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-elk.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-sge.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-tool.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo.Po@am__quote@
