@@ -175,7 +175,12 @@ WRAPPED_MAIN
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_scale = 0 ;
+	int clobber = 0 ;
 	int fastq_origin = 33 ;
+	int task_id = 0 ;
+	if( const char *t = getenv( "SGE_TASK_ID" ) ) task_id = atoi( t ) -1 ; 
+	if( const char *t = getenv( "NSLOTS" ) ) { nthreads = atoi( t ) ; nxthreads = (3+nthreads) / 4 ; }
+
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
@@ -183,6 +188,7 @@ WRAPPED_MAIN
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
+		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
 		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
 		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
@@ -211,10 +217,16 @@ WRAPPED_MAIN
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
 	Config conf = get_default_config( config_file ) ;
-	CommonData common_data( conf, output_file ) ; // zos.get() ) ;
+	std::string ofile = expand( output_file, task_id ) ;
+
+	// no-op if output exists and overwriting wasn't asked for
+    if( !clobber && 0 == access( ofile.c_str(), F_OK ) ) return 0 ;
+
+	CommonData common_data( conf, (ofile+".#new#").c_str() ) ;
 
 	deque<string> files ;
-	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
+	while( const char* arg = poptGetArg( pc ) ) files.push_back( expand( arg, task_id ) ) ;
+
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
@@ -268,6 +280,7 @@ WRAPPED_MAIN
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
 	common_data.output_stream.put_footer( ofoot ) ;
+	if( !exit_with ) std::rename( (ofile+".#new#").c_str(), ofile.c_str() ) ;
 	return 0 ;
 }
 

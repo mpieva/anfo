@@ -34,6 +34,26 @@ using namespace config ;
 using namespace output ;
 using namespace std; 
 
+string expand( const string& s, int x )
+{
+    if( s.size() <= 1 ) return s ;
+
+    char u = 'a' + (x%26), v = 'a' + (x/26) ;
+    string r ;
+    int i = 0 ;
+    for( ; i+1 != s.size() ; ++i )
+    {
+        if( s[i] == '%' && s[i+1] == '%' ) {
+            r.push_back( v ) ;
+            r.push_back( u ) ;
+            ++i ;
+        }
+        else r.push_back( s[i] ) ;
+    }
+    r.push_back( s[i] ) ;
+    return r ;
+}
+
 Policy select_policy( const Config &c, const Read &r )
 {
 	Policy p ;

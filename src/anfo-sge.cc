@@ -66,26 +66,6 @@ using namespace google::protobuf::io ;
 
 extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
-string expand( const string& s, int x )
-{
-    if( s.size() <= 1 ) return s ;
-
-    char u = 'a' + (x%26), v = 'a' + (x/26) ;
-    string r ;
-    size_t i = 0 ;
-    for( ; i+1 != s.size() ; ++i )
-    {
-        if( s[i] == '%' && s[i+1] == '%' ) {
-            r.push_back( v ) ;
-            r.push_back( u ) ;
-            ++i ;
-        }
-        else r.push_back( s[i] ) ;
-    }
-    r.push_back( s[i] ) ;
-    return r ;
-}
-
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
@@ -94,6 +74,7 @@ WRAPPED_MAIN
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
 	int solexa_scale = 0 ;
+	int clobber = 0 ;
 	int fastq_origin = 33 ;
     int task_id = 0 ;
 	if( const char *t = getenv( "SGE_TASK_ID" ) ) task_id = atoi( t ) -1 ; 
@@ -105,6 +86,7 @@ WRAPPED_MAIN
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
+		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
 		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -138,6 +120,10 @@ WRAPPED_MAIN
 	if( files.empty() ) files.push_back( "-" ) ; 
 
     std::string of( expand( output_file, task_id ) ) ;
+
+	// no-op if output exists and overwriting wasn't asked for
+    if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
+
     of.append( ".#new#" ) ;
 	streams::ChunkedWriter os( of.c_str(), 25 ) ;
 
