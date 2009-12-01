@@ -162,11 +162,12 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 		g->add_ref() ; // XXX dirty hack
 		setup_alignments( *g, qs, seeds.begin(), seeds.end(), ol ) ;
 	}
-	AlnStats *as = r.mutable_aln_stats() ;
+	AlnStats *as = r.add_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
 	as->set_num_grown_seeds( num_comb ) ;
 	as->set_num_clumps( num_clumps ) ;
+	if( p.has_tag() ) as->set_tag( p.tag() ) ;
 
 	if( !p.has_max_penalty_per_nuc() )
 	{
@@ -192,7 +193,7 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
 
-	AlnStats *as = r.mutable_aln_stats() ;
+	AlnStats *as = r.mutable_aln_stats( r.aln_stats_size()-1 ) ;
 	as->set_open_nodes_after_alignment( o ) ;
 	as->set_closed_nodes_after_alignment( c ) ;
 	as->set_tracked_closed_nodes_after_alignment( tt ) ;

@@ -154,7 +154,7 @@ namespace {
 		}
 
 		{
-			AlnStats &a = *rs.mutable_aln_stats() ;
+			AlnStats &a = *rs.add_aln_stats() ;
 			a.set_reason( o.reason() ) ;
 
 			if( o.has_num_raw_seeds() ) a.set_num_raw_seeds( o.num_raw_seeds() ) ;
@@ -556,27 +556,6 @@ void sanitize( Read& rd )
 	if( rd.trim_left() > l ) rd.clear_trim_left() ;
 }
 
-//! \brief merges aln_stats by adding them up
-void merge_sensibly( AlnStats& lhs, const AlnStats& rhs )
-{
-	// reason: do the sensible thing
-	if( lhs.reason() != aligned && rhs.reason() != no_policy && rhs.reason() != no_seeds )
-	{
-		if( rhs.reason() == aligned ) lhs.clear_reason() ;
-		else if( lhs.reason() == no_seeds || lhs.reason() == no_policy ) lhs.set_reason( rhs.reason() ) ;
-		else if( lhs.reason() == too_many_seeds && rhs.reason() == bad_alignment ) lhs.set_reason( rhs.reason() ) ;
-	}
-
-	// everything else: add it up
-	lhs.set_num_raw_seeds( lhs.num_raw_seeds() + rhs.num_raw_seeds() ) ;
-	lhs.set_num_grown_seeds( lhs.num_grown_seeds() + rhs.num_grown_seeds() ) ;
-	lhs.set_num_clumps( lhs.num_clumps() + rhs.num_clumps() ) ;
-	lhs.set_num_useless( lhs.num_useless() + rhs.num_useless() ) ;
-	lhs.set_open_nodes_after_alignment( lhs.open_nodes_after_alignment() + rhs.open_nodes_after_alignment() ) ;
-	lhs.set_closed_nodes_after_alignment( lhs.closed_nodes_after_alignment() + rhs.closed_nodes_after_alignment() ) ;
-	lhs.set_tracked_closed_nodes_after_alignment( lhs.tracked_closed_nodes_after_alignment() + rhs.tracked_closed_nodes_after_alignment() ) ;
-}
-
 //! \brief merges two hits by keeping the better one
 void merge_sensibly( Hit& lhs, const Hit& rhs )
 {
@@ -627,8 +606,8 @@ next:
 		++j ;
 	}
 
-	// - aln_stats: just add them up, this is for debugging only anyway
-	merge_sensibly( *lhs.mutable_aln_stats(), rhs.aln_stats() ) ; 
+	// - aln_stats: just concat them, this is for debugging only anyway
+	for( int i = 0 ; i != rhs.aln_stats_size() ; ++i ) *lhs.add_aln_stats() = rhs.aln_stats(i) ;
 
 	// - diff_to_next_species, diff_to_next_order: TODO
 }
@@ -714,11 +693,7 @@ bool ScoreFilter::xform( Result& r )
 		++ix_in ;
 	}
 
-	if( !ix_out )
-	{
-		r.mutable_aln_stats()->set_reason( bad_alignment ) ;
-		r.clear_hit() ;
-	}
+	if( !ix_out ) r.clear_hit() ;
 	else while( ix_out != r.hit_size() ) r.mutable_hit()->RemoveLast() ;
 	return true ;
 }
@@ -731,11 +706,7 @@ bool MapqFilter::xform( Result& r ) {
 
 bool LengthFilter::xform( Result& r ) {
 	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
-	if( r.hit_size() && len < minlength_ )
-	{
-		r.clear_hit() ;
-		if( r.has_aln_stats() ) r.mutable_aln_stats()->set_reason( no_policy ) ;
-	}
+	if( r.hit_size() && len < minlength_ ) r.clear_hit() ;
 	return true ;
 }
 

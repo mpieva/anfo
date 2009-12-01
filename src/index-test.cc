@@ -115,15 +115,15 @@ WRAPPED_MAIN
 				}
 			}
 
-			if( r.has_aln_stats() )
+			if( r.aln_stats_size() )
 			{
 				++total_seeded ;
 				cout << setw(27) << r.read().seqid()
 					<< setw(5) << seq_len
-					<< setw(10) << r.aln_stats().num_raw_seeds()
-					<< setw(10) << r.aln_stats().num_useless()
-					<< setw(10) << r.aln_stats().num_grown_seeds()
-					<< setw(10) << r.aln_stats().num_clumps() ;
+					<< setw(10) << r.aln_stats(0).num_raw_seeds()
+					<< setw(10) << r.aln_stats(0).num_useless()
+					<< setw(10) << r.aln_stats(0).num_grown_seeds()
+					<< setw(10) << r.aln_stats(0).num_clumps() ;
 
 				if( simulation )
 				{
