@@ -31,10 +31,12 @@
 #include <deque>
 #include <fstream>
 #include <memory>
+#include <vector>
 
 
 namespace streams {
 	using namespace output ;
+	using namespace std ;
 
 inline uint32_t mk_msg_tag( uint32_t i ) { return i << 3 | 2 ; }
 
@@ -102,17 +104,36 @@ void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 
 //! \brief checks if a genome was hit
 //! If an empty genome is asked for, checks for any hit.
-bool has_hit_to( const output::Result&, const char* ) ;
+bool has_hit_to( const output::Result&, const string& ) ;
+inline bool has_hit_to( const output::Result& r ) { return r.hit_size() > 0 ; }
+inline bool has_hit_to( const output::Result& r, const char* g ) { return g ? has_hit_to( r ) : has_hit_to( r, string(g) ) ; }
+
+template< typename I > bool has_hit_to( const output::Result& r, I begin, I end ) 
+{
+	for( ; begin != end ; ++begin )
+		if( has_hit_to( r, *begin ) ) return true ;
+	return false ;
+}
 
 //! \brief returns the hit to some genome
 //! If an empty genome is asked for, returns the best hit.  Behaviour is
 //! undefined if no suitable hit exists.
-const output::Hit& hit_to( const output::Result&, const char* ) ;
+const output::Hit& hit_to( const output::Result& ) ;
+const output::Hit& hit_to( const output::Result&, const string& ) ;
+inline const output::Hit& hit_to( const output::Result& r, const char* g ) { return g ? hit_to( r ) : hit_to( r, string(g) ) ; }
+
+template< typename I > const output::Hit& hit_to( const output::Result& r, I begin, I end )
+{
+	for( ; begin != end ; ++begin )
+		if( has_hit_to( r, *begin ) ) return hit_to( r, *begin ) ;
+	throw "no suitable hit" ;
+}
 
 //! \brief returns the mutable hit to some genome
 //! If an empty genome is asked for, returns the best hit.  If no
 //! suitable hit exists, a new one is created.
-output::Hit* mutable_hit_to( output::Result*, const char* ) ;
+output::Hit* mutable_hit_to( output::Result* ) ;
+output::Hit* mutable_hit_to( output::Result*, const string& ) ;
 
 //! \brief computes (trimmed) query length from CIGAR line
 template< typename C > unsigned len_from_bin_cigar( const C& cig )
@@ -567,7 +588,7 @@ class RmdupStream : public Stream
 		std::vector< Logdom > quals_[4] ;
 		double slope_ ;
 		double intercept_ ;
-		const char *g_ ;
+		vector<string> gs_ ;
 		int maxq_ ;
 
 		// XXX double err_prob_[4][4] ; // get this from config or
@@ -578,13 +599,13 @@ class RmdupStream : public Stream
 		void call_consensus() ;
 
 	public:
-		RmdupStream( double s, double i, int maxq ) : slope_(s), intercept_(i), g_(0), maxq_( std::min(maxq,127) ) {}
-		virtual ~RmdupStream() { free( const_cast<char*>(g_) ) ; }
+		RmdupStream( double s, double i, int maxq ) : slope_(s), intercept_(i), maxq_( std::min(maxq,127) ) {}
 
 		virtual void put_header( const Header& h )
 		{
-			if( !h.has_is_sorted_by_coordinate() ) throw "RmdupStream: need sorted stream to remove duplicates" ;
-			g_ = h.is_sorted_by_coordinate().empty() ? 0 : strdup( h.is_sorted_by_coordinate().c_str() ) ;
+			if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+				throw "RmdupStream: need sorted stream to remove duplicates" ;
+			gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
 			Stream::put_header( h ) ;
 		}
 

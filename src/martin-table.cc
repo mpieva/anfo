@@ -303,7 +303,7 @@ struct GetPt2Rec {
 } ;
 
 template< typename T >
-void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T get )
+void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, T get )
 {
 	Chan progress ;
 	int k = 0 ;

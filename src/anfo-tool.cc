@@ -96,16 +96,36 @@ int parse_int( const char* a, int d )
 	throw "expected integer, but found \"" + string(a) + "\"" ;
 }
 
+vector<string> split_string( string s )
+{
+	if( s.empty() ) return vector<string>() ;
+	vector<string> t ;
+
+	for( string::size_type r, l = 0 ; ; l = r+1 )
+	{
+		r = s.find( ':', l ) ;
+		t.push_back( s.substr( l, r-l ) ) ;
+		if( r == string::npos ) break ;
+	}
+	return t ;
+}
+
 bool is_stdout( const char* a ) { return !a || 0 == strcmp( a, "-" ) ; }
 const char* parse_fn( const char* a ) { return is_stdout( a ) ? "<stdout>" : a ; }
 
 Stream* mk_sort_by_pos( const ParamBlock& p )
-{ return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ) * 1024 * 1024, 256, by_genome_coordinate(p.genome) ) ; }
+{ return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ) * 1024 * 1024, 256,
+		by_genome_coordinate( split_string( p.genome ? p.genome : "" ) ) ) ; }
 
 void desc_sort_by_pos( ostream& ss, const ParamBlock& p )
 { 
-	ss << "sort by position on " << ( p.genome ? p.genome : "any genome") 
-	   << ", using " << + parse_int( p.arg, 1024 ) <<  " MB" ;
+	ss << "sort by position on genomes [" ;
+	vector<string> gs = split_string( p.genome ? p.genome : "" ) ;
+	if( !gs.empty() ) { 
+		copy( gs.begin(), gs.end()-1, ostream_iterator<string>( ss, ", " ) ) ;
+		ss << gs.back() ;
+	}
+	ss << "], using " << + parse_int( p.arg, 1024 ) <<  " MB" ;
 }
 
 Stream* mk_sort_by_name( const ParamBlock& p )
@@ -293,7 +313,7 @@ void desc_output_table( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_duct_tape( const ParamBlock& p )
-{ return new DuctTaper( p.genome, p.arg ? p.arg : "contig" ) ; }
+{ return new DuctTaper( p.arg ? p.arg : "contig" ) ; }
 
 void desc_duct_tape( ostream& ss, const ParamBlock& p )
 { 

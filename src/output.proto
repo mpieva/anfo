@@ -48,14 +48,15 @@ message Header {
     // (useful to merge files?)
     optional bool is_sorted_by_name = 15 [default=false] ;
 
-    // indicates whether an output file is sorted by genome coordinate,
-    // and if so, which genome was used (that is target sequence name,
-    // then earliest matching position, then alignment length; needed
-    // for consensus calling and merging)
-    optional string is_sorted_by_coordinate = 13 ;
+	// indicates whether an output file is sorted by genome coordinate,
+	// and if so, which genomes were used in what order (that is target
+	// sequence name, then earliest matching position, then alignment
+	// length; needed for consensus calling and merging)
+    repeated string is_sorted_by_coordinate = 13 ;
 
     // old way to encode sorting, don't use
     optional bool was_sorted_by_coordinate = 14 [default=false] ;
+	optional bool is_sorted_by_all_genomes = 12 [default=false] ;
 }
 
 // XXX: a few easily accessible statistics could be included here,

@@ -16,18 +16,42 @@ namespace streams {
 //! isn't done, we sort on the best hit and compare the genome name even
 //! before the subject name.
 struct by_genome_coordinate {
-	const char *g_ ;
-	by_genome_coordinate( const char *g ) : g_(g) {}
+	vector<string> gs_ ;
+
+	by_genome_coordinate( const string &g ) : gs_() { gs_.push_back( g ) ; }
+	by_genome_coordinate( const vector<string> &gs ) : gs_(gs) {}
 
 	bool operator() ( const Result *a, const Result *b ) {
-		if( has_hit_to( *a, g_ ) && !has_hit_to( *b, g_ ) ) return true ;
-		if( !has_hit_to( *a, g_ ) ) return false ;
-
-		const Hit& u = hit_to( *a, g_ ), v = hit_to( *b, g_ ) ;
-		if( !g_ ) {
-			if( u.genome_name() < v.genome_name() ) return true ;
-			if( v.genome_name() < u.genome_name() ) return false ;
+		if( gs_.empty() ) return compare( *a, *b ) ;
+		for( vector<string>::const_iterator i = gs_.begin(), e = gs_.end() ; i != e ; ++i )
+		{
+			if( compare( *a, *b, *i ) ) return true ;
+			if( compare( *b, *a, *i ) ) return false ;
 		}
+		return false ;
+	}
+
+	bool compare( const Result &a, const Result &b )
+	{
+		if( has_hit_to( a ) && !has_hit_to( b ) ) return true ;
+		if( !has_hit_to( a ) ) return false ;
+
+		const Hit& u = hit_to( a ), v = hit_to( b ) ;
+		if( u.genome_name() < v.genome_name() ) return true ;
+		if( v.genome_name() < u.genome_name() ) return false ;
+		if( u.sequence() < v.sequence() ) return true ;
+		if( v.sequence() < u.sequence() ) return false ;
+		if( u.start_pos() < v.start_pos() ) return true ;
+		if( v.start_pos() < u.start_pos() ) return false ;
+		return u.aln_length() < v.aln_length() ;
+	}
+
+	bool compare( const Result &a, const Result &b, const string& g )
+	{
+		if( has_hit_to( a, g ) && !has_hit_to( b, g ) ) return true ;
+		if( !has_hit_to( a, g ) ) return false ;
+
+		const Hit& u = hit_to( a, g ), v = hit_to( b, g ) ;
 		if( u.sequence() < v.sequence() ) return true ;
 		if( v.sequence() < u.sequence() ) return false ;
 		if( u.start_pos() < v.start_pos() ) return true ;
@@ -37,13 +61,24 @@ struct by_genome_coordinate {
 
 	void tag_header( output::Header& h ) {
 		h.clear_is_sorted_by_name() ;
-		h.set_is_sorted_by_coordinate( g_ ? g_ : "" ) ;
+		if( gs_.empty() ) {
+			h.clear_is_sorted_by_coordinate() ;
+			h.set_is_sorted_by_all_genomes( true ) ;
+		}
+		else
+		{
+			h.clear_is_sorted_by_all_genomes() ;
+			for( vector<string>::const_iterator i = gs_.begin(), e = gs_.end() ; i != e ; ++i )
+				h.add_is_sorted_by_coordinate( *i ) ;
+		}
 	}
 
     bool is_sorted( const output::Header& h ) {
-        return h.has_is_sorted_by_coordinate() 
-            && (!g_ || h.is_sorted_by_coordinate() == g_) ;
-    }
+		if( gs_.empty() ) return h.is_sorted_by_all_genomes() ;
+		
+		if( (int)gs_.size() != h.is_sorted_by_coordinate_size() ) return false ;
+		return equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) ;
+	}
 } ;
 
 struct by_seqid {
@@ -69,11 +104,10 @@ class MergeStream : public StreamBundle
 	private:
 		deque< Result > rs_ ;
 		enum { unknown, by_name, by_coordinate } mode_ ;
-		const char *g_ ;
+		vector<string> gs_ ;
 
 	public:
-		MergeStream() : mode_( unknown ), g_(0) {}
-		virtual ~MergeStream() { free( const_cast<char*>( g_ ) ) ; }
+		MergeStream() : mode_( unknown ) {}
 
 		virtual void add_stream( StreamHolder s )
 		{
@@ -86,12 +120,21 @@ class MergeStream : public StreamBundle
 				else if( mode_ != by_name ) 
 					throw "MergeStream: inconsistent sorting of input" ;
 			}
-			else if( h.has_is_sorted_by_coordinate() ) {
+			else if( h.is_sorted_by_all_genomes() ) {
 				if( mode_ == unknown ) {
 					mode_ = by_coordinate ;
-					g_ = strdup( h.is_sorted_by_coordinate().c_str() ) ;
+					gs_.clear() ;
 				}
-				else if( mode_ != by_coordinate || g_ != h.is_sorted_by_coordinate() )
+				else if( mode_ != by_coordinate || !gs_.empty() )
+					throw "MergeStream: inconsistent sorting of input" ;
+			}
+			else if( h.is_sorted_by_coordinate_size() ) {
+				if( mode_ == unknown ) {
+					mode_ = by_coordinate ;
+					gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
+				}
+				else if( mode_ != by_coordinate || (int)gs_.size() != h.is_sorted_by_coordinate_size()
+						|| !equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) )
 					throw "MergeStream: inconsistent sorting of input" ;
 			}
 
@@ -496,7 +539,7 @@ class RegionFilter : public Filter
 		//! annotations.  Deal with it.
 		bool inside( const Result& res )
 		{
-			const Hit &h = hit_to( res, 0 ) ;
+			const Hit &h = hit_to( res ) ;
 			unsigned x = h.start_pos() ;
 			const Regions &r = (*my_regions)[ h.sequence() ] ;
 			Regions::const_iterator i = r.lower_bound( x ) ;

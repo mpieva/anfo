@@ -105,7 +105,6 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_is_stream, "anfo-stream?", 1, 1, EVAL ) ;
 	Define_Primitive( (P)p_set_verbosity, "set-verbosity", 1, 1, EVAL ) ;
 	Define_Primitive( (P)p_use_mmap, "use-mmap", 1, 1, EVAL ) ;
-
 }
 
 } // extern C

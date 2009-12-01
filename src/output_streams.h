@@ -100,9 +100,8 @@ class SamWriter : public Stream
 		{
 			Stream::put_header( h ) ;
 			out_ << "@HD\tVN:1.0" ;
-			if( h.has_is_sorted_by_coordinate() && (
-						(!g_ && h.is_sorted_by_coordinate().empty())
-						|| h.is_sorted_by_coordinate() == g_ ) )
+			if( (h.has_is_sorted_by_all_genomes() && !g_) ||
+					(h.is_sorted_by_coordinate_size() == 1 && h.is_sorted_by_coordinate(0) == g_) )
 				out_ << "\tSO:coordinate" ;
 			else if( h.is_sorted_by_name() ) out_ << "\tSO:queryname" ;
 			out_ << "\n@PG\tID:ANFO\tVN:" << h.version() << '\n' ;

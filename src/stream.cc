@@ -28,8 +28,8 @@ extern "C" {
 
 #include <google/protobuf/repeated_field.h>
 
+#include <algorithm>
 #include <set>
-#include <iostream>
 
 #if HAVE_FCNTL_H
 #include <fcntl.h>
@@ -329,9 +329,12 @@ void ChunkedWriter::put_footer( const Footer& f )
 	write_delimited_message( aos_.get(), 3, f ) ;
 	flush_buffer() ;
 	CodedOutputStream cos( zos_.get() ) ;
-	std::cerr << "footer chunk starts at " << footer_start << std::endl ;
 	cos.WriteLittleEndian64( footer_start ) ;
 	Stream::put_footer( f ) ;
+
+	stringstream ss ;
+	ss << name_ << ": footer chunk starts at " << footer_start ;
+	console.output( Console::notice, ss.str() ) ;
 }
 
 void ChunkedWriter::put_result( const Result& r )
@@ -366,9 +369,6 @@ bool ChunkedReader::get_next_chunk()
 
 	int m = comp_size >> 28 ;
 	comp_size &= ~(~0 << 28) ;
-
-	std::cerr << "found chunk of " << comp_size << " bytes, originally " << uncomp_size << ", method " 
-		<< (m == ChunkedWriter::none ? "none" : m == ChunkedWriter::fastlz ? "fastlz" : m == ChunkedWriter::gzip ? "gzip" : m ==ChunkedWriter::bzip ? "bzip" : "unknown" ) << std::endl ;
 
 	vector< char > tmp ;
 	buf_.resize( uncomp_size ) ;
@@ -497,12 +497,19 @@ void merge_sensibly( Header& lhs, const Header& rhs )
 		bool no_task_id = !lhs.has_sge_task_id() || (rhs.has_sge_task_id() && lhs.sge_task_id() != rhs.sge_task_id()) ;
 		bool no_job_id = !lhs.has_sge_job_id() || (rhs.has_sge_job_id() && lhs.sge_job_id() != rhs.sge_job_id()) ;
 
-		bool keep_sort = lhs.is_sorted_by_name() == rhs.is_sorted_by_name() && lhs.has_is_sorted_by_coordinate() == rhs.has_is_sorted_by_coordinate() && (!lhs.has_is_sorted_by_coordinate() || lhs.is_sorted_by_coordinate() == rhs.is_sorted_by_coordinate() ) ;
+		bool keep_sort = lhs.is_sorted_by_name() == rhs.is_sorted_by_name() &&
+			lhs.has_is_sorted_by_all_genomes() == rhs.has_is_sorted_by_all_genomes() &&
+			lhs.is_sorted_by_coordinate_size() == rhs.is_sorted_by_coordinate_size() &&
+			equal( lhs.is_sorted_by_coordinate().begin(), lhs.is_sorted_by_coordinate().end(), rhs.is_sorted_by_coordinate().begin() ) ;
 
 		lhs.MergeFrom( rhs ) ;
 		if( no_task_id ) lhs.clear_sge_task_id() ;
 		if( no_job_id ) lhs.clear_sge_job_id() ;
-		if( !keep_sort ) { lhs.clear_is_sorted_by_name() ; lhs.clear_is_sorted_by_coordinate() ; }
+		if( !keep_sort ) {
+			lhs.clear_is_sorted_by_name() ;
+			lhs.clear_is_sorted_by_coordinate() ;
+			lhs.clear_is_sorted_by_all_genomes() ;
+		}
 	}
 	sanitize( lhs ) ;
 }
@@ -526,6 +533,11 @@ void sanitize( Header& hdr )
 		}
 	}
 	hdr.clear_was_sorted_by_coordinate() ;
+	if( hdr.is_sorted_by_coordinate_size() == 1 && hdr.is_sorted_by_coordinate(0) == "" )
+	{
+		hdr.clear_is_sorted_by_coordinate() ;
+		hdr.set_is_sorted_by_all_genomes( true ) ;
+	}
 }
 
 
@@ -631,10 +643,8 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 	lhs.set_exit_code( exit_code ) ;
 }
 
-bool has_hit_to( const output::Result& r, const char* g )
+bool has_hit_to( const output::Result& r, const string& g )
 {
-	if( !g ) return r.hit_size() > 0 ;
-
 	for( int i = 0 ; i != r.hit_size() ; ++i )
 		if( r.hit(i).genome_name() == g )
 			return true ;
@@ -642,42 +652,47 @@ bool has_hit_to( const output::Result& r, const char* g )
 	return false ;
 }
 
-const output::Hit& hit_to( const output::Result& r, const char* g )
+const output::Hit& hit_to( const output::Result& r )
 {
-	if( !g ) {
-		if( r.hit_size() ) {
-			const output::Hit *h = &r.hit(0) ;
-			for( int i = 1 ; i != r.hit_size() ; ++i )
-				if( r.hit(i).score() < h->score() )
-					h = &r.hit(i) ; 
-			return *h ;
-		}
+	if( r.hit_size() ) {
+		const output::Hit *h = &r.hit(0) ;
+		for( int i = 1 ; i != r.hit_size() ; ++i )
+			if( r.hit(i).score() < h->score() )
+				h = &r.hit(i) ; 
+		return *h ;
 	}
-	else 
-		for( int i = 0 ; i != r.hit_size() ; ++i )
-			if( r.hit(i).genome_name() == g )
-				return r.hit(i) ;
 	throw "hit_to: no suitable hit" ;
 }
 
-output::Hit* mutable_hit_to( output::Result* r, const char* g )
+const output::Hit& hit_to( const output::Result& r, const string& g )
 {
-	if( !g ) {
-		if( r->hit_size() ) {
-			output::Hit *h = r->mutable_hit(0) ;
-			for( int i = 1 ; i != r->hit_size() ; ++i )
-				if( r->hit(i).score() < h->score() )
-					h = r->mutable_hit(i) ; 
-			return h ;
-		}
+	for( int i = 0 ; i != r.hit_size() ; ++i )
+		if( r.hit(i).genome_name() == g )
+			return r.hit(i) ;
+	throw "hit_to: no suitable hit" ;
+}
+
+output::Hit* mutable_hit_to( output::Result* r )
+{
+	if( r->hit_size() ) {
+		output::Hit *h = r->mutable_hit(0) ;
+		for( int i = 1 ; i != r->hit_size() ; ++i )
+			if( r->hit(i).score() < h->score() )
+				h = r->mutable_hit(i) ; 
+		return h ;
 	}
-	else
-		for( int i = 0 ; i != r->hit_size() ; ++i )
-			if( r->hit(i).genome_name() == g )
-				return r->mutable_hit(i) ;
+
+	return r->add_hit() ;
+}
+	
+output::Hit* mutable_hit_to( output::Result* r, const string& g )
+{
+	for( int i = 0 ; i != r->hit_size() ; ++i )
+		if( r->hit(i).genome_name() == g )
+			return r->mutable_hit(i) ;
 
 	Hit *h = r->add_hit() ;
-	if( g ) h->set_genome_name( g ) ;
+	h->set_genome_name( g ) ;
 	return h ;
 }
 
@@ -739,11 +754,11 @@ bool Subsample::xform( Result& )
 
 bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) 
 {
-	if( !has_hit_to( lhs, g_ ) || !has_hit_to( rhs, g_ )
-			|| lhs.read().sequence().size() != rhs.read().sequence().size() )
+	if( lhs.read().sequence().size() != rhs.read().sequence().size() 
+			|| !has_hit_to( lhs, gs_.begin(), gs_.end() ) || !has_hit_to( rhs, gs_.begin(), gs_.end() ) )
 		return false ;
 
-	const output::Hit &l = hit_to( lhs, g_ ), &r = hit_to( rhs, g_ ) ;
+	const output::Hit &l = hit_to( lhs, gs_.begin(), gs_.end() ), &r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
 
 	return l.genome_name() == r.genome_name() && l.sequence() == r.sequence()
 		&& l.start_pos() == r.start_pos() && l.aln_length() == r.aln_length() ;
@@ -833,8 +848,8 @@ void RmdupStream::put_footer( const Footer& f ) {
 
 void RmdupStream::put_result( const Result& next ) 
 {
-	if( !has_hit_to( next, g_ ) || hit_to( next, g_ ).score() >
-			slope_ * ( len_from_bin_cigar( hit_to( next, g_ ).cigar() ) - intercept_ ) )
+	if( !has_hit_to( next, gs_.begin(), gs_.end() ) || hit_to( next, gs_.begin(), gs_.end() ).score() >
+			slope_ * ( len_from_bin_cigar( hit_to( next, gs_.begin(), gs_.end() ).cigar() ) - intercept_ ) )
 	{
 		// bad alignment -- this one passes through without merging
 		// we clamp qualities, though

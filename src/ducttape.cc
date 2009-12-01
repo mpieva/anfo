@@ -33,8 +33,7 @@ namespace streams {
 
 void DuctTaper::put_header( const Header& h ) 
 {
-	if( !h.has_is_sorted_by_coordinate() || 
-			h.is_sorted_by_coordinate() != (g_?g_:"") )
+	if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
 		throw "need sorted input for duct taping" ;
 
 	hdr_ = h ;
@@ -259,8 +258,8 @@ class AlnIter
 
 void DuctTaper::put_result( const Result& r )
 {
-	if( !has_hit_to( r, g_ ) ) return ;
-	const Hit& h = hit_to( r, g_ ) ;
+	if( !has_hit_to( r ) ) return ;
+	const Hit& h = hit_to( r ) ;
 
 	Logdom rate_ss = Logdom::from_float( hdr_.config().aligner().rate_of_ss_deamination() ), 
 		   rate_ds = Logdom::from_float( hdr_.config().aligner().rate_of_ds_deamination() ) ; 
@@ -439,8 +438,8 @@ void GlzWriter::put_result( const Result& rr )
 	static uint8_t dna_to_glf_base[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
 
 	const Read& r = rr.read() ;
-	if( r.likelihoods_size() == 10 && has_hit_to( rr, 0 ) ) {
-		const Hit& h = hit_to( rr, 0 ) ;
+	if( r.likelihoods_size() == 10 && has_hit_to( rr ) ) {
+		const Hit& h = hit_to( rr ) ;
 
 		chan_( Console::info, r.seqid() ) ;
 		google::protobuf::io::CodedOutputStream c( &gos_ ) ;
@@ -524,7 +523,7 @@ void GlzWriter::put_result( const Result& rr )
 void ThreeAlnWriter::put_result( const Result& res )
 {
 	const Read& r = res.read() ;
-	const Hit& h = hit_to( res, 0 ) ;
+	const Hit& h = hit_to( res ) ;
 	GenomeHolder genome = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
 	DnaP ref = genome->find_pos( h.sequence(), h.start_pos() ) ;
 

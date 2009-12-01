@@ -21,7 +21,7 @@ Result MergeStream::fetch_result()
 {
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
-		if( ( mode_ == by_coordinate && by_genome_coordinate( *g_ ? g_ : 0 )( &rs_[ i ], &rs_[ min_idx ] ) )
+		if( ( mode_ == by_coordinate && by_genome_coordinate( gs_ )( &rs_[ i ], &rs_[ min_idx ] ) )
 				|| ( mode_ == by_name && by_seqid()( &rs_[ i ], &rs_[ min_idx ] ) ) )
 			min_idx = i ;
 
