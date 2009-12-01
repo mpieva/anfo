@@ -322,7 +322,7 @@ const char *poptGetOptArg1( poptContext con )
 	return p ;
 }
 
-int main_( int argc, const char **argv )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum {

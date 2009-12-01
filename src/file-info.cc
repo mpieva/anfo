@@ -32,7 +32,7 @@
 #include <fstream>
 #include <iostream>
 
-int main_( int argc, const char**argv )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	for( int argi = 1 ; argi != argc ; ++argi )

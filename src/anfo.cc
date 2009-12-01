@@ -165,7 +165,7 @@ void* run_worker_thread( void* cd_ )
 //!
 //! \todo Actually implement search for multiple alignments in its full generality...
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version } ;

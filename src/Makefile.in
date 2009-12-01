@@ -38,12 +38,10 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = fa2dna$(EXEEXT) dnaindex$(EXEEXT) anfo-sge$(EXEEXT) \
-	anfo-tool$(EXEEXT) file-info$(EXEEXT) anfo-elk$(EXEEXT) \
-	$(am__EXEEXT_1)
+	anfo-tool$(EXEEXT) file-info$(EXEEXT) $(am__EXEEXT_1)
 libexec_PROGRAMS = index-test$(EXEEXT) martin-table$(EXEEXT)
 EXTRA_PROGRAMS = anfo$(EXEEXT)
 @PTHREADS_TRUE@am__append_1 = anfo
-@GUILE_TRUE@am__append_2 = anfo_guile.cc
 subdir = src
 DIST_COMMON = $(dist_noinst_DATA) $(dist_pkgdata_DATA) \
 	$(pkginclude_HEADERS) $(srcdir)/Makefile.am \
@@ -79,18 +77,13 @@ am__base_list = \
   sed '$$!N;$$!N;$$!N;$$!N;s/\n/ /g'
 am__installdirs = "$(DESTDIR)$(libdir)" "$(DESTDIR)$(bindir)" \
 	"$(DESTDIR)$(libexecdir)" "$(DESTDIR)$(pkgdatadir)" \
-	"$(DESTDIR)$(schemedir)" "$(DESTDIR)$(pkgincludedir)"
+	"$(DESTDIR)$(pkgincludedir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
-libanfo_la_DEPENDENCIES =
-am__libanfo_la_SOURCES_DIST = config.pb.h output.pb.h judy++.h \
-	fastlz.h align.cc anfo_common.cc config.pb.cc ducttape.cc \
-	index.cc misc_streams.cc output.pb.cc output_streams.cc \
-	sequence.cc stream.cc util.cc fastlz.c anfo_guile.cc
-@GUILE_TRUE@am__objects_1 = anfo_guile.lo
+libanfo_la_LIBADD =
 am_libanfo_la_OBJECTS = align.lo anfo_common.lo config.pb.lo \
 	ducttape.lo index.lo misc_streams.lo output.pb.lo \
 	output_streams.lo sequence.lo stream.lo util.lo fastlz.lo \
-	$(am__objects_1)
+	anfo-elk.lo
 libanfo_la_OBJECTS = $(am_libanfo_la_OBJECTS)
 libanfo_la_LINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) \
 	$(LIBTOOLFLAGS) --mode=link $(CXXLD) $(AM_CXXFLAGS) \
@@ -101,9 +94,6 @@ am_anfo_OBJECTS = anfo.$(OBJEXT)
 anfo_OBJECTS = $(am_anfo_OBJECTS)
 anfo_LDADD = $(LDADD)
 anfo_DEPENDENCIES = libanfo.la
-anfo_elk_SOURCES = anfo-elk.c
-anfo_elk_OBJECTS = anfo-elk.$(OBJEXT)
-anfo_elk_DEPENDENCIES = $(LDADD)
 am_anfo_sge_OBJECTS = anfo-sge.$(OBJEXT)
 anfo_sge_OBJECTS = $(am_anfo_sge_OBJECTS)
 anfo_sge_LDADD = $(LDADD)
@@ -154,15 +144,15 @@ CXXLD = $(CXX)
 CXXLINK = $(LIBTOOL) --tag=CXX $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CXXLD) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-SOURCES = $(libanfo_la_SOURCES) $(anfo_SOURCES) anfo-elk.c \
+SOURCES = $(libanfo_la_SOURCES) $(anfo_SOURCES) $(anfo_sge_SOURCES) \
+	$(anfo_tool_SOURCES) $(dnaindex_SOURCES) $(fa2dna_SOURCES) \
+	$(file_info_SOURCES) $(index_test_SOURCES) \
+	$(martin_table_SOURCES)
+DIST_SOURCES = $(libanfo_la_SOURCES) $(anfo_SOURCES) \
 	$(anfo_sge_SOURCES) $(anfo_tool_SOURCES) $(dnaindex_SOURCES) \
 	$(fa2dna_SOURCES) $(file_info_SOURCES) $(index_test_SOURCES) \
 	$(martin_table_SOURCES)
-DIST_SOURCES = $(am__libanfo_la_SOURCES_DIST) $(anfo_SOURCES) \
-	anfo-elk.c $(anfo_sge_SOURCES) $(anfo_tool_SOURCES) \
-	$(dnaindex_SOURCES) $(fa2dna_SOURCES) $(file_info_SOURCES) \
-	$(index_test_SOURCES) $(martin_table_SOURCES)
-DATA = $(dist_noinst_DATA) $(dist_pkgdata_DATA) $(scheme_DATA)
+DATA = $(dist_noinst_DATA) $(dist_pkgdata_DATA)
 HEADERS = $(pkginclude_HEADERS)
 ETAGS = etags
 CTAGS = ctags
@@ -195,7 +185,6 @@ EGREP = @EGREP@
 EXEEXT = @EXEEXT@
 FGREP = @FGREP@
 GREP = @GREP@
-GUILE_CONFIG = @GUILE_CONFIG@
 INSTALL = @INSTALL@
 INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
@@ -292,18 +281,18 @@ pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 			 ducttape.h index.h logdom.h misc_streams.h output_streams.h \
 		     sequence.h stream.h trim.h util.h 
 
+
+#  schemedir = $(GUILE_SITE)
+#  scheme_DATA = anfo.scm
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
-AM_CXXFLAGS = $(GUILE_CFLAGS)
-LDADD = libanfo.la
+LDADD = libanfo.la -lelk
 libanfo_la_LDFLAGS = -version-info 0:0:0
-libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h fastlz.h \
-	align.cc anfo_common.cc config.pb.cc ducttape.cc index.cc \
-	misc_streams.cc output.pb.cc output_streams.cc sequence.cc \
-	stream.cc util.cc fastlz.c $(am__append_2)
-@GUILE_TRUE@libanfo_la_LIBADD = $(GUILE_LDFLAGS)
-@GUILE_TRUE@schemedir = $(GUILE_SITE)
-@GUILE_TRUE@scheme_DATA = anfo.scm
+libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h   fastlz.h \
+		     align.cc anfo_common.cc config.pb.cc ducttape.cc \
+			 index.cc misc_streams.cc output.pb.cc output_streams.cc \
+			 sequence.cc stream.cc util.cc   fastlz.c anfo-elk.cc
+
 anfo_SOURCES = anfo.cc queue.h 
 anfo_sge_SOURCES = anfo-sge.cc 
 anfo_tool_SOURCES = anfo-tool.cc
@@ -312,8 +301,6 @@ fa2dna_SOURCES = fa2dna.cc
 file_info_SOURCES = file-info.cc
 index_test_SOURCES = index-test.cc
 martin_table_SOURCES = martin-table.cc 
-anfo_elk_SOURCE = anfo-elk.cc
-anfo_elk_LDADD = $(LDADD) -lelk
 all: $(BUILT_SOURCES)
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -471,9 +458,6 @@ clean-libexecPROGRAMS:
 anfo$(EXEEXT): $(anfo_OBJECTS) $(anfo_DEPENDENCIES) 
 	@rm -f anfo$(EXEEXT)
 	$(CXXLINK) $(anfo_OBJECTS) $(anfo_LDADD) $(LIBS)
-anfo-elk$(EXEEXT): $(anfo_elk_OBJECTS) $(anfo_elk_DEPENDENCIES) 
-	@rm -f anfo-elk$(EXEEXT)
-	$(LINK) $(anfo_elk_OBJECTS) $(anfo_elk_LDADD) $(LIBS)
 anfo-sge$(EXEEXT): $(anfo_sge_OBJECTS) $(anfo_sge_DEPENDENCIES) 
 	@rm -f anfo-sge$(EXEEXT)
 	$(CXXLINK) $(anfo_sge_OBJECTS) $(anfo_sge_LDADD) $(LIBS)
@@ -503,12 +487,11 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/align.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-elk.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-elk.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-sge.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo-tool.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_common.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/anfo_guile.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/config.pb.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dnaindex.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ducttape.Plo@am__quote@
@@ -592,26 +575,6 @@ uninstall-dist_pkgdataDATA:
 	test -n "$$files" || exit 0; \
 	echo " ( cd '$(DESTDIR)$(pkgdatadir)' && rm -f" $$files ")"; \
 	cd "$(DESTDIR)$(pkgdatadir)" && rm -f $$files
-install-schemeDATA: $(scheme_DATA)
-	@$(NORMAL_INSTALL)
-	test -z "$(schemedir)" || $(MKDIR_P) "$(DESTDIR)$(schemedir)"
-	@list='$(scheme_DATA)'; test -n "$(schemedir)" || list=; \
-	for p in $$list; do \
-	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
-	  echo "$$d$$p"; \
-	done | $(am__base_list) | \
-	while read files; do \
-	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(schemedir)'"; \
-	  $(INSTALL_DATA) $$files "$(DESTDIR)$(schemedir)" || exit $$?; \
-	done
-
-uninstall-schemeDATA:
-	@$(NORMAL_UNINSTALL)
-	@list='$(scheme_DATA)'; test -n "$(schemedir)" || list=; \
-	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
-	test -n "$$files" || exit 0; \
-	echo " ( cd '$(DESTDIR)$(schemedir)' && rm -f" $$files ")"; \
-	cd "$(DESTDIR)$(schemedir)" && rm -f $$files
 install-pkgincludeHEADERS: $(pkginclude_HEADERS)
 	@$(NORMAL_INSTALL)
 	test -z "$(pkgincludedir)" || $(MKDIR_P) "$(DESTDIR)$(pkgincludedir)"
@@ -722,7 +685,7 @@ all-am: Makefile $(LTLIBRARIES) $(PROGRAMS) $(DATA) $(HEADERS)
 install-binPROGRAMS: install-libLTLIBRARIES
 
 installdirs:
-	for dir in "$(DESTDIR)$(libdir)" "$(DESTDIR)$(bindir)" "$(DESTDIR)$(libexecdir)" "$(DESTDIR)$(pkgdatadir)" "$(DESTDIR)$(schemedir)" "$(DESTDIR)$(pkgincludedir)"; do \
+	for dir in "$(DESTDIR)$(libdir)" "$(DESTDIR)$(bindir)" "$(DESTDIR)$(libexecdir)" "$(DESTDIR)$(pkgdatadir)" "$(DESTDIR)$(pkgincludedir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: $(BUILT_SOURCES)
@@ -776,8 +739,7 @@ info: info-am
 
 info-am:
 
-install-data-am: install-dist_pkgdataDATA install-pkgincludeHEADERS \
-	install-schemeDATA
+install-data-am: install-dist_pkgdataDATA install-pkgincludeHEADERS
 
 install-dvi: install-dvi-am
 
@@ -826,7 +788,7 @@ ps-am:
 
 uninstall-am: uninstall-binPROGRAMS uninstall-dist_pkgdataDATA \
 	uninstall-libLTLIBRARIES uninstall-libexecPROGRAMS \
-	uninstall-pkgincludeHEADERS uninstall-schemeDATA
+	uninstall-pkgincludeHEADERS
 
 .MAKE: all check install install-am install-strip
 
@@ -841,13 +803,13 @@ uninstall-am: uninstall-binPROGRAMS uninstall-dist_pkgdataDATA \
 	install-info install-info-am install-libLTLIBRARIES \
 	install-libexecPROGRAMS install-man install-pdf install-pdf-am \
 	install-pkgincludeHEADERS install-ps install-ps-am \
-	install-schemeDATA install-strip installcheck installcheck-am \
-	installdirs maintainer-clean maintainer-clean-generic \
-	mostlyclean mostlyclean-compile mostlyclean-generic \
-	mostlyclean-libtool pdf pdf-am ps ps-am tags uninstall \
-	uninstall-am uninstall-binPROGRAMS uninstall-dist_pkgdataDATA \
+	install-strip installcheck installcheck-am installdirs \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
+	pdf pdf-am ps ps-am tags uninstall uninstall-am \
+	uninstall-binPROGRAMS uninstall-dist_pkgdataDATA \
 	uninstall-libLTLIBRARIES uninstall-libexecPROGRAMS \
-	uninstall-pkgincludeHEADERS uninstall-schemeDATA
+	uninstall-pkgincludeHEADERS
 
 
 config.pb.cc: config.proto

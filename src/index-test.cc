@@ -44,7 +44,7 @@ using namespace std ;
 using namespace google::protobuf::io ;
 
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version, opt_quiet } ;

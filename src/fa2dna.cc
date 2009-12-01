@@ -319,7 +319,7 @@ std::string drop_suffix( const std::string& suf, const std::string& s )
 	else return s ;
 }
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version } ;

@@ -86,7 +86,7 @@ string expand( const string& s, int x )
     return r ;
 }
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version } ;

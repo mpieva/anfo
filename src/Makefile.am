@@ -1,4 +1,4 @@
-bin_PROGRAMS =  fa2dna  dnaindex  anfo-sge  anfo-tool  file-info  anfo-elk
+bin_PROGRAMS =  fa2dna  dnaindex  anfo-sge  anfo-tool  file-info
 libexec_PROGRAMS =  index-test  martin-table
 EXTRA_PROGRAMS =  anfo
 lib_LTLIBRARIES = libanfo.la
@@ -12,27 +12,20 @@ if PTHREADS
   bin_PROGRAMS += anfo
 endif
 
+#  schemedir = $(GUILE_SITE)
+#  scheme_DATA = anfo.scm
+
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 
-AM_CXXFLAGS = $(GUILE_CFLAGS)
-LDADD = libanfo.la
+LDADD = libanfo.la -lelk
 
 libanfo_la_LDFLAGS = -version-info 0:0:0
 
 libanfo_la_SOURCES = config.pb.h output.pb.h judy++.h   fastlz.h \
 		     align.cc anfo_common.cc config.pb.cc ducttape.cc \
 			 index.cc misc_streams.cc output.pb.cc output_streams.cc \
-			 sequence.cc stream.cc util.cc   fastlz.c 
-
-if GUILE
-  libanfo_la_SOURCES += anfo_guile.cc
-  libanfo_la_LIBADD = $(GUILE_LDFLAGS)
-
-  schemedir = $(GUILE_SITE)
-  scheme_DATA = anfo.scm
-endif
-
+			 sequence.cc stream.cc util.cc   fastlz.c anfo-elk.cc
 
 anfo_SOURCES = anfo.cc queue.h 
 anfo_sge_SOURCES = anfo-sge.cc 
@@ -43,8 +36,6 @@ file_info_SOURCES = file-info.cc
 index_test_SOURCES = index-test.cc
 martin_table_SOURCES = martin-table.cc 
 
-anfo_elk_SOURCE = anfo-elk.cc
-anfo_elk_LDADD = $(LDADD) -lelk
 
 config.pb.cc: config.proto
 	$(PROTOC) --cpp_out=. config.proto

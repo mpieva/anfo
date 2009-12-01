@@ -450,7 +450,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const char* genome, T 
 }
 
 
-int main_( int argc, char const **argv )
+WRAPPED_MAIN
 {
 	char *ptr_file = 0 ;
 	char *hsa_file = 0 ;

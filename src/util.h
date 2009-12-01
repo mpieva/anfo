@@ -178,7 +178,11 @@ static const int MADV_SEQUENTIAL = 0 ;
 static const int MADV_WILLNEED = 0 ;
 #endif
 
-int main( int argc, const char * argv[] ) ;
+int wrap_main( int argc, const char * argv[], int(*)(int,const char*[]) ) ;
+#define WRAPPED_MAIN \
+	int main_(int,const char*[]) ; \
+	int main(int argc, const char*  argv[]) { return wrap_main( argc, argv, main_ ) ; } \
+	int main_(int argc, const char* argv[])
 
 /*! \brief tries to set proc title for ps
  *

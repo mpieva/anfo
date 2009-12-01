@@ -221,7 +221,7 @@ class store_word {
 		}
 } ;
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version, opt_path } ;
