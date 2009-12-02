@@ -40,7 +40,7 @@ string expand( const string& s, int x )
 
     char u = 'a' + (x%26), v = 'a' + (x/26) ;
     string r ;
-    int i = 0 ;
+    size_t i = 0 ;
     for( ; i+1 != s.size() ; ++i )
     {
         if( s[i] == '%' && s[i+1] == '%' ) {

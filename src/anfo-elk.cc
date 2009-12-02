@@ -88,7 +88,24 @@ int print_stream_wrapper( Object p, Object o, int, int, int )
 { Printf( p, "#[anfo-stream %p]", (const void*)((StreamWrapper*)POINTER(o))->h_ ) ; return 0 ; }
 
 // misc. ANFO primitves
-Object p_set_verbosity( Object v ) { console.loglevel = (Console::Loglevel)Get_Integer( v ) ; return Void ; }
+SYMDESCR verbosity_syms[] = {
+	{ (char*) "debug",    Console::debug },
+	{ (char*) "info",     Console::info },
+	{ (char*) "notice",   Console::notice },
+	{ (char*) "warning",  Console::warning },
+	{ (char*) "error",    Console::error },
+	{ (char*) "critical", Console::critical },
+	{ 0, 0 } } ;
+
+Object p_set_verbosity( Object v )
+{
+	if( TYPE(v) == T_Symbol )
+		console.loglevel = (Console::Loglevel) Symbols_To_Bits( v, 0, verbosity_syms ) ;
+	else 
+		console.loglevel = (Console::Loglevel) Get_Integer( v ) ;
+	return Void ;
+}
+
 Object p_use_mmap( Object v ) { Metagenome::nommap = !Truep( v ) ; return Void ; }
 
 // ANFO stream constructors
@@ -108,23 +125,6 @@ void elk_init_libanfo()
 }
 
 } // extern C
-
-/*
-extern "C" SCM scm_verbosity( SCM v )
-{
-	if( scm_is_integer( v ) ) console.loglevel = (Console::Loglevel)scm_to_int( v ) ;
-	else if( !scm_is_symbol( v ) ) console.set_quiet() ;
-	else {
-		if( scm_is_eq( scm_from_locale_symbol(    "debug" ), v ) ) console.loglevel = Console::debug ;
-		if( scm_is_eq( scm_from_locale_symbol(     "info" ), v ) ) console.loglevel = Console::info ;
-		if( scm_is_eq( scm_from_locale_symbol(   "notice" ), v ) ) console.loglevel = Console::notice ;
-		if( scm_is_eq( scm_from_locale_symbol(  "warning" ), v ) ) console.loglevel = Console::warning ;
-		if( scm_is_eq( scm_from_locale_symbol(    "error" ), v ) ) console.loglevel = Console::error ;
-		if( scm_is_eq( scm_from_locale_symbol( "critical" ), v ) ) console.loglevel = Console::critical ;
-	}
-	return SCM_BOOL_T ;
-}
-*/
 
 /*
 extern "C" SCM scm_transfer( SCM input, SCM output ) 

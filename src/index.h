@@ -420,7 +420,7 @@ typedef Holder< const CompactGenome > GenomeHolder ;
 class Metagenome
 {
 	public:
-		static bool nommap ;
+		static int nommap ;
 		static void make_room() ;
 
 	private:

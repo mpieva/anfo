@@ -79,14 +79,12 @@ WRAPPED_MAIN
     int task_id = 0 ;
 	if( const char *t = getenv( "SGE_TASK_ID" ) ) task_id = atoi( t ) -1 ; 
 
-	Metagenome::nommap = true ;
-    console.set_quiet() ;
-
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
+		{ "nommap",       0 , POPT_ARG_NONE,&Metagenome::nommap,opt_none, "Don't use mmap(), read() indexes instead", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
 		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -111,6 +109,7 @@ WRAPPED_MAIN
 
 	if( !output_file ) throw "no output file" ;
 
+    console.set_quiet() ;
 	Config conf = get_default_config( config_file ) ;
 	Mapper mapper( conf ) ;
 

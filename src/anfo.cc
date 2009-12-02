@@ -189,8 +189,9 @@ WRAPPED_MAIN
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
 		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
-		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
-		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
+		{ "nommap",       0 , POPT_ARG_NONE,   &Metagenome::nommap, opt_none,     "Don't use mmap(), read() indexes instead", 0 },
+		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "Suppress most output", 0 },
+		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "Produce more output", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
 		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
