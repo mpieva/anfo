@@ -675,17 +675,14 @@ output::Hit* mutable_hit_to( output::Result* r, const string& g )
 	return h ;
 }
 
-
-bool ScoreFilter::xform( Result& r )
+bool HitFilter::xform( Result& r )
 {
 	int ix_in = 0, ix_out = 0 ;
 	while( ix_in != r.hit_size() )
 	{
 		// keep hits if we're actually looking for a specific genome and
-		// they hit the wrong one or if their score is good (small) enough
-		if( ( genome_ && *genome_ && r.hit(ix_in).genome_name() != genome_ ) ||
-				( slope_ * ( len_from_bin_cigar( r.hit(ix_in).cigar() )
-							 - intercept_ ) >= r.hit(ix_in).score() ) )
+		// they hit the wrong one or if they actually fit our predicate
+		if( ( !gs_.empty() && !contains( gs_, r.hit(ix_in).genome_name() ) ) || keep( r.hit(ix_in) ) )
 		{
 			if( ix_in != ix_out ) *r.mutable_hit(ix_out) = r.hit(ix_in) ;
 			++ix_out ;
@@ -698,11 +695,12 @@ bool ScoreFilter::xform( Result& r )
 	return true ;
 }
 
-bool MapqFilter::xform( Result& r ) {
-	return has_hit_to( r, g_ ) &&
-		( !hit_to( r, g_).has_diff_to_next() ||
-		  hit_to( r, g_ ).diff_to_next() >= minmapq_ ) ;
-}
+
+bool ScoreFilter::keep( const Hit& h )
+{ return slope_ * ( len_from_bin_cigar( h.cigar() ) - intercept_ ) >= h.score() ; }
+
+bool MapqFilter::keep( const Hit& h )
+{ return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
 
 bool LengthFilter::xform( Result& r ) {
 	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
@@ -710,22 +708,37 @@ bool LengthFilter::xform( Result& r ) {
 	return true ;
 }
 
-bool HitFilter::xform( Result& r ) 
-{
-	if( has_hit_to( r, g_ ) )
-		return !s_ || !*s_ || hit_to( r, g_ ).sequence() == s_ ;
+namespace {
+	bool good_hit( const Hit& h, const vector<string>& gs, const vector<string>& ss )
+	{
+		return ( gs.empty() || contains( gs, h.genome_name() ) ) 
+			&& ( ss.empty() || contains( ss, h.sequence() ) ) ;
+	}
+} ;
 
+bool RequireHit::xform( Result& r ) 
+{
+	for( int i = 0 ; i != r.hit_size() ; ++i )
+		if( good_hit( r.hit(i), gs_, ss_ ) ) return true ;
 	return false ;
 }
+
+bool RequireBestHit::xform( Result& r ) { return has_hit_to( r, 0 ) && good_hit( hit_to( r, 0 ), gs_, ss_ ) ; }
+
 
 bool Subsample::xform( Result& ) 
 {
 	return f_ >= drand48() ;
 }
 
+namespace {
+	inline int eff_length( const Read& r )
+	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
+} ;
+
 bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) 
 {
-	if( lhs.read().sequence().size() != rhs.read().sequence().size() 
+	if( eff_length( lhs.read() ) != eff_length( rhs.read() )
 			|| !has_hit_to( lhs, gs_.begin(), gs_.end() ) || !has_hit_to( rhs, gs_.begin(), gs_.end() ) )
 		return false ;
 

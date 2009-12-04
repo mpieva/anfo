@@ -43,11 +43,15 @@
 #include "util.h"
 
 #include <elk/scheme.h>
+#include <google/protobuf/io/zero_copy_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
 
 #include <iostream>
+#include <tr1/memory>
 
 using namespace std ;
 using namespace streams ;
+using namespace google::protobuf::io ;
 
 // generic interfacing to ELK: primitive procedures
 typedef Object (*P)() ;
@@ -69,15 +73,107 @@ extern "C" Object terminate_stream( Object o )
 	return Void ;
 }
 
+StreamHolder obj_to_stream( Object o ) { return TYPE( o ) != t_stream ? StreamHolder() : ((StreamWrapper*)POINTER(o))->h_ ; }
+
 Object wrap_stream( StreamHolder h )
 {
 	Object o = Alloc_Object( sizeof( StreamWrapper ), t_stream, 0 ) ;
-	new( POINTER(o) ) StreamWrapper( h ) ;
+	StreamWrapper *w = new( POINTER(o) ) StreamWrapper( h ) ;
 	Register_Object( o, const_cast<char*>("anfostreams") , terminate_stream, 0 ) ;
+	w->h_->get_state() ;
 	return o ;
 }
 
-StreamHolder obj_to_stream( Object o ) { return TYPE( o ) != t_stream ? StreamHolder() : ((StreamWrapper*)POINTER(o))->h_ ; }
+Object wrap_streams( StreamBundle *m_, int argc, Object *argv )
+{
+	Holder< StreamBundle > m( m_ ) ;
+	for( Object *o = argv ; o != argv + argc ; ++o )
+		m->add_stream( obj_to_stream( *o ) ) ;
+	return wrap_stream( m ) ;
+}
+
+
+string object_to_string( Object o, const string& def = "" ) 
+{ 
+	if( TYPE(o) == T_Symbol ) o = SYMBOL(o)->name ;
+	return TYPE(o) == T_String ? string( STRING(o)->data, STRING(o)->size ) : def ; 
+}
+
+pair< ZeroCopyOutputStream*, string > open_any_output_zc( Object o )
+{
+	switch( TYPE(o) )
+	{
+		case T_Symbol:
+		case T_String:
+			{
+				string nm = object_to_string(o) ;
+				FileOutputStream *s = new FileOutputStream( 
+						throw_errno_if_minus1(
+							open( nm.c_str(), O_WRONLY | O_CREAT ),
+							"opening file" ) ) ;
+				s->SetCloseOnDelete( true ) ;
+				return make_pair( s, nm ) ;
+			}
+		case T_Fixnum:
+			return make_pair( new FileOutputStream( Get_Exact_Integer( o ) ), "<pipe>" ) ;
+
+		case T_Boolean:
+			if( !Truep(o) ) return make_pair( new FileOutputStream( 1 ), "<stdout>" ) ;
+
+		case T_Port: // needs support code
+		default:
+			throw "can't handle file argument" ;
+	}
+}
+
+pair< std::ostream*, string > open_any_output_std( Object o )
+{
+	switch( TYPE(o) )
+	{
+		case T_Symbol:
+		case T_String:
+			return make_pair( new ofstream( object_to_string(o).c_str() ), object_to_string(o) ) ;
+
+		case T_Boolean:
+			if( !Truep(o) ) return make_pair( new ostream( cout.rdbuf() ), "<stdout>" ) ;
+
+		case T_Fixnum: // needs support code
+		case T_Port: // needs support code
+		default:
+			break ;
+	}
+	throw "can't handle file argument" ;
+}
+pair< std::istream*, string > open_any_input_std( Object o )
+{
+	switch( TYPE(o) )
+	{
+		case T_Symbol:
+		case T_String:
+			return make_pair( new ifstream( object_to_string(o).c_str() ), object_to_string(o) ) ;
+
+		case T_Boolean:
+			if( !Truep(o) ) return make_pair( new istream( cin.rdbuf() ), "<stdin>" ) ;
+
+		case T_Fixnum: // needs support code
+		case T_Port: // needs support code
+		default:
+			break ;
+	}
+	throw "can't handle file argument" ;
+}
+
+vector<string> obj_to_genomes( Object o )
+{
+	vector<string> r ;
+	if( TYPE(o) == T_String || TYPE(o) == T_Symbol )
+		r.push_back( object_to_string( o ) ) ;
+	else
+		for( ; TYPE(o) == T_Pair ; o = Cdr(o) ) 
+			r.push_back( object_to_string( Car(o) ) ) ;
+	return r ;
+}
+
 
 extern "C" {
 
@@ -110,6 +206,94 @@ Object p_use_mmap( Object v ) { Metagenome::nommap = !Truep( v ) ; return Void ;
 
 // ANFO stream constructors
 
+// Output
+Object p_write_text( Object f ) { return wrap_stream( new TextWriter( open_any_output_zc( f ) ) ) ; }
+Object p_write_sam( Object f ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
+Object p_write_glz( Object f ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
+Object p_write_3aln( Object f ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }
+Object p_write_fastq( Object f ) { return wrap_stream( new FastqWriter( open_any_output_std( f ) ) ) ; }
+Object p_write_table( Object f ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
+Object p_write_fasta( Object f, Object c ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ), Get_Integer( c ) ) ) ; }
+
+// Processors
+Object p_duct_tape( Object n ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
+Object p_rmdup( Object s, Object i, Object q ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
+Object p_write_stats( Object f ) { return wrap_stream( new StatStream( object_to_string( f ) ) ) ; }
+
+// Filters
+Object p_sort_by_pos( Object mem, Object handles, Object genomes )
+{ return wrap_stream( new SortingStream<by_genome_coordinate>(
+			Get_Integer( mem ) * 1024U * 1024U, Get_Integer( handles ),
+			by_genome_coordinate( obj_to_genomes( genomes ) ) ) ) ; }
+
+Object p_sort_by_name( Object mem, Object handles )
+{ return wrap_stream( new SortingStream<by_seqid>(
+			Get_Integer( mem ) * 1024U * 1024U, Get_Integer( handles ) ) ) ; }
+
+Object p_filter_by_length( Object l ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
+
+Object p_filter_by_score( Object slope, Object len, Object genomes )
+{ return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
+
+Object p_filter_by_mapq( Object mapq, Object genomes )
+{ return wrap_stream( new MapqFilter( obj_to_genomes( genomes ), Get_Integer( mapq ) ) ) ; }
+
+Object p_require_best_hit( Object genomes, Object sequences ) 
+{ return wrap_stream( new RequireBestHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
+
+Object p_require_hit( Object genomes, Object sequences )
+{ return wrap_stream( new RequireHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
+
+Object p_ignore_hit( Object genomes, Object sequences ) 
+{ return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
+
+Object p_filter_multi( Object m ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
+Object p_subsample( Object r ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
+Object p_edit_header( Object e ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
+Object p_inside_region( Object f ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
+Object p_outside_region( Object f ) { return wrap_stream( new OutsideRegion( open_any_input_std( f ) ) ) ; }
+
+
+// Mergers  (I'll drop the unholy mega-merge here, that's far better
+// scripted in Scheme)
+
+Object p_merge(  int argc, Object *argv ) { return wrap_streams( new MergeStream,   argc, argv ) ; }
+Object p_join(   int argc, Object *argv ) { return wrap_streams( new BestHitStream, argc, argv ) ; }
+Object p_concat( int argc, Object *argv ) { return wrap_streams( new ConcatStream,  argc, argv ) ; }
+
+// Composition
+
+//! \brief top-level ELK call.
+//! Gets one input stream and many output streams, copies between them.
+//! Might one day extract a tree of results and return it.
+Object p_anfo_run( int argc, Object *argv )
+{
+	StreamHolder inp = obj_to_stream( argv[0] ) ;
+	FanOut out ;
+	for( Object *o = argv+1 ; o != argv+argc ; ++o )
+		out.add_stream( obj_to_stream( *o ) ) ;
+
+	out.put_header( inp->fetch_header() ) ;
+	while( inp->get_state() == Stream::have_output && out.get_state() == Stream::need_input )
+		out.put_result( inp->fetch_result() ) ;
+	out.put_footer( inp->fetch_footer() ) ;
+	return True ;
+}
+
+//! \brief stream composition.
+//! Gets many streams as argument, ties them into a chain and returns a
+//! new stream.
+Object p_chain( int argc, Object *argv )
+{
+	Holder< Compose > c( new Compose ) ;
+	for( Object *o = argv ; o != argv+argc ; ++o )
+		c->add_stream( obj_to_stream( *o ) ) ;
+	return wrap_stream( c ) ;
+}
+
+
+// init code
+
 void elk_finit_libanfo() {}
 void elk_init_libanfo() 
 {
@@ -119,355 +303,44 @@ void elk_init_libanfo()
 		compare_stream_wrappers, 
 		print_stream_wrapper, 0 ) ;
 
-	Define_Primitive( (P)p_is_stream, "anfo-stream?", 1, 1, EVAL ) ;
+	Define_Primitive( (P)p_is_stream,     "anfo-stream?",  1, 1, EVAL ) ;
 	Define_Primitive( (P)p_set_verbosity, "set-verbosity", 1, 1, EVAL ) ;
-	Define_Primitive( (P)p_use_mmap, "use-mmap", 1, 1, EVAL ) ;
+	Define_Primitive( (P)p_use_mmap,      "use-mmap",      1, 1, EVAL ) ;
+
+	Define_Primitive( (P)p_write_text,  "write-text",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_sam,   "write-sam",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_glz,   "write-glz",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_3aln,  "write-three-aln", 1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_fastq, "write-fastq",     1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_table, "write-table",     1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_fasta, "write-fasta",     2, 2, EVAL ) ;
+
+	Define_Primitive( (P)p_duct_tape,   "duct-tape",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_rmdup,       "rmdup",           3, 3, EVAL ) ;
+	Define_Primitive( (P)p_write_stats, "write-stats",     1, 1, EVAL ) ;
+
+	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;
+	Define_Primitive( (P)p_filter_multi,     "filter-multiplicity", 1, 1, EVAL ) ;
+	Define_Primitive( (P)p_subsample,        "subsample",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_edit_header,      "edit-header",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_require_best_hit, "require-best-hit",    2, 2, EVAL ) ;
+	Define_Primitive( (P)p_require_hit,      "require-hit",         2, 2, EVAL ) ;
+	Define_Primitive( (P)p_ignore_hit,       "ignore-hit",          2, 2, EVAL ) ;
+
+	Define_Primitive( (P)p_sort_by_pos,  "sort-pos",  3, 3, EVAL ) ;
+	Define_Primitive( (P)p_sort_by_name, "sort-name", 3, 3, EVAL ) ;
+
+	Define_Primitive( (P)p_merge,  "merge",  1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_join,   "join",   1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_concat, "concat", 1, MANY, VARARGS ) ; 
+
+	Define_Primitive( (P)p_anfo_run, "anfo-run", 2, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_chain,    "chain", 	 1, MANY, VARARGS ) ;
 }
 
 } // extern C
-
-/*
-extern "C" SCM scm_transfer( SCM input, SCM output ) 
-{
-	scm_assert_smob_type( stream_tag, input ) ;
-	scm_assert_smob_type( stream_tag, output ) ;
-
-	Stream* in  = (Stream*)SCM_SMOB_DATA(  input ) ;
-	Stream *out = (Stream*)SCM_SMOB_DATA( output ) ;
-
-	out->put_header( in->fetch_header() ) ;
-	SCM_TICK;
-	while( in->get_state() == Stream::have_output && out->get_state() == Stream::need_input )
-	{
-		out->put_result( in->fetch_result() ) ;
-		SCM_TICK;
-	}
-	out->put_footer( in->fetch_footer() ) ;
-	return SCM_BOOL_T ;
-}
-
-extern "C" SCM scm_write_text( SCM fn )
-{
-	return mk_str( scm_is_string( fn )
-			? new TextWriter( scm_to_str( fn ) )
-			: new TextWriter( 1 ) ) ;
-}
-
-extern "C" SCM scm_write_sam( SCM fn, SCM genome )
-{
-	return mk_str( scm_is_string( fn )
-			? new SamWriter( scm_to_str( fn ), scm_to_str( genome ) )
-			: new SamWriter( cout.rdbuf(), scm_to_str( genome ) ) ) ;
-}
-
-extern "C" SCM scm_write_glz( SCM fn )
-{
-	return mk_str( scm_is_string( fn )
-			? new GlzWriter( scm_to_str( fn ) )
-			: new GlzWriter( 1 ) ) ;
-}
-
-extern "C" SCM scm_write_3aln( SCM fn ) 
-{
-	return mk_str( scm_is_string( fn )
-			? new ThreeAlnWriter( scm_to_str( fn ) )
-			: new ThreeAlnWriter( cout.rdbuf() ) ) ;
-}
-
-extern "C" SCM scm_write_fasta( SCM fn, SCM genome, SCM context )
-{
-	scm_to_str g( genome ) ;
-	int c = scm_is_integer( context ) ? scm_to_int( context ) : 0 ;
-	return mk_str( scm_is_string( fn ) 
-			? new FastaAlnWriter( scm_to_str( fn ), g, c )
-			: new FastaAlnWriter( cout.rdbuf(), g, c ) ) ;
-} 
-
-extern "C" SCM scm_write_fastq( SCM fn )
-{
-	return mk_str( scm_is_string( fn )
-			? new FastqWriter( scm_to_str( fn ) )
-			: new FastqWriter( cout.rdbuf() ) ) ;
-}
-
-extern "C" SCM scm_write_table( SCM fn, SCM genome )
-{ 
-	return mk_str( scm_is_string( fn )
-			? new TableWriter( scm_to_str( fn ), scm_to_str( genome ) )
-			: new TableWriter( cout.rdbuf(), scm_to_str( genome ) ) ) ;
-}
-
-extern "C" SCM scm_duct_tape( SCM genome, SCM name )
-{ return mk_str( new DuctTaper( scm_to_str( genome ), scm_to_str( name ) ) ) ; }
-
-extern "C" SCM scm_write_stats( SCM fn, SCM genome )
-{ return mk_str( new StatStream( scm_to_str( fn ), scm_to_str( genome ) ) ) ; }
-
-SCM scm_make_merger( SCM args, StreamBundle* b ) 
-{
-	for( ; scm_is_pair( args ) ; args = scm_cdr( args ) )
-	{
-		scm_assert_smob_type( stream_tag, scm_car( args ) ) ;
-		Stream* s  = (Stream*)SCM_SMOB_DATA( scm_car( args ) ) ;
-		b->add_stream( s ) ;
-	}
-	assert( scm_is_null( args ) ) ;
-	return mk_str( b ) ;
-}
-
-extern "C" SCM scm_merge( SCM args )
-{ return scm_make_merger( args, new MergeStream() ) ; }
-
-extern "C" SCM scm_join( SCM args )
-{ return scm_make_merger( args, new BestHitStream() ) ; }
-
-extern "C" SCM scm_concat( SCM args )
-{ return scm_make_merger( args, new ConcatStream() ) ; }
-
-extern "C" SCM scm_mega_merge( SCM args )
-{ return scm_make_merger( args, new MegaMergeStream() ) ; }
-
-extern "C" SCM scm_sort_by_pos( SCM mem, SCM handles, SCM genome )
-{
- return mk_str( new SortingStream<by_genome_coordinate>( 
-			 scm_to_uint( mem ) * 1024U * 1024U, scm_to_uint( handles ),
-			 by_genome_coordinate( scm_to_str( genome ) ) ) ) ;
-}
-
-extern "C" SCM scm_sort_by_name( SCM mem, SCM handles )
-{
- return mk_str( new SortingStream<by_seqid>( 
-			 scm_to_uint( mem ) * 1024U * 1024U, scm_to_uint( handles ) ) ) ;
-}
-
-extern "C" SCM scm_filter_by_length( SCM l )
-{ return mk_str( new LengthFilter( scm_to_int( l ) ) ) ; }
-
-extern "C" SCM scm_filter_by_score( SCM s, SCM l, SCM g )
-{ return mk_str( new ScoreFilter( scm_to_double( s ), scm_to_double( l ), scm_to_str( g ) ) ) ; }
-
-extern "C" SCM scm_filter_by_mapq( SCM q, SCM g )
-{ return mk_str( new MapqFilter( scm_to_str( g ), scm_to_int( q ) ) ) ; }
-
-extern "C" SCM scm_ensure_hit( SCM g, SCM s )
-{ return mk_str( new HitFilter( scm_to_str( g ), scm_to_str( s ) ) ) ; }
-
-extern "C" SCM scm_delete_hit( SCM g, SCM s )
-{ return mk_str( new IgnoreHit( scm_to_str( g ), scm_to_str( s ) ) ) ; } // XXX
-
-extern "C" SCM scm_ensure_multi( SCM m )
-{ return mk_str( new MultiFilter( scm_is_integer( m ) ? scm_to_int( m ) : 2 ) ) ; }
-
-extern "C" SCM scm_subsample( SCM r )
-{ return mk_str( new Subsample( scm_to_double( r ) ) ) ; }
-
-extern "C" SCM scm_edit_header( SCM e )
-{ return mk_str( new RepairHeaderStream( scm_to_str( e ) ) ) ; } // XXX
-
-extern "C" SCM scm_rmdup( SCM s, SCM i, SCM q )
-{ return mk_str( new RmdupStream( scm_to_double( s ), scm_to_double( i ), scm_to_int( q ) ) );}
-
-extern "C" SCM scm_regions_only( SCM fn )
-{ return mk_str( new InsideRegion( scm_to_str( fn ) ) ) ; }
-
-extern "C" SCM scm_not_regions( SCM fn )
-{ return mk_str( new OutsideRegion( scm_to_str( fn ) ) ) ; }
-*/
-
-#if 0
-//!	- a string: read the file
-//!	- an integer: read from the fd
-//!	- a scheme port: read from the port (?) 
-
-Stream* stream_from_literal( SCM lit, deque<char*> &stab, bool solexa = false, int origin = 33 )
-{
-	if( scm_is_string( lit ) )
-	{
-		return make_input_stream( mk_str( lit, stab ), solexa, origin ) ;
-	}
-	else if( scm_is_integer( lit ) )
-	{
-		return make_input_stream( scm_to_int( lit ), "<pipe>", solexa, origin ) ;
-	}
-	// handle port?  How?
-	else
-		throw "cannot handle literal" ;
-}
-
-Stream* stream_from_sym( SCM sym, SCM args, deque<char*> &stab )
-{
-	SCM arg[5] ;
-	for( int i = 0 ; i != 5 ; ++i )
-	{
-		if( scm_is_pair( args ) )
-		{
-			arg[i] = scm_car( args ) ;
-			args = scm_cdr( args ) ;
-		}
-		else arg[i] = SCM_BOOL_F ;
-	}
-
-	if( scm_is_eq( sym, scm_from_locale_symbol( "read-file" ) ) )
-	{
-		cerr << "reading anything: " << scm_to_locale_string( scm_symbol_to_string( sym ) ) << ' ' << scm_to_locale_string( arg[0] ) << endl ;
-		return stream_from_literal( arg[0], stab, scm_is_true( arg[1] ),
-				scm_is_integer( arg[2] ) ? scm_to_int( arg[2] ) : 33 ) ;
-	}
-	else if( scm_is_eq( sym, scm_from_locale_symbol( "write-anfo" ) ) )
-	{
-		cerr << "writing native" << endl ;
-		bool exp = scm_is_integer( arg[1] ) ? scm_to_int( arg[1] ) > 50 : false ;
-		SCM name = arg[0] ;
-		return scm_is_false( name )   ? new AnfoWriter( 1, "<stdout>", exp ) :
-			   scm_is_string( name )  ? new AnfoWriter( mk_str( name, stab ), exp ) :
-			   scm_is_integer( name ) ? new AnfoWriter( scm_to_int( name ), "<pipe>", exp ) :
-			   throw "cannot handle weird file name" ;
-	}
-	else if( scm_is_eq( sym, scm_from_locale_symbol( "filter-qual" ) ) )
-	{
-		SCM qual = arg[0] ;
-		return new QualFilter( scm_is_integer( qual ) ? scm_to_int( qual ) : 30 ) ;
-	}
-	else throw "I don't understand" ;
-}
-
-Stream* stream_from_list( SCM list, deque<char*> &stab ) ;
-
-//!	Possible arguments:
-//!	- a keyword: stream without arguments
-//!	- a list starting with a keyword: stream with arguments
-//!	- any other list: compose the elements
-//!	- just about everything else: read a file
-Stream* stream_from_args( SCM args, deque<char*> &stab )
-{
-	if( scm_is_symbol( args ) )
-	{
-		cerr << "symbol found" << endl ;
-		return stream_from_sym( args, SCM_EOL, stab ) ;
-	}
-	else if( scm_is_pair( args ) && scm_is_symbol( scm_car( args ) ) )
-	{
-		cerr << "list w/ symbol found" << endl ;
-		return stream_from_sym( scm_car( args ), scm_cdr( args ), stab ) ;
-	}
-	else if( scm_is_pair( args ) )
-	{
-		cerr << "list found" << endl ;
-		return stream_from_list( args, stab ) ;
-	}
-	else 
-	{
-		cerr << "literal found" << endl ;
-		return stream_from_literal( args, stab ) ;
-	}
-}
-
-Stream* stream_from_list( SCM list, deque<char*> &stab )
-{
-	Compose *s = new Compose ;
-	for( ; scm_is_pair( list ) ; list = scm_cdr( list ) )
-	{
-		cerr << "recurse for stream" << endl ;
-		s->add_stream( stream_from_args( scm_car( list ), stab ) ) ;
-	}
-	return s ; 
-}
-
-//! \brief interprets a description of a streaming operation
-//! What to do?  We effectively construct a single stream as composition
-//! of whatever, then determine its status.  Something should result
-//! from that...  we might even return a tree of status values!
-//!
-//!	
-//!	If a file argument is needed:
-//!	- #f: stdin or stdout
-//!	- string: file name
-//!	- int: file descriptor
-//!	- scheme port: read or write to port (?)
-//!
-//! We need some memory management: strings are malloc()ed, we pass them
-//! around, but finally need to free them.  We pass around a deque of
-//! pointers.
-
-extern "C" SCM scm_anfo_run( SCM args )
-{
-	try
-	{
-		// construct whatever stream is needed
-		deque<char*> stringtab ;
-		Stream *s = stream_from_args( args, stringtab ) ;
-
-		// top level is probably of type 'Compose'; get it to calculate
-		if( Compose *c = dynamic_cast<Compose*>( s ) ) c->update_status() ;
-
-		// cleanup
-		for_each( stringtab.begin(), stringtab.end(), free ) ;
-
-		// extract some sort of result and return it?
-		return SCM_BOOL_T ;
-	} 
-	catch( const Exception& e ) { 
-		stringstream s ;
-		s << e ;
-		scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( s.str().c_str() ) ) ;
-	}
-	catch( const string& s ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( s.c_str() ) ) ; }
-	catch( const char* s ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( s ) ) ; }
-	catch( const exception& e ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), scm_from_locale_string( e.what() ) ) ; }
-	catch( ... ) { scm_throw( scm_from_locale_symbol( "anfo-error" ), SCM_BOOL_F ) ; }
-	return SCM_BOOL_F ;
-}
-
-
-} ; // namespace
-
-extern "C" void init_anfo_guile()
-{
-	// stream_tag = scm_make_smob_type ("stream", sizeof (Stream*) ) ;
-	// scm_set_smob_free( stream_tag, free_stream ) ;
-
-	scm_c_define_gsubr( "verbosity",       1, 0, 0, (FCN)scm_verbosity ) ;
-	scm_c_define_gsubr( "anfo-run",        0, 0, 1, (FCN)scm_anfo_run ) ;
-
-	/*
-	scm_c_define_gsubr( "prim-sort-by-name",    2, 0, 0, (FCN)scm_sort_by_name ) ;
-	scm_c_define_gsubr( "prim-sort-by-pos",     3, 0, 0, (FCN)scm_sort_by_pos ) ;
-	scm_c_define_gsubr(     "filter-by-length", 1, 0, 0, (FCN)scm_filter_by_length ) ;
-	scm_c_define_gsubr( "prim-filter-by-score", 3, 0, 0, (FCN)scm_filter_by_score ) ;
-	scm_c_define_gsubr( "prim-filter-by-mapq",  2, 0, 0, (FCN)scm_filter_by_mapq ) ;
-	scm_c_define_gsubr( "prim-ensure-hit",      2, 0, 0, (FCN)scm_ensure_hit ) ;
-	scm_c_define_gsubr( "prim-delete-hit",      2, 0, 0, (FCN)scm_delete_hit ) ;
-	scm_c_define_gsubr(      "filter-by-qual",  1, 0, 0, (FCN)scm_filter_by_qual ) ;
-	scm_c_define_gsubr(  "ensure-multiplicity", 1, 0, 0, (FCN)scm_ensure_multi ) ;
-	scm_c_define_gsubr(      "subsample",       1, 0, 0, (FCN)scm_subsample ) ;
-	scm_c_define_gsubr( "prim-edit-header",     1, 0, 0, (FCN)scm_edit_header ) ;
-	scm_c_define_gsubr( "prim-rmdup",           2, 0, 0, (FCN)scm_rmdup ) ;
-	scm_c_define_gsubr(      "regions-only",    1, 0, 0, (FCN)scm_regions_only ) ;
-	scm_c_define_gsubr(      "not-regions",     1, 0, 0, (FCN)scm_not_regions ) ;
-
-	scm_c_define_gsubr( "prim-duct-tape",       3, 0, 0, (FCN)scm_duct_tape ) ;
-
-	scm_c_define_gsubr(      "merge-streams",   0, 0, 1, (FCN)scm_merge ) ;
-	scm_c_define_gsubr(      "join-streams",    0, 0, 1, (FCN)scm_join ) ;
-	scm_c_define_gsubr(      "concat-streams",  0, 0, 1, (FCN)scm_concat ) ;
-	scm_c_define_gsubr(   "mega-merge-streams", 0, 0, 1, (FCN)scm_mega_merge ) ;
-
-	scm_c_define_gsubr( "prim-read-file",       3, 0, 0, (FCN)scm_make_input_stream ) ;
-
-	scm_c_define_gsubr( "prim-write-anfo-file", 3, 0, 0, (FCN)scm_make_output_stream ) ;
-	scm_c_define_gsubr(      "write-text",      1, 0, 0, (FCN)scm_write_text ) ;
-	scm_c_define_gsubr( "prim-write-sam",       2, 0, 0, (FCN)scm_write_sam ) ;
-	scm_c_define_gsubr(      "write-glz",       1, 0, 0, (FCN)scm_write_glz ) ;
-	scm_c_define_gsubr(      "write-3aln",      1, 0, 0, (FCN)scm_write_3aln ) ;
-	scm_c_define_gsubr( "prim-write-fasta",     3, 0, 0, (FCN)scm_write_fasta ) ;
-	scm_c_define_gsubr(      "write-fastq",     1, 0, 0, (FCN)scm_write_fastq ) ;
-	scm_c_define_gsubr( "prim-write-table",     2, 0, 0, (FCN)scm_write_table ) ;
-	scm_c_define_gsubr( "prim-write-stats",     2, 0, 0, (FCN)scm_write_stats ) ;
-
-	scm_c_define_gsubr(      "transfer",        2, 0, 0, (FCN)scm_transfer ) ;
-	scm_c_define_gsubr(      "chain",           0, 0, 1, (FCN)scm_chain ) ;
-	*/
-}
-#endif
-
 

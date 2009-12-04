@@ -179,17 +179,17 @@ void show_alignment(
 
 void TextWriter::print_msg( const google::protobuf::Message& m )
 {
-	google::protobuf::TextFormat::Print( m, &fos_ ) ;
+	google::protobuf::TextFormat::Print( m, os_.get() ) ;
 	void* data ; int size ;
-	fos_.Next( &data, &size ) ;
+	os_->Next( &data, &size ) ;
 	*(char*)data = '\n' ;
 	data = (char*)data + 1 ;
 	--size ;
-	if( !size ) fos_.Next( &data, &size ) ;
+	if( !size ) os_->Next( &data, &size ) ;
 	*(char*)data = '\n' ;
 	data = (char*)data + 1 ;
 	--size ;
-	if( size ) fos_.BackUp( size ) ;
+	if( size ) os_->BackUp( size ) ;
 }
 
 void TextWriter::put_header( const Header& h )
@@ -202,8 +202,8 @@ void TextWriter::put_header( const Header& h )
 
 void TextWriter::put_result( const Result& r )
 {
-	google::protobuf::TextFormat::Print( r, &fos_ ) ;
-	google::protobuf::io::Printer p( &fos_, '`' ) ;
+	google::protobuf::TextFormat::Print( r, os_.get() ) ;
+	google::protobuf::io::Printer p( os_.get(), '`' ) ;
 	for( int i = 0 ; i != r.hit_size() ; ++i )
 	{
 		std::map< std::string, std::string > vars ;
@@ -304,65 +304,85 @@ inline char qual_to_sam( uint8_t q ) { return 33 + std::min( q, (uint8_t)93 ) ; 
 
 SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result )
 {
-	if (!has_hit_to(result,g_)) return no_hit ;
 	if (!result.read().has_seqid()) return no_seqid ;
 	if (!result.read().has_sequence()) return no_seq ;
 
-	output::Hit hit = hit_to(result,g_) ;
-
-	if( len_from_bin_cigar( hit.cigar() ) != result.read().sequence().length() ) return bad_cigar ;
-
-	int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
-
-	out_ << /*QNAME*/  result.read().seqid() << '\t'
-		<< /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
-		<< /*RNAME*/   hit.sequence() << '\t'
-		<< /*POS*/     1 + hit.start_pos() << '\t'
-		<< /*MAPQ*/    mapq << '\t' ;
-
-	if( hit.aln_length() >= 0 )
+	for( int i = 0 ; i != result.hit_size() ; ++i )
 	{
-		decode_binCigar( out_, hit.cigar().begin(),  hit.cigar().end() ) ; /*CIGAR*/ 
-		// We don't have paired end reads (or don't deal with them)
-		out_ << "\t*\t0\t0\t" // MRNM, MPOS, ISIZE
+		const output::Hit &hit = result.hit(0) ;
+
+		if( len_from_bin_cigar( hit.cigar() ) != result.read().sequence().length() ) return bad_cigar ;
+
+		int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
+
+		*out_ << /*QNAME*/  result.read().seqid() << '\t'
+			<< /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
+			<< /*RNAME*/   hit.sequence() << '\t'
+			<< /*POS*/     1 + hit.start_pos() << '\t'
+			<< /*MAPQ*/    mapq << '\t' ;
+
+		if( hit.aln_length() >= 0 )
+		{
+			decode_binCigar( *out_, hit.cigar().begin(),  hit.cigar().end() ) ; /*CIGAR*/ 
+			// We don't have paired end reads (or don't deal with them)
+			*out_ << "\t*\t0\t0\t" // MRNM, MPOS, ISIZE
+				<< /*SEQ*/ result.read().sequence() << '\t' ;
+
+			if( result.read().has_quality() ) /*QUAL*/   
+				for (size_t i = 0 ; i != result.read().quality().size() ; ++i )
+					*out_ << qual_to_sam( result.read().quality()[i] ) ;
+			else
+				*out_ << '*' ;
+		}
+		else
+		{
+			// need to revcom sequence, reverse qual and cigar
+			decode_binCigar( *out_, mk_rev_iter( hit.cigar().end() ), mk_rev_iter( hit.cigar().begin() ) ) ; /*CIGAR*/ 
+			// We don't have paired end reads (or don't deal with them)
+			*out_ << "\t*\t0\t0\t" ; // MRNM, MPOS, ISIZE
+			const std::string& s = result.read().sequence() ;
+			for( size_t i = s.size() ; i != 0 ; --i )
+				switch( s[i-1] )
+				{
+					case 'A': case 'a': *out_ << 'T' ; break ;
+					case 'C': case 'c': *out_ << 'G' ; break ;
+					case 'G': case 'g': *out_ << 'C' ; break ;
+					case 'T': case 't':
+					case 'U': case 'u': *out_ << 'A' ; break ;
+					default: *out_ << s[i-1] ;
+				}
+
+			*out_ << '\t' ;
+			if( result.read().has_quality() ) /*QUAL*/   
+				for (size_t i = result.read().quality().size() ; i != 0 ; --i )
+					*out_ << qual_to_sam( result.read().quality()[i-1] ) ;
+			else
+				*out_ << '*' ;
+		}
+
+		/*[TAGS]*/ /*SCORE*/
+		*out_ << "\tAS:i:" << hit.score() << '\n' ;
+	}
+
+	if( result.hit_size() == 0 )
+	{
+		// special treatment of unaligned sequence
+		*out_ << /*QNAME*/  result.read().seqid() << '\t'
+			<< /*FLAG */ bam_funmap
+			<< "*\t0\t0\t*\t*\t0\t0\t" // RNAME, POS, MAPQ, CIGAR, MRNM, MPOS, ISIZE
 			<< /*SEQ*/ result.read().sequence() << '\t' ;
 
 		if( result.read().has_quality() ) /*QUAL*/   
 			for (size_t i = 0 ; i != result.read().quality().size() ; ++i )
-				out_ << qual_to_sam( result.read().quality()[i] ) ;
+				*out_ << qual_to_sam( result.read().quality()[i] ) ;
 		else
-			out_ << '*' ;
+			*out_ << '*' ;
+
+		/*[TAGS]*/
+		*out_ << "\t\n" ;
+		return no_hit ;
 	}
-	else
-	{
-		// need to revcom sequence, reverse qual and cigar
-		decode_binCigar( out_, mk_rev_iter( hit.cigar().end() ), mk_rev_iter( hit.cigar().begin() ) ) ; /*CIGAR*/ 
-		// We don't have paired end reads (or don't deal with them)
-		out_ << "\t*\t0\t0\t" ; // MRNM, MPOS, ISIZE
-		const std::string& s = result.read().sequence() ;
-		for( size_t i = s.size() ; i != 0 ; --i )
-			switch( s[i-1] )
-			{
-				case 'A': case 'a': out_ << 'T' ; break ;
-				case 'C': case 'c': out_ << 'G' ; break ;
-				case 'G': case 'g': out_ << 'C' ; break ;
-				case 'T': case 't':
-				case 'U': case 'u': out_ << 'A' ; break ;
-				default: out_ << s[i-1] ;
-			}
-
-		out_ << '\t' ;
-		if( result.read().has_quality() ) /*QUAL*/   
-			for (size_t i = result.read().quality().size() ; i != 0 ; --i )
-				out_ << qual_to_sam( result.read().quality()[i-1] ) ;
-		else
-			out_ << '*' ;
-	}
-
-	/*[TAGS]*/ /*SCORE*/
-	out_ << "\tAS:i:" << hit.score() << '\n' ;
-
-	return goodness ;
+	else return goodness ;
 }
 
 const char *SamWriter::descr[] = { "were converted", "had no hit", "had multiple hits", "missed the sequence id"
@@ -374,7 +394,7 @@ void SamWriter::put_footer( const Footer& f )
 	for( int b = 0 ; b != bad_stuff_max ; ++b )
 		if (discarded[b]) {
 			std::stringstream s ;
-			s << "SamWriter: " << discarded[b] << " reads " << descr[b] ;
+			s << "SamWriter: " << nm_ << ": " << discarded[b] << " reads " << descr[b] ;
 			console.output( Console::notice, s.str() ) ;
 		}
 }
@@ -388,12 +408,12 @@ void FastaAlnWriter::put_header( const Header& h )
 
 void FastaAlnWriter::put_result( const Result& r ) 
 {
-	if( has_hit_to( r, g_ ) )
+	if( has_hit_to( r, 0 ) )
 	{
-		const Hit &h = hit_to( r, g_ ) ;
+		const Hit &h = hit_to( r, 0 ) ;
 		std::string ref, qry, con ;
 		show_alignment( r.read().sequence().begin(), h, true, ref, qry, con, c_ ) ;
-		out_ << '>' << h.sequence() << ' '
+		*out_ << '>' << h.sequence() << ' '
 			<< h.start_pos()
 			<< "-+"[ h.aln_length() > 0 ]
 			<< h.start_pos() + abs(h.aln_length()) - 1
@@ -409,29 +429,29 @@ void FastqWriter::put_result( const Result& rr )
     const output::Read& r = rr.read() ;
 	if( r.has_quality() ) 
 	{
-		out_ << '@' << r.seqid() ;
-		if( r.has_description() ) out_ << ' ' << r.description() ;
+		*out_ << '@' << r.seqid() ;
+		if( r.has_description() ) *out_ << ' ' << r.description() ;
 		for( size_t i = 0 ; i < r.sequence().size() ; i += 50 )
-			out_ << '\n' << r.sequence().substr( i, 50 ) ;
-		out_ << "\n+\n" ;
+			*out_ << '\n' << r.sequence().substr( i, 50 ) ;
+		*out_ << "\n+\n" ;
         const std::string& q = r.quality() ;
 		for( size_t i = 0 ; i < q.size() ; i += 50 )
 		{
 			for( size_t j = i ; j != i+50 && j != q.size() ; ++j )
-				out_ << (char)std::min(126, 33 + q[j]) ;
-			out_ << '\n' ;
+				*out_ << (char)std::min(126, 33 + q[j]) ;
+			*out_ << '\n' ;
 		}
 	}
 }
 
 void TableWriter::put_result( const Result& r )
 {
-	if( !has_hit_to( r, g_ ) ) return ;
+	if( !has_hit_to( r, 0 ) ) return ;
 	int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
 	int b = r.read().trim_left() ;
-	int diff = hit_to( r, g_ ).has_diff_to_next() ? hit_to( r, g_ ).diff_to_next() : 9999 ;
+	int diff = hit_to( r, 0 ).has_diff_to_next() ? hit_to( r, 0 ).diff_to_next() : 9999 ;
 
-	out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
+	*out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 }
 
 } // namespace

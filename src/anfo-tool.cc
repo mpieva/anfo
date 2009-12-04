@@ -96,7 +96,7 @@ int parse_int( const char* a, int d )
 	throw "expected integer, but found \"" + string(a) + "\"" ;
 }
 
-vector<string> split_string( string s )
+vector<string> split_string( const string& s )
 {
 	if( s.empty() ) return vector<string>() ;
 	vector<string> t ;
@@ -109,9 +109,33 @@ vector<string> split_string( string s )
 	}
 	return t ;
 }
+vector<string> split_string( const char* s )
+{ return s ? split_string( string(s) ) : vector<string>() ; }
 
 bool is_stdout( const char* a ) { return !a || 0 == strcmp( a, "-" ) ; }
 const char* parse_fn( const char* a ) { return is_stdout( a ) ? "<stdout>" : a ; }
+
+pair< ZeroCopyOutputStream*, string > make_output_stream_zc( const char* a )
+{
+	return is_stdout( a )
+		? make_pair( new FileOutputStream( throw_errno_if_minus1( 
+						creat( a, 0666 ), "opening", a ) ) , a )
+		: make_pair( new FileOutputStream( 1 ), "<stdout>" ) ;
+}
+
+pair< ostream*, string > make_output_stream_std( const char* a )
+{
+	return is_stdout( a )
+		? make_pair( static_cast<ostream*>( new ofstream( a ) ), a )
+		: make_pair( new ostream( cout.rdbuf() ), "<stdout>" ) ;
+}
+
+pair< istream*, string > make_input_stream_std( const char* a )
+{
+	return is_stdout( a )
+		? make_pair( static_cast<istream*>( new ifstream( a ) ), a )
+		: make_pair( new istream( cin.rdbuf() ), "<stdin>" ) ;
+}
 
 Stream* mk_sort_by_pos( const ParamBlock& p )
 { return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ) * 1024 * 1024, 256,
@@ -141,7 +165,7 @@ void desc_filter_by_length( ostream& ss, const ParamBlock& p )
 { ss << "remove alignments shorter than " << parse_int( p.arg ) ; }
 
 Stream* mk_filter_by_score( const ParamBlock& p )
-{ return new ScoreFilter( p.slope, p.intercept, p.genome ) ; }
+{ return new ScoreFilter( p.slope, p.intercept, split_string( p.genome ) ) ; }
 
 void desc_filter_by_score( ostream& ss, const ParamBlock& p )
 {
@@ -150,7 +174,7 @@ void desc_filter_by_score( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_filter_by_mapq( const ParamBlock& p )
-{ return new MapqFilter( p.genome, parse_int( p.arg ) ) ; }
+{ return new MapqFilter( split_string( p.genome ), parse_int( p.arg ) ) ; }
 
 void desc_filter_by_mapq( ostream& ss, const ParamBlock& p )
 {
@@ -160,7 +184,7 @@ void desc_filter_by_mapq( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_filter_by_hit( const ParamBlock& p )
-{ return new HitFilter( p.genome, p.arg ) ; }
+{ return new RequireHit( split_string( p.genome ), split_string( p.arg ) ) ; }
 
 void desc_filter_by_hit( ostream& ss, const ParamBlock& p )
 {
@@ -170,7 +194,7 @@ void desc_filter_by_hit( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_delete_hit( const ParamBlock& p )
-{ return new IgnoreHit( p.genome, p.arg ) ; }
+{ return new IgnoreHit( split_string( p.genome ), split_string( p.arg ) ) ; }
 
 void desc_delete_hit( ostream& ss, const ParamBlock& p )
 {
@@ -198,7 +222,7 @@ void desc_subsample( ostream& ss, const ParamBlock& p )
 { ss << "subsample a " << parse_float(p.arg) << " fraction of sequences" ; }
 
 Stream* mk_edit_header( const ParamBlock& p )
-{ return new RepairHeaderStream( p.arg ) ; }
+{ return new RepairHeaderStream( p.arg ? p.arg : "" ) ; }
 
 void desc_edit_header( ostream& ss, const ParamBlock& p )
 { ss << "invoke " << (p.arg?p.arg:" text editor ") << " on stream's header" ; }
@@ -214,13 +238,13 @@ void desc_rmdup( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_regions_only( const ParamBlock& p )
-{ return new InsideRegion( p.arg ) ; }
+{ return new InsideRegion( make_input_stream_std( p.arg ) ) ; }
 
 void desc_regions_only( ostream& ss, const ParamBlock& p )
 { ss << "keep results only in regions read from " << p.arg ; }
 
 Stream* mk_not_regions( const ParamBlock& p )
-{ return new OutsideRegion( p.arg ) ; }
+{ return new OutsideRegion( make_input_stream_std( p.arg ) ) ; }
 
 void desc_not_regions( ostream& ss, const ParamBlock& p )
 { ss << "keep results outside regions read from " << p.arg ; }
@@ -256,13 +280,13 @@ void desc_output( ostream& ss, const ParamBlock& p )
 { ss << "write native output to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_text( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new TextWriter( 1 ) : new TextWriter( p.arg ) ; } 
+{ return new TextWriter( make_output_stream_zc( p.arg ) ) ; }
 
 void desc_output_text( ostream& ss, const ParamBlock& p )
 { ss << "write in text format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_sam( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new SamWriter( cout.rdbuf(), p.genome ) : new SamWriter( p.arg, p.genome ) ; } 
+{ return new SamWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_sam( ostream& ss, const ParamBlock& p )
 { 
@@ -272,44 +296,38 @@ void desc_output_sam( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_output_glz( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new GlzWriter( 1 ) : new GlzWriter( p.arg ) ; } 
+{ return new GlzWriter( make_output_stream_zc( p.arg ) ) ; }
 
 void desc_output_glz( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in GLZ format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_3aln( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new ThreeAlnWriter( std::cout.rdbuf() ) : new ThreeAlnWriter( p.arg ) ; } 
+{ return new ThreeAlnWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_3aln( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in 3ALN format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_fasta( const ParamBlock& p )
-{
-	return is_stdout( p.arg ) ? new FastaAlnWriter( cout.rdbuf(), p.genome, p.context )
-	                          : new FastaAlnWriter( p.arg, p.genome, p.context ) ; 
-} 
+{ return new FastaAlnWriter( make_output_stream_std( p.arg ), p.context ) ; }
 
 void desc_output_fasta( ostream& ss, const ParamBlock& p )
 { 
-	ss << "write alignments(!) to " << (p.genome?p.genome:"any genome") 
-	   << " in FASTA format to " << parse_fn( p.arg ) ;
+	ss << "write best alignments(!) in FASTA format to " << parse_fn( p.arg ) ;
 	if( p.context ) ss << " with " << p.context << "nt of context" ;
 }
 
 Stream* mk_output_fastq( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new FastqWriter( cout.rdbuf() ) : new FastqWriter( p.arg ) ; } 
+{ return new FastqWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_fastq( ostream& ss, const ParamBlock& p )
 { ss << "write sequences(!) in FASTQ format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_table( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new TableWriter( cout.rdbuf(), p.genome ) : new TableWriter( p.arg, p.genome ) ; }
+{ return new TableWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_table( ostream& ss, const ParamBlock& p )
 { 
-	ss << "write useless table" ;
-	if( p.genome ) ss << " about genome " << p.genome ;
-	ss << " to " << parse_fn( p.arg ) ;
+	ss << "write useless table to " << parse_fn( p.arg ) ;
 }
 
 Stream* mk_duct_tape( const ParamBlock& p )
@@ -323,7 +341,7 @@ void desc_duct_tape( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_stats( const ParamBlock& p )
-{ return new StatStream( p.arg, p.genome ) ; }
+{ return new StatStream( p.arg ) ; }
 
 void desc_stats( ostream& ss, const ParamBlock& p )
 { 

@@ -423,16 +423,6 @@ no_match:
 	}
 } 
 
-namespace {
-	template< typename T > T *with_close( T* t )
-	{ t->SetCloseOnDelete( true ) ; return t ; }
-} ;
-
-GlzWriter::GlzWriter( int fd ) : gos_( with_close( new google::protobuf::io::FileOutputStream( fd ) ) ) {}
-GlzWriter::GlzWriter( const char* fn ) : gos_( with_close(
-			new google::protobuf::io::FileOutputStream(
-				throw_errno_if_minus1( creat( fn, 0666 ), "creating", fn ) ) ) ) {}
-
 void GlzWriter::put_result( const Result& rr )
 {
 	static uint8_t dna_to_glf_base[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
@@ -531,7 +521,7 @@ void ThreeAlnWriter::put_result( const Result& res )
 	ss << name_ << ": " << h.genome_name() << '/' << h.sequence() << '@' << h.start_pos() ; 
 	chan_( Console::info, ss.str() ) ;
 
-	out_ << '>' << r.seqid() << ' ' << r.description() << '\n' ;
+	*out_ << '>' << r.seqid() << ' ' << r.description() << '\n' ;
 	// XXX more header lines like this:
 	// out_ << ';' << h.genome_name() << ' ' << h.sequence() << ' '
 		// << ( h.aln_length() < 0 ? '-' : '+' ) << h.start_pos() << std::endl ;
@@ -545,11 +535,11 @@ void ThreeAlnWriter::put_result( const Result& res )
 			case Hit::Match:
 			case Hit::Mismatch:
 			case Hit::Delete:
-				out_ << from_ambicode( *ref ) ;
+				*out_ << from_ambicode( *ref ) ;
 				break ;
 			case Hit::Insert:
 			case Hit::SoftClip:
-				out_ << '-' ;
+				*out_ << '-' ;
 				break ;
 			default:
 				break ;
@@ -565,25 +555,25 @@ void ThreeAlnWriter::put_result( const Result& res )
 			case Hit::Mismatch:
 			case Hit::Insert:
 			case Hit::SoftClip:
-				out_ << r.sequence()[offs] << std::setw(4) << (int)(uint8_t)r.quality()[offs]
+				*out_ << r.sequence()[offs] << std::setw(4) << (int)(uint8_t)r.quality()[offs]
 					<< std::setw(5) << r.depth(offs) << std::setw(5) << ngaps ;
 
-				out_ << "   " ;
+				*out_ << "   " ;
 				for( int i = 0 ; i != 4 ; ++i )
-					out_ << std::setw(4) << r.seen_bases( i + 4*offs ) ;
+					*out_ << std::setw(4) << r.seen_bases( i + 4*offs ) ;
 
-				out_ << "   " ;
+				*out_ << "   " ;
 				for( int i = 0 ; i != 4 ; ++i )
-					out_ << std::setw(4) << (int)(uint8_t)r.likelihoods(i)[offs] ;
+					*out_ << std::setw(4) << (int)(uint8_t)r.likelihoods(i)[offs] ;
 				break ;
 
 			case Hit::Delete:
-				out_ << '-' ;
+				*out_ << '-' ;
 				break ;
 			default:
 				break ;
 		}
-		out_ << '\n' ;
+		*out_ << '\n' ;
 		switch( aln.cigar_op() )
 		{
 			case Hit::Match:

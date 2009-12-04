@@ -406,8 +406,7 @@ class ChunkedReader : public Stream
 
 //! \brief filters that drop or modify isolated records
 //! Think "mapMaybe".
-//! \todo Maybe the fact that some filtering was done should be recorded
-//! in a header, maybe some stats could be put into the footer.
+//! \todo Maybe some stats could be gathered into some sort of a result.
 
 class Filter : public Stream
 {
@@ -416,42 +415,80 @@ class Filter : public Stream
 		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
 } ;
 
+//! \brief filters that drop some alignments
+//! \todo Maybe some stats could be gathered into some sort of a result.
+class HitFilter : public Filter
+{
+	private:
+		vector<string> gs_ ;
+
+	public:
+		HitFilter() {}
+		HitFilter( const vector<string> &gs ) : gs_(gs) {}
+
+		virtual void put_header( const Header& h ) {
+			Filter::put_header( h ) ;
+			hdr_.clear_is_sorted_by_coordinate() ;
+			hdr_.clear_is_sorted_by_all_genomes() ;
+		}
+
+		virtual bool keep( const Hit& ) = 0 ;
+		virtual bool xform( Result& ) ; 
+} ;
+
+namespace {
+	template < typename C, typename V > bool contains( const C& c, const V& v )
+	{ return find( c.begin(), c.end(), v ) != c.end() ; }
+}
+
+//! \brief deletes some alignments
+//! A list of sequences and a list of genomes can be given.  An
+//! alignment is deleted if a) the list of genomes is empty or the hit
+//! genome is a member of that list and b) the list of sequences is
+//! empty or the hit sequence is a member of that list.
+class IgnoreHit : public HitFilter
+{
+	private:
+		vector< string > ss_ ;
+
+	public:
+		IgnoreHit( const vector< string > &gs, const vector< string > &ss ) : HitFilter( gs ), ss_( ss ) {}
+		virtual bool keep( const Hit& h ) { return !ss_.empty() && !contains( ss_, h.sequence() ) ; }
+} ;
+
 //! \brief stream that filters for a given score
 //! Alignments that exceed the score are deleted, but the sequences are
-//! kept.  If a genome is given, only alignments to that genome are
-//! removed, else all are considered individually and selectively
-//! removed.  If no alignments remains, \c reason is set to \c
-//! bad_alignment.  Most interesting downstream operations will ignore
-//! sequences without alignments.  Scores are in Phred scale now,
+//! kept.  If genomes are given, only alignments to that genome are
+//! tested and removed, else all are considered individually and
+//! selectively removed.  If no alignments remains, \c reason is set to
+//! \c bad_alignment.  Most interesting downstream operations will
+//! ignore sequences without alignments.  Scores are in Phred scale now,
 //! experience tells that a typical butoff between good alignments and
 //! junk is \f$ 7.5 \cdot ( \mbox{length} - 20 ) \f$
 
-class ScoreFilter : public Filter
+class ScoreFilter : public HitFilter
 {
 	private:
 		double slope_ ;
 		double intercept_ ;
-		const char *genome_ ;
 
 	public:
-		ScoreFilter( double s, double i, const char* g ) : slope_(s), intercept_(i), genome_(g) {}
-		virtual ~ScoreFilter() {}
-		virtual bool xform( Result& ) ;
+		ScoreFilter( double s, double i, const vector<string> &gs ) : HitFilter(gs), slope_(s), intercept_(i) {}
+		virtual bool keep( const Hit& ) ;
 } ;
 
 //! \brief stream that filters for minimum mapping quality
-//! All alignments of sequences where the differenc eto the next hit is
-//! too low are deleted.
-class MapqFilter : public Filter
+//! All alignments of sequences where the difference to the next hit is
+//! too low are deleted.  Filtering can be restricted to some genomes.
+//! The sequence itself is always kept.
+class MapqFilter : public HitFilter
 {
 	private:
-		const char* g_ ;
 		int minmapq_ ; ;
 
 	public:
-		MapqFilter( const char* g, int q ) : g_(g), minmapq_(q) {}
-		virtual ~MapqFilter() {}
-		virtual bool xform( Result& ) ;
+		MapqFilter( const vector<string> &gs, int q ) : HitFilter(gs), minmapq_(q) {}
+		virtual bool keep( const Hit& ) ;
 } ;
 
 //! \brief stream that filters for minimum sequence length
@@ -465,23 +502,32 @@ class LengthFilter : public Filter
 
 	public:
 		LengthFilter( int l ) : minlength_(l) {}
-		virtual ~LengthFilter() {}
 		virtual bool xform( Result& ) ;
 } ;
 
-//! \brief a stream that removes sequences without a hit
+//! \brief a stream that removes sequences without a specific hit
 //! This is intended to shrink a file by removing junk that didn't
-//! align.  It's not needed for conversion to SAM or similar, since
-//! those filters drop unaligned sequences internally.
-class HitFilter : public Filter
+//! align at all.
+class RequireHit : public Filter
 {
 	private:
-		const char* g_ ;
-		const char* s_ ;
+		vector< string > gs_, ss_ ;
 
 	public:
-		HitFilter( const char* g, const char* s ) : g_(g), s_(s) {}
-		virtual ~HitFilter() {}
+		RequireHit( const vector<string> &gs, const vector<string> &ss ) : gs_(gs), ss_(ss) {}
+		virtual bool xform( Result& ) ;
+} ;
+
+//! \brief a stream that removes sequences without a specific best hit
+//! This is intended to shrink a file by removing junk that didn't
+//! align to the expected genome.
+class RequireBestHit : public Filter
+{
+	private:
+		vector< string > gs_, ss_ ;
+
+	public:
+		RequireBestHit( const vector<string> &gs, const vector<string> &ss ) : gs_(gs), ss_(ss) {}
 		virtual bool xform( Result& ) ;
 } ;
 
@@ -531,11 +577,6 @@ class QualFilter : public Filter
 
     A set of duplicates is (more or less by definition) a set of reads
     that map to the same position.
-   
-    \todo Refine the definition of 'duplicate'.  It appears sensible to
-		  forbid alignments that hang off of a contig, though maybe the
-		  requirement for the same length will catch most of them.
-	\todo Check what happens when sequences are trimmed (compare effective lengths?)
    
 	Any set of duplicates is merged (retaining the original reads in an
 	auxilliary structure), and a consensus is called with new quality
@@ -599,7 +640,11 @@ class RmdupStream : public Stream
 		void call_consensus() ;
 
 	public:
-		RmdupStream( double s, double i, int maxq ) : slope_(s), intercept_(i), maxq_( std::min(maxq,127) ) {}
+		//! \brief sets parameters
+		//! \param s Slope of score function, bad alignments are disregarded.
+		//! \param i Intercept of score function.
+		//! \param q (Assumed) quality of the polymerase.
+		RmdupStream( double s, double i, int q ) : slope_(s), intercept_(i), maxq_( std::min(q,127) ) {}
 
 		virtual void put_header( const Header& h )
 		{

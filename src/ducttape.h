@@ -112,9 +112,7 @@ class GlzWriter : public Stream
 		Chan chan_ ;
 
 	public:
-		GlzWriter( int fd ) ;
-		GlzWriter( const char* fn ) ;
-		virtual ~GlzWriter() {}
+		GlzWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >& p ) : gos_( p.first ) {}
 		virtual void put_result( const Result& ) ;
 } ;
 
@@ -132,16 +130,12 @@ class GlzWriter : public Stream
 class ThreeAlnWriter : public Stream
 {
 	private:
-		std::auto_ptr< std::filebuf > buf_ ;
-		std::ostream out_ ;
+		std::auto_ptr< std::ostream > out_ ;
 		std::string name_ ;
 		Chan chan_ ;
 
 	public:
-		ThreeAlnWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
-		{ buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ; }
-		ThreeAlnWriter( std::streambuf *s ) : buf_(), out_( s ) {}
-		virtual ~ThreeAlnWriter() {} 
+		ThreeAlnWriter( const pair< ostream*, string > &p ) : out_( p.first ), name_( p.second ) {}
 		virtual void put_result( const Result& ) ;
 } ;
 

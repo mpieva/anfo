@@ -429,20 +429,16 @@ class MegaMergeStream : public ConcatStream
 class RepairHeaderStream : public Stream
 {
 	private:
-		const char* editor_ ;
+		string editor_ ;
 
 	public:
-		RepairHeaderStream( const char* e ) : editor_( e ) {}
-		virtual ~RepairHeaderStream() {}
+		RepairHeaderStream( const string &e ) : editor_( e ) {}
 		virtual void put_header( const Header& ) ;
 } ;
 
 class FanOut : public StreamBundle
 {
 	public:
-		FanOut() {}
-		virtual ~FanOut() {}
-
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
@@ -451,9 +447,6 @@ class FanOut : public StreamBundle
 class Compose : public StreamBundle
 {
 	public:
-		Compose() {}
-		virtual ~Compose() {}
-
 		virtual state get_state() ;
 
 		virtual void put_header( const Header&   ) ;
@@ -468,8 +461,7 @@ class Compose : public StreamBundle
 class StatStream : public Stream
 {
 	private:
-		const char* fn_ ;
-		const char* g_ ;
+		string fn_ ;
 		string name_ ;
 
 		unsigned total_, mapped_, mapped_u_, different_ ;
@@ -479,48 +471,16 @@ class StatStream : public Stream
 		void printout( ostream&, bool ) ;
 
 	public:
-		StatStream( const char* fn, const char* g )
-			: fn_(fn), g_(g), total_(0), mapped_(0), mapped_u_(0), different_(0)
+		StatStream( const string& fn )
+			: fn_(fn), total_(0), mapped_(0), mapped_u_(0), different_(0)
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
 		    , bases_squared_(0), bases_m_squared_(0) {}
-		virtual ~StatStream() {}
 
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
 } ;
 
-class IgnoreHit : public Filter
-{
-	private:
-		const char* g_ ;
-		const char* s_ ;
-
-	public:
-		IgnoreHit( const char* g, const char* s ) : g_(g), s_(s) {}
-		virtual ~IgnoreHit() {}
-		virtual void put_header( const Header& h ) {
-			Filter::put_header( h ) ;
-			hdr_.clear_is_sorted_by_coordinate() ;
-		}
-
-		virtual bool xform( Result& r ) 
-		{
-			int j = 0 ;
-			for( int i = 0 ; i != r.hit_size() ; ++i )
-			{
-				if( (g_ && *g_ && r.hit(i).genome_name() != g_)
-						|| (s_ && *s_ && r.hit(i).sequence() != s_) )
-				{
-					if( i != j ) swap( *r.mutable_hit(j), *r.mutable_hit(i) ) ;
-					++j ;
-				}
-			}
-			while( j != r.hit_size() ) r.mutable_hit()->RemoveLast() ;
-			return true ;
-		}
-} ;
-
-class RegionFilter : public Filter
+class RegionFilter : public HitFilter
 {
 	private:
 		typedef std::map< unsigned, unsigned > Regions ;		// end(!) & start
@@ -532,14 +492,13 @@ class RegionFilter : public Filter
 		Regions2 *my_regions ;
 
 	public:
-		RegionFilter( const std::string &fn ) ;
+		RegionFilter( const pair< istream*, string >& ) ;
 
 		//! \brief looks for a region overlapping the current alignment
 		//! This will only work correctly for non-overlapping
 		//! annotations.  Deal with it.
-		bool inside( const Result& res )
+		bool inside( const Hit& h )
 		{
-			const Hit &h = hit_to( res ) ;
 			unsigned x = h.start_pos() ;
 			const Regions &r = (*my_regions)[ h.sequence() ] ;
 			Regions::const_iterator i = r.lower_bound( x ) ;
@@ -555,14 +514,14 @@ class RegionFilter : public Filter
 class InsideRegion : public RegionFilter
 {
 	public:
-		InsideRegion( const std::string& fn ) : RegionFilter( fn ) {}
-		bool xform( Result& r ) { return inside( r ) ; }
+		InsideRegion( const pair< istream*, string > &p ) : RegionFilter( p ) {}
+		bool keep( const Hit& h ) { return inside( h ) ; }
 } ;
 class OutsideRegion : public RegionFilter
 {
 	public:
-		OutsideRegion( const std::string& fn ) : RegionFilter( fn ) {}
-		bool xform( Result& r ) { return !inside( r ) ; }
+		OutsideRegion( const pair< istream*, string > &p ) : RegionFilter( p ) {}
+		bool keep( const Hit& h ) { return !inside( h ) ; }
 } ;
 
 

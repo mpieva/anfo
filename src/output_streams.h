@@ -31,6 +31,8 @@ namespace config { class Config ; }
 
 namespace streams {
 
+	using namespace google::protobuf::io ;
+
 //! \brief writes in google's text format
 //! This is the human readable version of the native format.
 //! Additionally, alignment strings and a CLUSTAL-style 'conservation'
@@ -38,16 +40,12 @@ namespace streams {
 class TextWriter : public Stream
 {
 	private:
-		google::protobuf::io::FileOutputStream fos_ ;
+		auto_ptr< ZeroCopyOutputStream > os_ ;
 
 		void print_msg( const google::protobuf::Message& ) ;
 
 	public:
-		TextWriter( int fd ) : fos_( fd ) {}
-		TextWriter( const char* fn ) 
-			: fos_( throw_errno_if_minus1( creat( fn, 0666 ), "creating", fn ) )
-		{ fos_.SetCloseOnDelete( true ) ; }
-		virtual ~TextWriter() {}
+		TextWriter( const pair< ZeroCopyOutputStream*, string > &p ) : os_( p.first ) {}
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
@@ -55,15 +53,21 @@ class TextWriter : public Stream
 } ;
 
 //! \brief writes in SAM format
+//! Every hit for every sequence is written.  A sequence without hits is
+//! written out anyway.  If that's not desired, the input stream must be
+//! filtered appropriately.
+//! \todo Writing SAM is probably a bad idea in the long run.  Directly
+//!       generating BAM is more sustainable
+//! \todo Creation of correctly sorted SAM files is next to impossible.
+//!       Maybe creation of BAM files is better anyway.
 class SamWriter : public Stream
 {
 	private:
 		enum bad_stuff { goodness = 0, no_hit, multiple_hits, no_seqid, no_seq, bad_cigar, bad_stuff_max } ; 
 		static const char *descr[] ;
 
-		std::auto_ptr< std::filebuf > buf_ ;
-		std::ostream out_ ;
-		const char *g_ ;
+		std::auto_ptr< std::ostream > out_ ;
+		string nm_ ;
 		int discarded[bad_stuff_max] ;
 
 		enum bam_flags {
@@ -83,28 +87,17 @@ class SamWriter : public Stream
 		bad_stuff protoHit_2_bam_Hit( const output::Result& ) ;
 
 	public:
-		SamWriter( const char* fn, const char* g ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g)
-		{
-			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
-			memset( discarded, 0, sizeof(discarded) ) ;
-		}
-
-		SamWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g)
+		SamWriter( const pair< ostream*, string > &p ) : out_( p.first ), nm_( p.second )
 		{
 			memset( discarded, 0, sizeof(discarded) ) ;
 		}
-
-		virtual ~SamWriter() {}
 
 		virtual void put_header( const Header& h ) 
 		{
 			Stream::put_header( h ) ;
-			out_ << "@HD\tVN:1.0" ;
-			if( (h.has_is_sorted_by_all_genomes() && !g_) ||
-					(h.is_sorted_by_coordinate_size() == 1 && h.is_sorted_by_coordinate(0) == g_) )
-				out_ << "\tSO:coordinate" ;
-			else if( h.is_sorted_by_name() ) out_ << "\tSO:queryname" ;
-			out_ << "\n@PG\tID:ANFO\tVN:" << h.version() << '\n' ;
+			*out_ << "@HD\tVN:1.0" ;
+			if( h.is_sorted_by_name() ) *out_ << "\tSO:queryname" ;
+			*out_ << "\n@PG\tID:ANFO\tVN:" << h.version() << '\n' ;
 		}
 
 		virtual void put_result( const Result& res )
@@ -124,20 +117,11 @@ class SamWriter : public Stream
 class FastaAlnWriter : public Stream
 {
 	private:
-		std::auto_ptr< std::filebuf > buf_ ;
-		std::ostream out_ ;
-		const char* g_ ;
+		std::auto_ptr< std::ostream > out_ ;
 		int c_ ;
 
 	public:
-		FastaAlnWriter( const char* fn, const char* g, int c ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g), c_(c)
-		{
-			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
-		}
-
-		FastaAlnWriter( std::streambuf *s, const char* g, int c ) : buf_(), out_( s ), g_(g), c_(c) { }
-		virtual ~FastaAlnWriter() {}
-
+		FastaAlnWriter( const pair< ostream*, string > &p, int c ) : out_( p.first ), c_(c) {}
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 } ;
@@ -150,37 +134,20 @@ class FastaAlnWriter : public Stream
 class FastqWriter : public Stream
 {
 	private:
-		std::auto_ptr< std::filebuf > buf_ ;
-		std::ostream out_ ;
+		std::auto_ptr< std::ostream > out_ ;
 
 	public:
-		FastqWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
-		{
-			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
-		}
-
-		FastqWriter( std::streambuf *s ) : buf_(), out_( s ) {}
-		virtual ~FastqWriter() {}
-
+		FastqWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
 		virtual void put_result( const Result& ) ;
 } ;
 
 class TableWriter : public Stream
 {
 	private:
-		std::auto_ptr< std::filebuf > buf_ ;
-		std::ostream out_ ;
-		const char *g_ ;
+		std::auto_ptr< std::ostream > out_ ;
 
 	public:
-		TableWriter( const char* fn, const char* g ) : buf_( new std::filebuf ), out_( buf_.get() ), g_(g)
-		{
-			buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ;
-		}
-
-		TableWriter( std::streambuf *s, const char* g ) : buf_(), out_( s ), g_(g) { }
-		virtual ~TableWriter() {}
-
+		TableWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
 		virtual void put_result( const Result& ) ;
 } ;
 

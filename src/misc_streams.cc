@@ -154,7 +154,7 @@ void RepairHeaderStream::put_header( const Header& h )
 		TextFormat::Print( h, &fos ) ;
 	}
 
-	string cmd = string( editor_ ? editor_ : getenv("EDITOR") ) + " " + tmpname ;
+	string cmd = (editor_.empty() ? getenv("EDITOR") : editor_) + " " + tmpname ;
 	for(;;) {
 		if( system( cmd.c_str() ) ) break ;;
 		lseek( fd, 0, SEEK_SET ) ;
@@ -295,13 +295,13 @@ void StatStream::put_result( const Result& r )
 	bases_ += bases ;
 	bases_gc_ += gc ;
 	bases_squared_ += bases*bases ;
-	if( has_hit_to( r, g_ ) )
+	if( has_hit_to( r, 0 ) )
 	{
 		mapped_ += count ;
 		bases_m_ += bases ;
 		bases_m_squared_ += bases*bases ;
 		bases_gc_m_ += gc ;
-		if( !hit_to( r, g_ ).has_diff_to_next() || hit_to( r, g_ ).diff_to_next() >= 60 )
+		if( !hit_to( r, 0 ).has_diff_to_next() || hit_to( r, 0 ).diff_to_next() >= 60 )
 		{
 			mapped_u_ += count ;
 			++different_ ;
@@ -313,37 +313,39 @@ void StatStream::put_result( const Result& r )
 void StatStream::put_footer( const Footer& f )
 {
 	Stream::put_footer( f ) ;
-	if( !fn_ || 0 == strcmp( fn_, "-" ) ) printout( cout, true ) ;
-	else if( 0 == strcmp( fn_, "+-" ) ) printout( cout, false ) ;
-	else if( *fn_ == '+' ) 
+	if( fn_.empty() || fn_ == "-" ) printout( cout, true ) ;
+	else if( fn_ == "+-" ) printout( cout, false ) ;
+	else if( fn_[0] == '+' ) 
 	{
-		ofstream s( fn_+1, ios_base::app ) ;
+		ofstream s( fn_.substr(1).c_str(), ios_base::app ) ;
 		printout( s, false ) ;
 	}
 	else 
 	{
-		ofstream s( fn_, ios_base::trunc ) ;
+		ofstream s( fn_.c_str(), ios_base::trunc ) ;
 		printout( s, true ) ;
 	}
 }
 
 RegionFilter::Regions3 RegionFilter::all_regions ;
 
-RegionFilter::RegionFilter( const std::string &fn )
+RegionFilter::RegionFilter( const pair< istream*, string >& p )
 {
+	auto_ptr< istream > deffile( p.first ) ;
+	const string &fn = p.second ;
+
 	Regions3::iterator i = all_regions.find( fn ) ;
 	if( i != all_regions.end() ) my_regions = &i->second ;
 	else
 	{
 		my_regions = &all_regions[ fn ] ;
 
-		console.output( Console::notice, "Loading annotation file " + fn ) ;
-		std::ifstream deffile( fn.c_str() ) ;
+		console.output( Console::notice, "Loading annotation from " + fn ) ;
 		std::string junk, chrom ;
 		unsigned start, end ;
 
-		std::getline( deffile, junk ) ;
-		while( std::getline( deffile >> junk >> chrom >> start >> end, junk ) )
+		std::getline( *deffile, junk ) ;
+		while( std::getline( *deffile >> junk >> chrom >> start >> end, junk ) )
 			(*my_regions)[ chrom ][ end ] = start ;
 	}
 }
