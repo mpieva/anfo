@@ -109,7 +109,15 @@ WRAPPED_MAIN
 
 	if( !output_file ) throw "no output file" ;
 
+    std::string of( expand( output_file, task_id ) ) ;
+
+	// no-op if output exists and overwriting wasn't asked for
+    if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
+
     console.set_quiet() ;
+    of.append( ".#new#" ) ;
+	streams::ChunkedWriter os( of.c_str(), 25 ) ; // prefer speed over compression
+
 	Config conf = get_default_config( config_file ) ;
 	Mapper mapper( conf ) ;
 
@@ -117,14 +125,6 @@ WRAPPED_MAIN
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( expand( arg, task_id ) ) ;
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
-
-    std::string of( expand( output_file, task_id ) ) ;
-
-	// no-op if output exists and overwriting wasn't asked for
-    if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
-
-    of.append( ".#new#" ) ;
-	streams::ChunkedWriter os( of.c_str(), 25 ) ;
 
 	output::Header ohdr ;
 	*ohdr.mutable_config() = conf ;

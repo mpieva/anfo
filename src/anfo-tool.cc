@@ -274,7 +274,7 @@ void desc_concat( ostream& ss, const ParamBlock& )
 { ss << "concatenate streams" ; }
 
 Stream* mk_output( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new ChunkedWriter( 1, 99, "<stdout>" ) : new ChunkedWriter( p.arg, 99 ) ; } 
+{ return is_stdout( p.arg ) ? new ChunkedWriter( 1, 75, "<stdout>" ) : new ChunkedWriter( p.arg, 75 ) ; } 
 
 void desc_output( ostream& ss, const ParamBlock& p )
 { ss << "write native output to " << parse_fn( p.arg ) ; }

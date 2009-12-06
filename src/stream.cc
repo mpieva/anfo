@@ -249,7 +249,9 @@ void AnfoWriter::put_result( const Result& r )
 
 void ChunkedWriter::init() 
 {
-	buf_.resize( 1024*1024 ) ;
+    // sensible buffer size: big enough to make compression worthwhile,
+    // small enough that BZip won't split it again
+	buf_.resize( 850000 ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 	CodedOutputStream o( zos_.get() ) ;
 	o.WriteRaw( "ANF1", 4 ) ;
@@ -299,7 +301,8 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 				break ;
 
 			case bzip:
-				comp_size = uncomp_size * 101 / 100 + 601 ;
+                // docu says 5% is overkill.  didn't work with 1% reserve, though...
+				comp_size = uncomp_size * 21 / 20 + 601 ;
 				tmp.resize( comp_size ) ;
 				if( BZ_OK != BZ2_bzBuffToBuffCompress( &tmp[0], &comp_size, &buf_[0], uncomp_size, level_, 0, 0 ) )
 					throw "cannot happen!  overflow in BZ2_bzBuffToBuffCompress" ;
