@@ -317,20 +317,19 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 		// note: this is effectively broken for RC'ed alignments (but
 		// that doesn't matter in *this* application).
 
-		if( has_hit_to( res, genome ) )
+		if( const Hit *h = hit_to( res, genome ) )
 		{
-			const Hit &h = hit_to( res, genome ) ;
-			unsigned char cur_chr = lookup_sym( h.sequence() ) ;
+			unsigned char cur_chr = lookup_sym( h->sequence() ) ;
 
 			// skip ahead to correct chromosome
 			while( first_snp != mt.end() && get( first_snp ).chr != cur_chr 
-					&& symbols[ get( first_snp ).chr ] < h.sequence() )
+					&& symbols[ get( first_snp ).chr ] < h->sequence() )
 				++first_snp ;
 
 			if( ++k % 1024 == 0 )
 			{
 				stringstream s ;
-				s   << "SNPs vs. " << genome << " (" << h.sequence() << '/' 
+				s   << "SNPs vs. " << genome << " (" << h->sequence() << '/' 
 					<< symbols[ get( first_snp ).chr ] << "): " 
 					<< first_snp - mt.begin() << '/' << mt.size() ;
 				progress( Console::info, s.str() ) ;
@@ -338,20 +337,20 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 
 			if( get( first_snp ).chr != cur_chr ) continue ;
 
-			GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
-			DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ;
-			int cigar_maj = 0, ref_pos = h.start_pos() ;
+			GenomeHolder g = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
+			DnaP ref = g->find_pos( h->sequence(), h->start_pos() ) ;
+			int cigar_maj = 0, ref_pos = h->start_pos() ;
 			size_t cigar_min = 0, qry_pos = 0 ;
 
 			while( qry_pos != res.read().sequence().size() )
 			{
-				while( cigar_maj != h.cigar_size() &&
-						cigar_min == cigar_len( h.cigar(cigar_maj) ) )
+				while( cigar_maj != h->cigar_size() &&
+						cigar_min == cigar_len( h->cigar(cigar_maj) ) )
 				{
 					cigar_min = 0 ;
 					++cigar_maj ;
 				}
-				if( cigar_maj == h.cigar().size() ) break ; // shouldn't happen (but you never know)
+				if( cigar_maj == h->cigar().size() ) break ; // shouldn't happen (but you never know)
 
 				// skip SNPs that cannot possibly overlap current position
 				// (keep gap_buffer in mind, we need to look at a bit more)
@@ -366,7 +365,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 				for( vector<SnpRec*>::iterator cur_snp = first_snp ; cur_snp != mt.end() ; ++cur_snp )
 				{
 					SnpRec1 &snp = get( cur_snp ) ;
-					Hit::Operation op = cigar_op( h.cigar(cigar_maj) ) ;
+					Hit::Operation op = cigar_op( h->cigar(cigar_maj) ) ;
 					if( snp.chr != cur_chr || snp.pos - gap_buffer >= ref_pos ) break ;
 
 					// sanity check: only possible if we're not looking at an insert
@@ -420,7 +419,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 					}
 				}
 
-				switch( cigar_op( h.cigar(cigar_maj) ) )
+				switch( cigar_op( h->cigar(cigar_maj) ) )
 				{
 					case Hit::Delete:
 						++cigar_min ;
@@ -442,7 +441,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 						break ;
 
 					default: // anything else: can't do anything  In fact, isn't even supported.
-						error( 1, 0, "Unexpected CIGAR operation %d.",  cigar_op( h.cigar(cigar_maj) ) ) ;
+						error( 1, 0, "Unexpected CIGAR operation %d.",  cigar_op( h->cigar(cigar_maj) ) ) ;
 				}
 			}
 		}

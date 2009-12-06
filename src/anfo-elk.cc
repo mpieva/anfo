@@ -17,19 +17,10 @@
 //! \page anfo-elk ELK extension to control ANFO.   
 //! The idea: use the ELK interpreter as a scripting engine for
 //! golfing ANFO files.
-
-//! \todo Check what happens to string we pull out of Object values.  They
-//!       should be copied and freed properly.
-
+//!
 //! \todo Deal with errors: C++ exceptions need to be caught, formatted
 //!       and reflected back into Scheme.
-
-//! \todo Include many, many more streams...
-//!
-//! \todo Deal with file descriptors/ports in a regular way; e.g.
-//!       strings are file names, ints are file descriptors, #f is
-//!       stdout or stdin, ports have their fd extracted, other scheme
-//!       ports are wrapped (and garbage collected or something?).
+//! \todo Deal with scheme ports and raw file descriptors somehow.
 
 #ifdef HAVE_CONFIG_H
 #include "../config.h"
@@ -73,8 +64,6 @@ extern "C" Object terminate_stream( Object o )
 	return Void ;
 }
 
-StreamHolder obj_to_stream( Object o ) { return TYPE( o ) != t_stream ? StreamHolder() : ((StreamWrapper*)POINTER(o))->h_ ; }
-
 Object wrap_stream( StreamHolder h )
 {
 	Object o = Alloc_Object( sizeof( StreamWrapper ), t_stream, 0 ) ;
@@ -83,15 +72,6 @@ Object wrap_stream( StreamHolder h )
 	w->h_->get_state() ;
 	return o ;
 }
-
-Object wrap_streams( StreamBundle *m_, int argc, Object *argv )
-{
-	Holder< StreamBundle > m( m_ ) ;
-	for( Object *o = argv ; o != argv + argc ; ++o )
-		m->add_stream( obj_to_stream( *o ) ) ;
-	return wrap_stream( m ) ;
-}
-
 
 string object_to_string( Object o, const string& def = "" ) 
 { 
@@ -144,6 +124,7 @@ pair< std::ostream*, string > open_any_output_std( Object o )
 	}
 	throw "can't handle file argument" ;
 }
+
 pair< std::istream*, string > open_any_input_std( Object o )
 {
 	switch( TYPE(o) )
@@ -163,6 +144,25 @@ pair< std::istream*, string > open_any_input_std( Object o )
 	throw "can't handle file argument" ;
 }
 
+StreamHolder obj_to_stream( Object o, bool sol = false , int ori = 33 )
+{
+	if( TYPE(o) == t_stream ) return ((StreamWrapper*)POINTER(o))->h_ ;
+	switch( TYPE(o) )
+	{
+		case T_Symbol:
+		case T_String:
+			return make_input_stream( object_to_string(o).c_str(), sol, ori ) ;
+
+		case T_Boolean:
+			if( !Truep(o) ) return make_input_stream( 0, "<stdin>", sol, ori ) ;
+
+		case T_Fixnum: // needs support code
+		case T_Port: // needs support code
+			break ;
+	}
+	throw "can't handle file argument" ;
+}
+
 vector<string> obj_to_genomes( Object o )
 {
 	vector<string> r ;
@@ -173,6 +173,15 @@ vector<string> obj_to_genomes( Object o )
 			r.push_back( object_to_string( Car(o) ) ) ;
 	return r ;
 }
+
+Object wrap_streams( StreamBundle *m_, int argc, Object *argv )
+{
+	Holder< StreamBundle > m( m_ ) ;
+	for( Object *o = argv ; o != argv + argc ; ++o )
+		m->add_stream( obj_to_stream( *o ) ) ;
+	return wrap_stream( m ) ;
+}
+
 
 
 extern "C" {
@@ -249,6 +258,7 @@ Object p_ignore_hit( Object genomes, Object sequences )
 
 Object p_filter_multi( Object m ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
 Object p_subsample( Object r ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
+Object p_sanitize() { return wrap_stream( new Sanitizer() ) ; }
 Object p_edit_header( Object e ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
 Object p_inside_region( Object f ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
 Object p_outside_region( Object f ) { return wrap_stream( new OutsideRegion( open_any_input_std( f ) ) ) ; }
@@ -291,6 +301,8 @@ Object p_chain( int argc, Object *argv )
 	return wrap_stream( c ) ;
 }
 
+Object p_read_file( Object fn, Object sol_scores, Object ori )
+{ return wrap_stream( obj_to_stream( fn, Truep( sol_scores ), Get_Integer( ori ) ) ) ; }
 
 // init code
 
@@ -324,6 +336,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;
 	Define_Primitive( (P)p_filter_multi,     "filter-multiplicity", 1, 1, EVAL ) ;
 	Define_Primitive( (P)p_subsample,        "subsample",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_sanitize,         "sanitize",            0, 0, EVAL ) ;
 	Define_Primitive( (P)p_edit_header,      "edit-header",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;
@@ -338,8 +351,9 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_join,   "join",   1, MANY, VARARGS ) ; 
 	Define_Primitive( (P)p_concat, "concat", 1, MANY, VARARGS ) ; 
 
-	Define_Primitive( (P)p_anfo_run, "anfo-run", 2, MANY, VARARGS ) ;
-	Define_Primitive( (P)p_chain,    "chain", 	 1, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_anfo_run,  "anfo-run",  2, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_chain,     "chain", 	   1, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_read_file, "read-file", 3, 3, EVAL ) ;
 }
 
 } // extern C

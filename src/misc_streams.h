@@ -33,30 +33,30 @@ struct by_genome_coordinate {
 
 	bool compare( const Result &a, const Result &b )
 	{
-		if( has_hit_to( a ) && !has_hit_to( b ) ) return true ;
-		if( !has_hit_to( a ) ) return false ;
+		const Hit *u = hit_to( a ), *v = hit_to( b ) ;
+		if( u && !v ) return true ;
+		if( !u ) return false ;
 
-		const Hit& u = hit_to( a ), v = hit_to( b ) ;
-		if( u.genome_name() < v.genome_name() ) return true ;
-		if( v.genome_name() < u.genome_name() ) return false ;
-		if( u.sequence() < v.sequence() ) return true ;
-		if( v.sequence() < u.sequence() ) return false ;
-		if( u.start_pos() < v.start_pos() ) return true ;
-		if( v.start_pos() < u.start_pos() ) return false ;
-		return u.aln_length() < v.aln_length() ;
+		if( u->genome_name() < v->genome_name() ) return true ;
+		if( v->genome_name() < u->genome_name() ) return false ;
+		if( u->sequence() < v->sequence() ) return true ;
+		if( v->sequence() < u->sequence() ) return false ;
+		if( u->start_pos() < v->start_pos() ) return true ;
+		if( v->start_pos() < u->start_pos() ) return false ;
+		return u->aln_length() < v->aln_length() ;
 	}
 
 	bool compare( const Result &a, const Result &b, const string& g )
 	{
-		if( has_hit_to( a, g ) && !has_hit_to( b, g ) ) return true ;
-		if( !has_hit_to( a, g ) ) return false ;
+		const Hit *u = hit_to( a, g ), *v = hit_to( b, g ) ;
+		if( u && !v ) return true ;
+		if( !u ) return false ;
 
-		const Hit& u = hit_to( a, g ), v = hit_to( b, g ) ;
-		if( u.sequence() < v.sequence() ) return true ;
-		if( v.sequence() < u.sequence() ) return false ;
-		if( u.start_pos() < v.start_pos() ) return true ;
-		if( v.start_pos() < u.start_pos() ) return false ;
-		return u.aln_length() < v.aln_length() ;
+		if( u->sequence() < v->sequence() ) return true ;
+		if( v->sequence() < u->sequence() ) return false ;
+		if( u->start_pos() < v->start_pos() ) return true ;
+		if( v->start_pos() < u->start_pos() ) return false ;
+		return u->aln_length() < v->aln_length() ;
 	}
 
 	void tag_header( output::Header& h ) {
@@ -515,15 +515,21 @@ class InsideRegion : public RegionFilter
 {
 	public:
 		InsideRegion( const pair< istream*, string > &p ) : RegionFilter( p ) {}
-		bool keep( const Hit& h ) { return inside( h ) ; }
+		virtual bool keep( const Hit& h ) { return inside( h ) ; }
 } ;
 class OutsideRegion : public RegionFilter
 {
 	public:
 		OutsideRegion( const pair< istream*, string > &p ) : RegionFilter( p ) {}
-		bool keep( const Hit& h ) { return !inside( h ) ; }
+		virtual bool keep( const Hit& h ) { return !inside( h ) ; }
 } ;
 
+class Sanitizer : public Filter
+{
+	public:
+		virtual void put_header( const Header& ) ;
+		virtual bool xform( Result& ) ;
+} ;
 
 } // namespace
 

@@ -625,33 +625,25 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 	lhs.set_exit_code( exit_code ) ;
 }
 
-bool has_hit_to( const output::Result& r, const string& g )
-{
-	for( int i = 0 ; i != r.hit_size() ; ++i )
-		if( r.hit(i).genome_name() == g )
-			return true ;
 
-	return false ;
-}
-
-const output::Hit& hit_to( const output::Result& r )
+const output::Hit* hit_to( const output::Result& r )
 {
 	if( r.hit_size() ) {
 		const output::Hit *h = &r.hit(0) ;
 		for( int i = 1 ; i != r.hit_size() ; ++i )
 			if( r.hit(i).score() < h->score() )
 				h = &r.hit(i) ; 
-		return *h ;
+		return h ;
 	}
-	throw "hit_to: no suitable hit" ;
+	return 0 ;
 }
 
-const output::Hit& hit_to( const output::Result& r, const string& g )
+const output::Hit* hit_to( const output::Result& r, const string& g )
 {
 	for( int i = 0 ; i != r.hit_size() ; ++i )
 		if( r.hit(i).genome_name() == g )
-			return r.hit(i) ;
-	throw "hit_to: no suitable hit" ;
+			return &r.hit(i) ;
+	return 0 ;
 }
 
 output::Hit* mutable_hit_to( output::Result* r )
@@ -726,7 +718,7 @@ bool RequireHit::xform( Result& r )
 	return false ;
 }
 
-bool RequireBestHit::xform( Result& r ) { return has_hit_to( r, 0 ) && good_hit( hit_to( r, 0 ), gs_, ss_ ) ; }
+bool RequireBestHit::xform( Result& r ) { const Hit *h = hit_to( r ) ; return h && good_hit( *h, gs_, ss_ ) ; }
 
 
 bool Subsample::xform( Result& ) 
@@ -741,14 +733,11 @@ namespace {
 
 bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) 
 {
-	if( eff_length( lhs.read() ) != eff_length( rhs.read() )
-			|| !has_hit_to( lhs, gs_.begin(), gs_.end() ) || !has_hit_to( rhs, gs_.begin(), gs_.end() ) )
-		return false ;
+	const output::Hit *l = hit_to( lhs, gs_.begin(), gs_.end() ), *r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
 
-	const output::Hit &l = hit_to( lhs, gs_.begin(), gs_.end() ), &r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
-
-	return l.genome_name() == r.genome_name() && l.sequence() == r.sequence()
-		&& l.start_pos() == r.start_pos() && l.aln_length() == r.aln_length() ;
+	return l && r && eff_length( lhs.read() ) == eff_length( rhs.read() ) 
+		&& l->genome_name() == r->genome_name() && l->sequence() == r->sequence()
+		&& l->start_pos() == r->start_pos() && l->aln_length() == r->aln_length() ;
 }
 
 //! \todo How do we deal with ambiguity codes?  What's the meaning of
@@ -835,8 +824,8 @@ void RmdupStream::put_footer( const Footer& f ) {
 
 void RmdupStream::put_result( const Result& next ) 
 {
-	if( !has_hit_to( next, gs_.begin(), gs_.end() ) || hit_to( next, gs_.begin(), gs_.end() ).score() >
-			slope_ * ( len_from_bin_cigar( hit_to( next, gs_.begin(), gs_.end() ).cigar() ) - intercept_ ) )
+	const Hit *h = hit_to( next, gs_.begin(), gs_.end() ) ;
+	if( !h || h->score() > slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) )
 	{
 		// bad alignment -- this one passes through without merging
 		// we clamp qualities, though

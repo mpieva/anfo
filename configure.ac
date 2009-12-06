@@ -12,12 +12,15 @@ AC_PROG_LIBTOOL
 AC_PROG_CXX
 AC_PROG_INSTALL
 AC_PATH_PROG([PROTOC], [protoc])
+AC_PATH_PROG([ELK],elk)
 AC_ARG_VAR([PROTOC], [location of protobuf compiler])
+AC_ARG_VAR([ELK], [location of elk interpreter])
 
 # Checks for libraries.
 AC_SEARCH_LIBS([exp], [m])
 AC_SEARCH_LIBS([log1p], [m])
 AC_SEARCH_LIBS([pthread_create], [pthread], [have_pthread=1])
+AC_SEARCH_LIBS([Elk_Init], [elk], [have_libelk=1])
 AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
@@ -47,14 +50,8 @@ AC_TYPE_UINT8_T
 AC_TYPE_SIGNAL
 AC_CHECK_FUNCS([memset munmap pow strerror])
 
-AC_PATH_PROG(GUILE_CONFIG,guile-config)
-if test "$GUILE_CONFIG" ; then
-	GUILE_FLAGS
-	GUILE_SITE_DIR
-fi
-
 AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
-AM_CONDITIONAL([GUILE],[test "$GUILE_CFLAGS"])
+AM_CONDITIONAL([ELK],[test "$ELK" && test "$have_libelk"])
 
 AC_CONFIG_FILES([
 		 Makefile

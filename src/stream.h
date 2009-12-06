@@ -102,31 +102,19 @@ void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 
-//! \brief checks if a genome was hit
-//! If an empty genome is asked for, checks for any hit.
-bool has_hit_to( const output::Result&, const string& ) ;
-inline bool has_hit_to( const output::Result& r ) { return r.hit_size() > 0 ; }
-inline bool has_hit_to( const output::Result& r, const char* g ) { return g ? has_hit_to( r ) : has_hit_to( r, string(g) ) ; }
-
-template< typename I > bool has_hit_to( const output::Result& r, I begin, I end ) 
-{
-	for( ; begin != end ; ++begin )
-		if( has_hit_to( r, *begin ) ) return true ;
-	return false ;
-}
 
 //! \brief returns the hit to some genome
 //! If an empty genome is asked for, returns the best hit.  Behaviour is
 //! undefined if no suitable hit exists.
-const output::Hit& hit_to( const output::Result& ) ;
-const output::Hit& hit_to( const output::Result&, const string& ) ;
-inline const output::Hit& hit_to( const output::Result& r, const char* g ) { return g ? hit_to( r ) : hit_to( r, string(g) ) ; }
+const output::Hit* hit_to( const output::Result& ) ;
+const output::Hit* hit_to( const output::Result&, const string& ) ;
+inline const output::Hit* hit_to( const output::Result& r, const char* g ) { return g ? hit_to( r ) : hit_to( r, string(g) ) ; }
 
-template< typename I > const output::Hit& hit_to( const output::Result& r, I begin, I end )
+template< typename I > const output::Hit* hit_to( const output::Result& r, I begin, I end )
 {
 	for( ; begin != end ; ++begin )
-		if( has_hit_to( r, *begin ) ) return hit_to( r, *begin ) ;
-	throw "no suitable hit" ;
+		if( const output::Hit* h = hit_to( r, *begin ) ) return h ;
+	return 0 ;
 }
 
 //! \brief returns the mutable hit to some genome

@@ -295,13 +295,13 @@ void StatStream::put_result( const Result& r )
 	bases_ += bases ;
 	bases_gc_ += gc ;
 	bases_squared_ += bases*bases ;
-	if( has_hit_to( r, 0 ) )
+	if( const Hit* h = hit_to( r ) )
 	{
 		mapped_ += count ;
 		bases_m_ += bases ;
 		bases_m_squared_ += bases*bases ;
 		bases_gc_m_ += gc ;
-		if( !hit_to( r, 0 ).has_diff_to_next() || hit_to( r, 0 ).diff_to_next() >= 60 )
+		if( !h->has_diff_to_next() || h->diff_to_next() >= 60 )
 		{
 			mapped_u_ += count ;
 			++different_ ;
@@ -348,6 +348,23 @@ RegionFilter::RegionFilter( const pair< istream*, string >& p )
 		while( std::getline( *deffile >> junk >> chrom >> start >> end, junk ) )
 			(*my_regions)[ chrom ][ end ] = start ;
 	}
+}
+
+void Sanitizer::put_header( const Header& h )
+{
+	Filter::put_header( h ) ;
+	hdr_.clear_sge_slicing_index() ;
+	hdr_.clear_sge_slicing_stride() ;
+	hdr_.clear_command_line() ;
+	hdr_.clear_sge_job_id() ;
+	hdr_.clear_sge_task_id() ;
+	hdr_.mutable_config()->clear_genome_path() ;
+}
+
+bool Sanitizer::xform( Result& r )
+{
+	r.clear_aln_stats() ;
+	return true ;
 }
 
 } ; // namespace

@@ -118,23 +118,23 @@ const char* parse_fn( const char* a ) { return is_stdout( a ) ? "<stdout>" : a ;
 pair< ZeroCopyOutputStream*, string > make_output_stream_zc( const char* a )
 {
 	return is_stdout( a )
-		? make_pair( new FileOutputStream( throw_errno_if_minus1( 
-						creat( a, 0666 ), "opening", a ) ) , a )
-		: make_pair( new FileOutputStream( 1 ), "<stdout>" ) ;
+		? make_pair( new FileOutputStream( 1 ), "<stdout>" ) 
+		: make_pair( new FileOutputStream( throw_errno_if_minus1( 
+						creat( a, 0666 ), "opening", a ) ) , a ) ;
 }
 
 pair< ostream*, string > make_output_stream_std( const char* a )
 {
 	return is_stdout( a )
-		? make_pair( static_cast<ostream*>( new ofstream( a ) ), a )
-		: make_pair( new ostream( cout.rdbuf() ), "<stdout>" ) ;
+		? make_pair( new ostream( cout.rdbuf() ), "<stdout>" )
+		: make_pair( static_cast<ostream*>( new ofstream( a ) ), a ) ;
 }
 
 pair< istream*, string > make_input_stream_std( const char* a )
 {
 	return is_stdout( a )
-		? make_pair( static_cast<istream*>( new ifstream( a ) ), a )
-		: make_pair( new istream( cin.rdbuf() ), "<stdin>" ) ;
+		? make_pair( new istream( cin.rdbuf() ), "<stdin>" ) 
+		: make_pair( static_cast<istream*>( new ifstream( a ) ), a ) ;
 }
 
 Stream* mk_sort_by_pos( const ParamBlock& p )
@@ -351,6 +351,12 @@ void desc_stats( ostream& ss, const ParamBlock& p )
 		ss << "write statistics to " << parse_fn( p.arg ) ;
 }
 
+Stream* mk_sanitize( const ParamBlock& )
+{ return new Sanitizer() ; }
+
+void desc_sanitize( ostream& ss, const ParamBlock& )
+{ ss << "remove debugging information" ; }
+
 const char *poptGetOptArg1( poptContext con )
 {
 	const char *p = poptGetOptArg( con ) ;
@@ -366,7 +372,7 @@ WRAPPED_MAIN
 	enum {
 		opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit,
-		opt_delete_hit, opt_filter_qual, opt_subsample,
+		opt_delete_hit, opt_filter_qual, opt_subsample, opt_sanitize,
 		opt_filter_multi, opt_edit_header, opt_merge, opt_join,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output,
 		opt_output_text, opt_output_sam, opt_output_glz,
@@ -377,7 +383,7 @@ WRAPPED_MAIN
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit,
-		mk_delete_hit, mk_filter_qual, mk_subsample,
+		mk_delete_hit, mk_filter_qual, mk_subsample, mk_sanitize,
 		mk_filter_multi, mk_edit_header, 0, 0,
 		0, 0, mk_rmdup, 0,
 		0, 0, 0,
@@ -388,7 +394,7 @@ WRAPPED_MAIN
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0,
-		0, 0, 0,
+		0, 0, 0, 0,
 		0, 0, mk_merge, mk_join,
 		mk_mega_merge, mk_concat, 0, 0,
 		0, 0, 0,
@@ -399,7 +405,7 @@ WRAPPED_MAIN
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0,
-		0, 0, 0,
+		0, 0, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, mk_output,
 		mk_output_text, mk_output_sam, mk_output_glz,
@@ -409,7 +415,7 @@ WRAPPED_MAIN
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
-		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_filter_qual, desc_subsample, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
+		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_filter_qual, desc_subsample, desc_sanitize, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, desc_regions_only, desc_not_regions, 0 } ;
 
@@ -428,6 +434,7 @@ WRAPPED_MAIN
 		{ "delete-hit",     0 , POPT_ARG_STRING, 0, opt_delete_hit,    "delete hits (in G/anywhere) to SEQ/anything", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
+		{ "sanitize",       0 , POPT_ARG_NONE,   0, opt_sanitize,      "remove debugging information", 0 },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },
 		{ "edit-header",    0 , POPT_ARG_STRING, 0, opt_edit_header,   "invoke editor ED on the stream's header", "ED" },
 		{ "inside-regions", 0 , POPT_ARG_STRING, 0, opt_regions_only,  "keep results inside annotated regions only", "FILE" },

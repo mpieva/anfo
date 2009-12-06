@@ -408,15 +408,14 @@ void FastaAlnWriter::put_header( const Header& h )
 
 void FastaAlnWriter::put_result( const Result& r ) 
 {
-	if( has_hit_to( r, 0 ) )
+	if( const Hit* h = hit_to( r ) )
 	{
-		const Hit &h = hit_to( r, 0 ) ;
 		std::string ref, qry, con ;
-		show_alignment( r.read().sequence().begin(), h, true, ref, qry, con, c_ ) ;
-		*out_ << '>' << h.sequence() << ' '
-			<< h.start_pos()
-			<< "-+"[ h.aln_length() > 0 ]
-			<< h.start_pos() + abs(h.aln_length()) - 1
+		show_alignment( r.read().sequence().begin(), *h, true, ref, qry, con, c_ ) ;
+		*out_ << '>' << h->sequence() << ' '
+			<< h->start_pos()
+			<< "-+"[ h->aln_length() > 0 ]
+			<< h->start_pos() + abs(h->aln_length()) - 1
 			<< '\n' << ref << '\n' 
 			<< '>' << r.read().seqid() 
 			<< ( r.read().has_trim_right() ? " adapter cut off\n" : "\n" ) 
@@ -446,12 +445,13 @@ void FastqWriter::put_result( const Result& rr )
 
 void TableWriter::put_result( const Result& r )
 {
-	if( !has_hit_to( r, 0 ) ) return ;
-	int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
-	int b = r.read().trim_left() ;
-	int diff = hit_to( r, 0 ).has_diff_to_next() ? hit_to( r, 0 ).diff_to_next() : 9999 ;
+	if( const Hit *h = hit_to( r ) ) {
+		int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
+		int b = r.read().trim_left() ;
+		int diff = h->has_diff_to_next() ? h->diff_to_next() : 9999 ;
 
-	*out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
+		*out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
+	}
 }
 
 } // namespace

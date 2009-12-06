@@ -258,39 +258,39 @@ class AlnIter
 
 void DuctTaper::put_result( const Result& r )
 {
-	if( !has_hit_to( r ) ) return ;
-	const Hit& h = hit_to( r ) ;
+	const Hit* h = hit_to( r ) ;
+	if( !h ) return ;
 
 	Logdom rate_ss = Logdom::from_float( hdr_.config().aligner().rate_of_ss_deamination() ), 
 		   rate_ds = Logdom::from_float( hdr_.config().aligner().rate_of_ds_deamination() ) ; 
 
-	int mapq = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
+	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
 	mapq_accum_ += mapq*mapq ;
 
-	if( cur_genome_ != h.genome_name()
-				|| cur_sequence_ != h.sequence()
-				|| h.start_pos() > contig_end_ )
+	if( cur_genome_ != h->genome_name()
+				|| cur_sequence_ != h->sequence()
+				|| h->start_pos() > contig_end_ )
 	{
 		flush_contig() ;
-		cur_genome_ = h.genome_name() ;
-		cur_sequence_ = h.sequence() ;
-		contig_start_ = contig_end_ = h.start_pos() ;
+		cur_genome_ = h->genome_name() ;
+		cur_sequence_ = h->sequence() ;
+		contig_start_ = contig_end_ = h->start_pos() ;
 	}
 	++nreads_ ;
 
-	if( h.start_pos() < contig_start_ ) 
+	if( h->start_pos() < contig_start_ ) 
 		throw "ducttaping: input was not sorted" ;
 
 	Accs::iterator column = observed_.begin() ;
-	for( int offs = h.start_pos() - contig_start_ ; offs ; ++column )
+	for( int offs = h->start_pos() - contig_start_ ; offs ; ++column )
 		if( !column->is_ins ) --offs ;
 
 	Logdom lk_ss_5 = adna_.overhang_enter_penalty, lk_ds_5 ;
 	Logdom lk_ss_3 = adna_.overhang_enter_penalty, lk_ds_3 ;
 
-	GenomeHolder genome = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
-	DnaP ref = genome->find_pos( h.sequence(), h.start_pos() ) ;
-	for( AlnIter aln_i( r.read(), h ), aln_e( r.read(), h, 1 ) ; aln_i != aln_e ; ++aln_i )
+	GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
+	DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
+	for( AlnIter aln_i( r.read(), *h ), aln_e( r.read(), *h, 1 ) ; aln_i != aln_e ; ++aln_i )
 	{
 		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
 		{
@@ -301,8 +301,8 @@ void DuctTaper::put_result( const Result& r )
 		if( aln_i.cigar_op() != Hit::Delete ) lk_ds_3 *= adna_.overhang_ext_penalty ;
 	}
 
-	ref = genome->find_pos( h.sequence(), h.start_pos() ) ;
-	for( AlnIter aln_b( r.read(), h ), aln_i( aln_b ), aln_e( r.read(), h, 1 ) ;
+	ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
+	for( AlnIter aln_b( r.read(), *h ), aln_i( aln_b ), aln_e( r.read(), *h, 1 ) ;
 			aln_i != aln_e ; ++column )
 	{
 		if( column == observed_.end() ) {
@@ -428,9 +428,9 @@ void GlzWriter::put_result( const Result& rr )
 	static uint8_t dna_to_glf_base[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
 
 	const Read& r = rr.read() ;
-	if( r.likelihoods_size() == 10 && has_hit_to( rr ) ) {
-		const Hit& h = hit_to( rr ) ;
-
+	const Hit* h = hit_to( rr ) ;
+	if( r.likelihoods_size() == 10 && h ) 
+	{
 		chan_( Console::info, r.seqid() ) ;
 		google::protobuf::io::CodedOutputStream c( &gos_ ) ;
 
@@ -443,25 +443,25 @@ void GlzWriter::put_result( const Result& rr )
 		c.WriteTag( 0 ) ;
 		
 		int eff_size = 0 ;
-		for( int i = 0 ; i != h.cigar_size() ; ++i )
+		for( int i = 0 ; i != h->cigar_size() ; ++i )
 		{
-			switch( cigar_op( h.cigar(i) ) )
+			switch( cigar_op( h->cigar(i) ) )
 			{
 				case Hit::Match:
 				case Hit::Mismatch:
-					eff_size += cigar_len( h.cigar(i) ) ;
+					eff_size += cigar_len( h->cigar(i) ) ;
 				default:
 					break ;
 			}
 		}
 		c.WriteLittleEndian32( eff_size ) ;
 
-		GenomeHolder genome = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
-		DnaP ref = genome->find_pos( h.sequence(), h.start_pos() ) ;
+		GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
+		DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
 		char buf[12] ;
 		int i = 0 ;
 
-		for( AlnIter beg( r, h ), end( r, h, 1 ) ; beg != end ; ++beg )
+		for( AlnIter beg( r, *h ), end( r, *h, 1 ) ; beg != end ; ++beg )
 		{
 			switch( beg.cigar_op() )
 			{
@@ -475,7 +475,7 @@ void GlzWriter::put_result( const Result& rr )
 					//   depth:24 ;            			/* and the number of mapped reads */
 
 					buf[0] = dna_to_glf_base[ *ref ] ;
-					buf[1] = h.has_diff_to_next() ? h.diff_to_next() : 254 ;
+					buf[1] = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
 					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = (uint8_t)(r.likelihoods(j)[i]) ;
 					c.WriteRaw( buf, 12 ) ;
 					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (uint8_t)r.quality()[i] ) ;
@@ -513,12 +513,13 @@ void GlzWriter::put_result( const Result& rr )
 void ThreeAlnWriter::put_result( const Result& res )
 {
 	const Read& r = res.read() ;
-	const Hit& h = hit_to( res ) ;
-	GenomeHolder genome = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
-	DnaP ref = genome->find_pos( h.sequence(), h.start_pos() ) ;
+	const Hit* h = hit_to( res ) ;
+	if( !h ) return ;
+	GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
+	DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
 
 	std::stringstream ss ;
-	ss << name_ << ": " << h.genome_name() << '/' << h.sequence() << '@' << h.start_pos() ; 
+	ss << name_ << ": " << h->genome_name() << '/' << h->sequence() << '@' << h->start_pos() ; 
 	chan_( Console::info, ss.str() ) ;
 
 	*out_ << '>' << r.seqid() << ' ' << r.description() << '\n' ;
@@ -526,7 +527,7 @@ void ThreeAlnWriter::put_result( const Result& res )
 	// out_ << ';' << h.genome_name() << ' ' << h.sequence() << ' '
 		// << ( h.aln_length() < 0 ? '-' : '+' ) << h.start_pos() << std::endl ;
 
-	AlnIter aln( r, h ), aln_e( r, h, 1 ) ;
+	AlnIter aln( r, *h ), aln_e( r, *h, 1 ) ;
 	int offs = 0 ;
 	for( ; aln != aln_e ; ++aln ) 
 	{
