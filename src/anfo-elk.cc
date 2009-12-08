@@ -38,7 +38,6 @@
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 
 #include <iostream>
-#include <tr1/memory>
 
 using namespace std ;
 using namespace streams ;
@@ -149,6 +148,10 @@ StreamHolder obj_to_stream( Object o, bool sol = false , int ori = 33 )
 	if( TYPE(o) == t_stream ) return ((StreamWrapper*)POINTER(o))->h_ ;
 	switch( TYPE(o) )
 	{
+		case T_Primitive:
+		case T_Compound:
+			return obj_to_stream( Funcall( o, Null, 0 ), sol, ori ) ;
+
 		case T_Symbol:
 		case T_String:
 			return make_input_stream( object_to_string(o).c_str(), sol, ori ) ;
@@ -216,6 +219,7 @@ Object p_use_mmap( Object v ) { Metagenome::nommap = !Truep( v ) ; return Void ;
 // ANFO stream constructors
 
 // Output
+Object p_write_native( Object f, Object c ) { return wrap_stream( new ChunkedWriter( open_any_output_zc( f ), Get_Integer( c ) ) ) ; }
 Object p_write_text( Object f ) { return wrap_stream( new TextWriter( open_any_output_zc( f ) ) ) ; }
 Object p_write_sam( Object f ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
 Object p_write_glz( Object f ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
@@ -256,6 +260,7 @@ Object p_require_hit( Object genomes, Object sequences )
 Object p_ignore_hit( Object genomes, Object sequences ) 
 { return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
+Object p_only_genome( Object genomes ) { return wrap_stream( new OnlyGenome( obj_to_genomes( genomes ) ) ) ; }
 Object p_filter_multi( Object m ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
 Object p_subsample( Object r ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
 Object p_sanitize() { return wrap_stream( new Sanitizer() ) ; }
@@ -275,7 +280,8 @@ Object p_concat( int argc, Object *argv ) { return wrap_streams( new ConcatStrea
 
 //! \brief top-level ELK call.
 //! Gets one input stream and many output streams, copies between them.
-//! Might one day extract a tree of results and return it.
+//! Might one day extract a tree of results and return it, but for now
+//! returns the final exit code (just like anfo-tool).
 Object p_anfo_run( int argc, Object *argv )
 {
 	StreamHolder inp = obj_to_stream( argv[0] ) ;
@@ -287,7 +293,7 @@ Object p_anfo_run( int argc, Object *argv )
 	while( inp->get_state() == Stream::have_output && out.get_state() == Stream::need_input )
 		out.put_result( inp->fetch_result() ) ;
 	out.put_footer( inp->fetch_footer() ) ;
-	return True ;
+	return Make_Integer( out.fetch_footer().exit_code() ) ;
 }
 
 //! \brief stream composition.
@@ -315,21 +321,23 @@ void elk_init_libanfo()
 		compare_stream_wrappers, 
 		print_stream_wrapper, 0 ) ;
 
-	Define_Primitive( (P)p_is_stream,     "anfo-stream?",  1, 1, EVAL ) ;
-	Define_Primitive( (P)p_set_verbosity, "set-verbosity", 1, 1, EVAL ) ;
-	Define_Primitive( (P)p_use_mmap,      "use-mmap",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_is_stream,        "anfo-stream?",        1, 1, EVAL ) ;
+	Define_Primitive( (P)p_set_verbosity,    "set-verbosity",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_use_mmap,         "use-mmap",            1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_write_text,  "write-text",      1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_sam,   "write-sam",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_glz,   "write-glz",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_3aln,  "write-three-aln", 1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_fastq, "write-fastq",     1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_table, "write-table",     1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_fasta, "write-fasta",     2, 2, EVAL ) ;
+	Define_Primitive( (P)p_read_file,        "read-file",           3, 3, EVAL ) ;
+	Define_Primitive( (P)p_write_native,     "write-native",        2, 2, EVAL ) ;
+	Define_Primitive( (P)p_write_text,       "write-text",          1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_sam,        "write-sam",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_glz,        "write-glz",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_3aln,       "write-three-aln",     1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_fastq,      "write-fastq",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_table,      "write-table",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_fasta,      "write-fasta",         2, 2, EVAL ) ;
 
-	Define_Primitive( (P)p_duct_tape,   "duct-tape",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_rmdup,       "rmdup",           3, 3, EVAL ) ;
-	Define_Primitive( (P)p_write_stats, "write-stats",     1, 1, EVAL ) ;
+	Define_Primitive( (P)p_duct_tape,        "duct-tape",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;
+	Define_Primitive( (P)p_write_stats,      "write-stats",         1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;
@@ -343,17 +351,17 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_require_best_hit, "require-best-hit",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_require_hit,      "require-hit",         2, 2, EVAL ) ;
 	Define_Primitive( (P)p_ignore_hit,       "ignore-hit",          2, 2, EVAL ) ;
+	Define_Primitive( (P)p_only_genome,		 "only-genome",         1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_sort_by_pos,  "sort-pos",  3, 3, EVAL ) ;
-	Define_Primitive( (P)p_sort_by_name, "sort-name", 3, 3, EVAL ) ;
+	Define_Primitive( (P)p_sort_by_pos,      "sort-pos",            3, 3, EVAL ) ;
+	Define_Primitive( (P)p_sort_by_name,     "sort-name",           3, 3, EVAL ) ;
 
-	Define_Primitive( (P)p_merge,  "merge",  1, MANY, VARARGS ) ; 
-	Define_Primitive( (P)p_join,   "join",   1, MANY, VARARGS ) ; 
-	Define_Primitive( (P)p_concat, "concat", 1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_merge,            "merge",               1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_join,             "join",                1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_concat,           "concat",              1, MANY, VARARGS ) ; 
 
-	Define_Primitive( (P)p_anfo_run,  "anfo-run",  2, MANY, VARARGS ) ;
-	Define_Primitive( (P)p_chain,     "chain", 	   1, MANY, VARARGS ) ;
-	Define_Primitive( (P)p_read_file, "read-file", 3, 3, EVAL ) ;
+	Define_Primitive( (P)p_anfo_run,         "anfo-run",            2, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_chain,            "chain", 	            1, MANY, VARARGS ) ;
 }
 
 } // extern C
