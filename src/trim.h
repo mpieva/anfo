@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "align.h"
+
 namespace {
 	template< typename T > T max3( T a, T b, T c )
 	{ return std::max( std::max( a, b ), c ) ; }
@@ -83,11 +85,12 @@ int overlap_align( A seq_a, A seq_a_end, B seq_b, B seq_b_end, int maxd_, int*yo
 	int len_a = seq_a_end - seq_a ;
 	int len_b = seq_b_end - seq_b ;
 	int maxd = min( maxd_, len_a + len_b ) ;
-    int dm = discount*maxd + discount-1 ;
+    int dim = discount*maxd + discount-1 ;
 
-	vector<int> v_d( dm+maxd+1 ), v_dm1( dm+maxd+1 ) ;	// v[d] & v[d-1]
+	vector<int> v_d( dim+maxd+1 ), v_dm1( dim+maxd+1 ) ;	// v[d] & v[d-1]
 
 	for( int d = 0 ; d != maxd ; ++d, swap( v_d, v_dm1 ) ) {			// D-paths in order of increasing D
+		int dm = discount*d + discount-1 ;
 		for( int k = -d ; k <= dm ; ++k ) {								// diagonals
 			int x = 0 ==  d            ? k                                                                     :
 			        k == -d            ?                                                  v_dm1[ k+1 +maxd ]   :
