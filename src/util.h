@@ -286,6 +286,9 @@ template< typename T > class Holder
 		template< typename U > Holder<T>& operator = ( U *s ) 
 		{ Holder<T>( s ).swap( *this ) ; return *this ; }
 
+		Holder<T>& operator = ( const Holder<T>& s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
 		template< typename U > Holder<T>& operator = ( const Holder<U>& s ) 
 		{ Holder<T>( s ).swap( *this ) ; return *this ; }
 
@@ -295,6 +298,10 @@ template< typename T > class Holder
 		T& operator * () const { return *s_ ; }
 
 		operator const void* () const { return s_ ; }
+} ;
+
+namespace std { template < typename T > void swap( Holder<T>& a, Holder<T>& b ) { a.swap( b ) ; } 
+
 } ;
 
 #endif

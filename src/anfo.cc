@@ -87,11 +87,11 @@ struct CommonData
 	Queue<output::Result*, 8> output_queue ;
 	Queue<AlignmentWorkload*, 8> intermed_queue ;
 	Queue<output::Result*, 8> input_queue ;
-	streams::ChunkedWriter output_stream ;
+	streams::StreamHolder output_stream ;
 	Mapper mapper ;
 
 	CommonData( const Config& conf, const char* fn )
-		: output_stream( fn, 25 ), mapper( conf ) {}
+		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf ) {}
 } ;
 
 void* run_output_thread( void* p )
@@ -99,7 +99,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		q->output_stream.put_result( *r ) ;
+		q->output_stream->put_result( *r ) ;
 		delete r ;
 	}
 	return 0 ;
@@ -236,7 +236,7 @@ WRAPPED_MAIN
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	common_data.output_stream.put_header( ohdr ) ;
+	common_data.output_stream->put_header( ohdr ) ;
 
 	// Running in multiple threads.  The main thread will read the
 	// input and enqueue it, then signal end of input by adding a null
@@ -280,7 +280,7 @@ WRAPPED_MAIN
 	clog << endl ;
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	common_data.output_stream.put_footer( ofoot ) ;
+	common_data.output_stream->put_footer( ofoot ) ;
 	if( !exit_with ) std::rename( (ofile+".#new#").c_str(), ofile.c_str() ) ;
 	return 0 ;
 }

@@ -61,8 +61,8 @@ struct by_genome_coordinate {
 
 	void tag_header( output::Header& h ) {
 		h.clear_is_sorted_by_name() ;
+		h.clear_is_sorted_by_coordinate() ;
 		if( gs_.empty() ) {
-			h.clear_is_sorted_by_coordinate() ;
 			h.set_is_sorted_by_all_genomes( true ) ;
 		}
 		else
@@ -176,7 +176,6 @@ class BestHitStream : public StreamBundle
 
 	public:
 		BestHitStream() : nread_(0), nwritten_(0), nstreams_(0) {}
-		virtual ~BestHitStream() {}
 
 		//! \brief reads a stream's header and adds the stream as input
 		virtual void add_stream( StreamHolder s ) {
@@ -268,7 +267,7 @@ template <class Comp> class SortingStream : public Stream
 		//! times a file has already been merged with others, the value
 		//! is just a set of streams.
 		MergeableQueues mergeable_queues_ ;
-		MergeStream final_stream_ ;
+		Holder< MergeStream > final_stream_ ;
 
 		int64_t total_scratch_size_ ;
 
@@ -290,16 +289,16 @@ template <class Comp> class SortingStream : public Stream
 		void enqueue_stream( streams::StreamHolder, int = 0 ) ;
 		void flush_scratch() ;
 
-	public:
-		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
-			: total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ), comp_( comp )
-		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
-
 		virtual ~SortingStream()
 		{
 			for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 			--SortingStream__ninstances ;
 		}
+
+	public:
+		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
+			: final_stream_( new MergeStream ), total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ), comp_( comp )
+		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
 
 		virtual void put_header( const Header& h ) { Stream::put_header( h ) ; comp_.tag_header( hdr_ ) ; }
 		virtual void put_footer( const Footer& ) ;
@@ -309,8 +308,13 @@ template <class Comp> class SortingStream : public Stream
 			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
 		}
 
-		virtual Result fetch_result() { Result r = final_stream_.fetch_result() ; state_ = final_stream_.get_state() ; return r ; }
-		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_.fetch_footer() ) ; return foot_ ; }
+		virtual Result fetch_result()
+		{
+			Result r = final_stream_->fetch_result() ;
+			state_ = final_stream_->get_state() ;
+			return r ;
+		}
+		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_->fetch_footer() ) ; return foot_ ; }
 } ;
 
 template < typename Comp > void SortingStream<Comp>::flush_scratch()
@@ -388,28 +392,28 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 	// We have to be careful about buffering; if more than one
 	// SortingStream is active, we could run out of RAM.  Therefore, if
 	// we're alone, we sort and add a a stream.  Else we flush to
-	// temporary storage.
+	// temporary storage.  (Also, if the temporay space is empty, we
+	// *always* add the ContainerStream, otherwise we get strange
+	// effects if the output turns out to be empty.)
 
-	if( scratch_space_.begin() != scratch_space_.end() )
-	{
-		if( SortingStream__ninstances > 1 ) flush_scratch() ; 
-		else {
-			console.output( Console::notice, "SortingStream: final sort" ) ;
-			sort_scratch() ;
-			final_stream_.add_stream( new ContainerStream< deque< Result* >::const_iterator >(
-						hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
-		}
+	if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
+		flush_scratch() ; 
+	else {
+		console.output( Console::notice, "SortingStream: final sort" ) ;
+		sort_scratch() ;
+		final_stream_->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
+					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
 	}
 
 	// add any streams that have piled up
 	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
 		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
-			final_stream_.add_stream( *j ) ;
+			final_stream_->add_stream( *j ) ;
 	mergeable_queues_.clear() ;
 	console.output( Console::notice, "SortingStream: merging everything to output" ) ;
 	
-	final_stream_.fetch_header() ;
-	state_ = final_stream_.get_state() ;
+	final_stream_->fetch_header() ;
+	state_ = final_stream_->get_state() ;
 }
 
 
@@ -420,8 +424,6 @@ class MegaMergeStream : public ConcatStream
 
 	public:
 		MegaMergeStream() {}
-		virtual ~MegaMergeStream() {}
-
 		virtual void add_stream( StreamHolder ) ;
 		virtual Header fetch_header() ;
 } ;
@@ -442,6 +444,7 @@ class FanOut : public StreamBundle
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
+		virtual Footer fetch_footer() ;
 } ;
 
 class Compose : public StreamBundle
@@ -451,7 +454,7 @@ class Compose : public StreamBundle
 
 		virtual void put_header( const Header&   ) ;
 		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; }
-		virtual void put_footer( const Footer& f ) { streams_.front()->put_footer( f ) ; }
+		virtual void put_footer( const Footer& f ) { streams_.front()->put_footer( f ) ; get_state() ; }
 
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() { return streams_.back()->fetch_result() ; }

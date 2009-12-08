@@ -319,6 +319,8 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 
 		if( const Hit *h = hit_to( res, genome ) )
 		{
+			if( h->aln_length() < 0 ) throw "unexpected reverse strand alignment!" ;
+
 			unsigned char cur_chr = lookup_sym( h->sequence() ) ;
 
 			// skip ahead to correct chromosome

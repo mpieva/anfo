@@ -180,8 +180,6 @@ inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, outp
 
 class Stream
 {
-	friend class ::delete_ptr<Stream> ;
-
 	public:
 		int refcount_ ;
 		enum state { invalid, end_of_stream, need_input, have_output } ;
@@ -258,7 +256,7 @@ class Stream
 
 typedef ::Holder<Stream> StreamHolder ;
 
-void transfer( Stream& in, Stream& out ) ;
+int transfer( Stream& in, Stream& out ) ;
 
 //! \brief base class of streams that read from many streams
 class StreamBundle : public Stream
@@ -269,7 +267,6 @@ class StreamBundle : public Stream
 		typedef std::deque< StreamHolder >::const_reverse_iterator criter ;
 
 	public:
-		virtual ~StreamBundle() {}
 		virtual void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 } ;
 
@@ -295,10 +292,10 @@ class AnfoReader : public Stream
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
 
+		virtual ~AnfoReader() { --anfo_reader__num_files_ ; }
+
 	public: 
 		AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
-
-		virtual ~AnfoReader() { --anfo_reader__num_files_ ; }
 		virtual Result fetch_result() ;
 
 		//! \internal
@@ -320,7 +317,6 @@ class AnfoWriter : public Stream
 		AnfoWriter( google::protobuf::io::ZeroCopyOutputStream*, const char* = "<pipe>" ) ;
 		AnfoWriter( int fd, const char* = "<pipe>", bool expensive = false ) ;
 		AnfoWriter( const char* fname, bool expensive = false ) ;
-
 
 		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; Stream::put_header( h ) ; } 
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
@@ -345,6 +341,7 @@ class ChunkedWriter : public Stream
 		int64_t wrote_ ;
 		uint8_t method_, level_ ;
 
+		virtual ~ChunkedWriter() ;
 		void flush_buffer( unsigned needed = 0 ) ;
 		void init() ;
 
@@ -361,10 +358,9 @@ class ChunkedWriter : public Stream
 			return 1 ;					// fast fastlz or none 
 		}
 
-		ChunkedWriter( std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream >, int, const char* = "<pipe>" ) ;
+		ChunkedWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >&, int ) ;
 		ChunkedWriter( int fd, int, const char* = "<pipe>" ) ;
 		ChunkedWriter( const char* fname, int ) ;
-		virtual ~ChunkedWriter() ;
 
 		virtual void put_header( const Header& h ) ;
 		virtual void put_result( const Result& r ) ;
@@ -379,12 +375,11 @@ class ChunkedReader : public Stream
 		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
 		std::string name_ ;
 
+		virtual ~ChunkedReader() { --anfo_reader__num_files_ ; }
 		bool get_next_chunk() ;
 
 	public: 
 		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
-
-		virtual ~ChunkedReader() { --anfo_reader__num_files_ ; }
 		virtual Result fetch_result() ;
 		virtual Footer fetch_footer() ;
 
@@ -405,7 +400,7 @@ class Filter : public Stream
 
 //! \brief filters that drop some alignments
 //! \todo Maybe some stats could be gathered into some sort of a result.
-class HitFilter : public Filter
+class HitFilter : public Stream
 {
 	private:
 		vector<string> gs_ ;
@@ -415,13 +410,13 @@ class HitFilter : public Filter
 		HitFilter( const vector<string> &gs ) : gs_(gs) {}
 
 		virtual void put_header( const Header& h ) {
-			Filter::put_header( h ) ;
+			Stream::put_header( h ) ;
 			hdr_.clear_is_sorted_by_coordinate() ;
 			hdr_.clear_is_sorted_by_all_genomes() ;
 		}
 
 		virtual bool keep( const Hit& ) = 0 ;
-		virtual bool xform( Result& ) ; 
+		virtual void put_result( const Result& res ) ; 
 } ;
 
 namespace {
@@ -442,6 +437,16 @@ class IgnoreHit : public HitFilter
 	public:
 		IgnoreHit( const vector< string > &gs, const vector< string > &ss ) : HitFilter( gs ), ss_( ss ) {}
 		virtual bool keep( const Hit& h ) { return !ss_.empty() && !contains( ss_, h.sequence() ) ; }
+} ;
+
+class OnlyGenome : public Filter
+{
+	private:
+		vector< string > gs_ ;
+
+	public:
+		OnlyGenome( const vector< string > &gs ) : Filter(), gs_( gs ) {}
+		virtual bool xform( Result& r ) ;
 } ;
 
 //! \brief stream that filters for a given score
@@ -526,7 +531,6 @@ class Subsample : public Filter
 
 	public:
 		Subsample( float f ) : f_(f) {}
-		virtual ~Subsample() {}
 		virtual bool xform( Result& ) ;
 } ;
 //! \brief filters for minimum multiplicity
@@ -540,7 +544,6 @@ class MultiFilter : public Filter
 
 	public:
 		MultiFilter( int n ) : n_(n) {}
-		virtual ~MultiFilter() {}
 		virtual bool xform( Result& r ) { return r.member_size() >= n_ ; }
 } ;
 
@@ -557,7 +560,6 @@ class QualFilter : public Filter
 
 	public:
 		QualFilter( int q ) : q_(q) {}
-		virtual ~QualFilter() {}
 		virtual bool xform( Result& ) ;
 } ;
 

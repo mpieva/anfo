@@ -184,7 +184,7 @@ void desc_filter_by_mapq( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_filter_by_hit( const ParamBlock& p )
-{ return new RequireHit( split_string( p.genome ), split_string( p.arg ) ) ; }
+{ return new OnlyGenome( split_string( p.genome ) ) ; }
 
 void desc_filter_by_hit( ostream& ss, const ParamBlock& p )
 {
@@ -199,6 +199,16 @@ Stream* mk_delete_hit( const ParamBlock& p )
 void desc_delete_hit( ostream& ss, const ParamBlock& p )
 {
 	ss << "delete hits" ;
+	if( p.arg && *p.arg ) ss << " to sequence " << p.arg ;
+	if( p.genome && *p.genome ) ss << " in genome " << p.genome ;
+}
+
+Stream* mk_require_hit( const ParamBlock& p )
+{ return new RequireHit( split_string( p.genome ), split_string( p.arg ) ) ; }
+
+void desc_require_hit( ostream& ss, const ParamBlock& p )
+{
+	ss << "delete records without hits" ;
 	if( p.arg && *p.arg ) ss << " to sequence " << p.arg ;
 	if( p.genome && *p.genome ) ss << " in genome " << p.genome ;
 }
@@ -274,7 +284,7 @@ void desc_concat( ostream& ss, const ParamBlock& )
 { ss << "concatenate streams" ; }
 
 Stream* mk_output( const ParamBlock& p )
-{ return is_stdout( p.arg ) ? new ChunkedWriter( 1, 75, "<stdout>" ) : new ChunkedWriter( p.arg, 75 ) ; } 
+{ return is_stdout( p.arg ) ? new ChunkedWriter( 1, 99, "<stdout>" ) : new ChunkedWriter( p.arg, 99 ) ; } 
 
 void desc_output( ostream& ss, const ParamBlock& p )
 { ss << "write native output to " << parse_fn( p.arg ) ; }
@@ -289,11 +299,7 @@ Stream* mk_output_sam( const ParamBlock& p )
 { return new SamWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_sam( ostream& ss, const ParamBlock& p )
-{ 
-	ss << "write alignments" ;
-	if( p.genome ) ss << " to genome " << p.genome ;
-	ss << " in SAM format to " << parse_fn( p.arg ) ;
-}
+{ ss << "write alignments in SAM format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_glz( const ParamBlock& p )
 { return new GlzWriter( make_output_stream_zc( p.arg ) ) ; }
@@ -372,7 +378,7 @@ WRAPPED_MAIN
 	enum {
 		opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit,
-		opt_delete_hit, opt_filter_qual, opt_subsample, opt_sanitize,
+		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_subsample, opt_sanitize,
 		opt_filter_multi, opt_edit_header, opt_merge, opt_join,
 		opt_mega_merge, opt_concat, opt_rmdup, opt_output,
 		opt_output_text, opt_output_sam, opt_output_glz,
@@ -383,7 +389,7 @@ WRAPPED_MAIN
 	FilterParams<Stream>::F filter_makers[opt_MAX] = {
 		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
 		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit,
-		mk_delete_hit, mk_filter_qual, mk_subsample, mk_sanitize,
+		mk_delete_hit, mk_require_hit, mk_filter_qual, mk_subsample, mk_sanitize,
 		mk_filter_multi, mk_edit_header, 0, 0,
 		0, 0, mk_rmdup, 0,
 		0, 0, 0,
@@ -394,7 +400,7 @@ WRAPPED_MAIN
 	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0,
-		0, 0, 0, 0,
+		0, 0, 0, 0, 0,
 		0, 0, mk_merge, mk_join,
 		mk_mega_merge, mk_concat, 0, 0,
 		0, 0, 0,
@@ -405,7 +411,7 @@ WRAPPED_MAIN
 	FilterParams<Stream>::F output_makers[opt_MAX] = {
 		0, 0, 0, 0,
 		0, 0, 0,
-		0, 0, 0, 0,
+		0, 0, 0, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, mk_output,
 		mk_output_text, mk_output_sam, mk_output_glz,
@@ -415,7 +421,7 @@ WRAPPED_MAIN
 
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
-		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_filter_qual, desc_subsample, desc_sanitize, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
+		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_require_hit, desc_filter_qual, desc_subsample, desc_sanitize, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
 		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, desc_regions_only, desc_not_regions, 0 } ;
 
@@ -430,8 +436,9 @@ WRAPPED_MAIN
 		{ "filter-length", 'l', POPT_ARG_INT,    0, opt_filter_length, "filter for length of at least L", "L" },
 		{ "filter-score",  'f', POPT_ARG_NONE,   0, opt_filter_score,  "filter for max score", 0 },
 		{ "filter-mapq",    0 , POPT_ARG_INT,    0, opt_filter_mapq,   "remove alignments with MAPQ below Q", "Q" },
-		{ "filter-hit",    'h', POPT_ARG_STRING, 0, opt_filter_hit,    "filter for hitting (in G) SEQ/anything", "SEQ" },
+		{ "only-genome",    0 , POPT_ARG_NONE,   0, opt_filter_hit,    "keep only hits (in G/anywhere) to SEQ/anything", "SEQ" },
 		{ "delete-hit",     0 , POPT_ARG_STRING, 0, opt_delete_hit,    "delete hits (in G/anywhere) to SEQ/anything", "SEQ" },
+		{ "require-hit",    0 , POPT_ARG_STRING, 0, opt_require_hit,   "delete records without a hit (in G/anywhere) to SEQ/anything", "SEQ" },
 		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "sanitize",       0 , POPT_ARG_NONE,   0, opt_sanitize,      "remove debugging information", 0 },
@@ -599,6 +606,7 @@ WRAPPED_MAIN
 		}
 	}
 
+	poptFreeContext( pc ) ;
 	if( !dry_run ) 
 	{
 		Holder< StreamBundle > merging_stream( (merging_filter.maker)( merging_filter ) ) ;
@@ -629,9 +637,8 @@ WRAPPED_MAIN
 			out.add_stream( c ) ;
 		}
 
-		transfer( *merging_stream, out ) ;
+		return transfer( *merging_stream, out ) ;
 	}
-	poptFreeContext( pc ) ;
 	return 0 ;
 }
 

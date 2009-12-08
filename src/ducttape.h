@@ -97,7 +97,6 @@ class DuctTaper : public Stream
 		DuctTaper( const string& name )
 			: name_(name), contig_start_(0), contig_end_(0)
 			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
-		virtual ~DuctTaper() {}
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;

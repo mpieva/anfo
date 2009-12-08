@@ -19,6 +19,10 @@ using namespace google::protobuf::io ;
 
 Result MergeStream::fetch_result() 
 {
+	assert( state_ == have_output ) ;
+	assert( rs_.size() == streams_.size() ) ;
+	assert( streams_.size() != 0 ) ;
+
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
 		if( ( mode_ == by_coordinate && by_genome_coordinate( gs_ )( &rs_[ i ], &rs_[ min_idx ] ) )
@@ -186,6 +190,13 @@ void FanOut::put_footer( const Footer& f )
 		(*i)->put_footer( f ) ;
 }
 
+Footer FanOut::fetch_footer()
+{
+	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
+		merge_sensibly( foot_, (*i)->fetch_footer() ) ;
+	return Stream::fetch_footer() ;
+}
+	
 void Compose::put_header( const Header& h_ )
 {
 	Header h = h_ ;

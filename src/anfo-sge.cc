@@ -116,7 +116,7 @@ WRAPPED_MAIN
 
     console.set_quiet() ;
     of.append( ".#new#" ) ;
-	streams::ChunkedWriter os( of.c_str(), 25 ) ; // prefer speed over compression
+	streams::StreamHolder os = new streams::ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
 
 	Config conf = get_default_config( config_file ) ;
 	Mapper mapper( conf ) ;
@@ -132,7 +132,7 @@ WRAPPED_MAIN
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
 	if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
 	if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
-	os.put_header( ohdr ) ; 
+	os->put_header( ohdr ) ; 
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
@@ -151,13 +151,13 @@ WRAPPED_MAIN
 			std::deque< alignment_type > ol ;
 			int pmax = mapper.index_sequence( r, ps, ol ) ;
 			if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-			os.put_result( r ) ;
+			os->put_result( r ) ;
 		}
 	}
 
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	os.put_footer( ofoot ) ;
+	os->put_footer( ofoot ) ;
 
 	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
 	return 0 ;

@@ -49,12 +49,13 @@ using namespace google::protobuf::io ;
 using namespace output ;
 using namespace std ;
 
-void transfer( Stream& in, Stream& out ) 
+int transfer( Stream& in, Stream& out ) 
 {
 	out.put_header( in.fetch_header() ) ;
 	while( in.get_state() == Stream::have_output && out.get_state() == Stream::need_input )
 		out.put_result( in.fetch_result() ) ;
 	out.put_footer( in.fetch_footer() ) ;
+	return out.fetch_footer().exit_code() ;
 }
 
 int anfo_reader__num_files_ = 0 ;
@@ -257,8 +258,8 @@ void ChunkedWriter::init()
 	o.WriteRaw( "ANF1", 4 ) ;
 }
 
-ChunkedWriter::ChunkedWriter( std::auto_ptr< ZeroCopyOutputStream > zos, int l, const char* fname ) :
-	zos_( zos ), name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
+ChunkedWriter::ChunkedWriter( const pair< ZeroCopyOutputStream*, string >& p, int l ) :
+	zos_( p.first ), name_( p.second ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
 ChunkedWriter::ChunkedWriter( int fd, int l, const char* fname ) :
 	zos_( new FileOutputStream( fd ) ), name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
 ChunkedWriter::ChunkedWriter( const char* fname, int l ) :
@@ -471,7 +472,7 @@ template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
 		if( s.find( r.Get(b) ) == s.end() )
 		{
 			s.insert( r.Get(b) ) ;
-			if( b != 0 ) swap( *r.Mutable(o), *r.Mutable(b) ) ;
+			if( b != o ) swap( *r.Mutable(o), *r.Mutable(b) ) ;
 			++o ;
 		}
 	}
@@ -486,7 +487,7 @@ template <typename E> void nub( google::protobuf::RepeatedField<E>& r )
 		if( s.find( r.Get(b) ) == s.end() )
 		{
 			s.insert( r.Get(b) ) ;
-			if( b != 0 ) swap( *r.Mutable(o), *r.Mutable(b) ) ;
+			if( b != o ) swap( *r.Mutable(o), *r.Mutable(b) ) ;
 			++o ;
 		}
 	}
@@ -670,23 +671,46 @@ output::Hit* mutable_hit_to( output::Result* r, const string& g )
 	return h ;
 }
 
-bool HitFilter::xform( Result& r )
+void HitFilter::put_result( const Result& res )
 {
+	res_ = res ;
+
 	int ix_in = 0, ix_out = 0 ;
-	while( ix_in != r.hit_size() )
+	while( ix_in != res_.hit_size() )
 	{
 		// keep hits if we're actually looking for a specific genome and
 		// they hit the wrong one or if they actually fit our predicate
-		if( ( !gs_.empty() && !contains( gs_, r.hit(ix_in).genome_name() ) ) || keep( r.hit(ix_in) ) )
+		if( ( !gs_.empty() && !contains( gs_, res_.hit(ix_in).genome_name() ) ) || keep( res_.hit(ix_in) ) )
 		{
-			if( ix_in != ix_out ) *r.mutable_hit(ix_out) = r.hit(ix_in) ;
+			if( ix_in != ix_out ) swap( *res_.mutable_hit(ix_out), *res_.mutable_hit(ix_in) ) ;
 			++ix_out ;
 		}
 		++ix_in ;
 	}
 
-	if( !ix_out ) r.clear_hit() ;
-	else while( ix_out != r.hit_size() ) r.mutable_hit()->RemoveLast() ;
+	if( !ix_out ) res_.clear_hit() ;
+	else while( ix_out != res_.hit_size() ) res_.mutable_hit()->RemoveLast() ;
+	
+	state_= have_output ;
+}
+
+bool OnlyGenome::xform( Result& res )
+{
+	int ix_in = 0, ix_out = 0 ;
+	while( ix_in != res_.hit_size() )
+	{
+		// keep hits if we're actually looking for a specific genome and
+		// they hit the wrong one or if they actually fit our predicate
+		if( contains( gs_, res.hit(ix_in).genome_name() ) )
+		{
+			if( ix_in != ix_out ) swap( *res.mutable_hit(ix_out), *res.mutable_hit(ix_in) ) ;
+			++ix_out ;
+		}
+		++ix_in ;
+	}
+
+	if( !ix_out ) res.clear_hit() ;
+	else while( ix_out != res_.hit_size() ) res.mutable_hit()->RemoveLast() ;
 	return true ;
 }
 
