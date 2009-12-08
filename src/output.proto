@@ -337,6 +337,11 @@ message Hit {
     optional int32 taxid = 15 ;
     optional int32 taxid_species = 14 ;
     optional int32 taxid_order = 13 ;
+
+	// used only internally when producing textual output
+	optional string aln_ref = 101 ;
+	optional string aln_qry = 102 ;
+	optional string aln_cns = 103 ;
 }
 
 // statistics about alignment, collected for debugging purposes

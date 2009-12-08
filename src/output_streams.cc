@@ -31,42 +31,34 @@
 #include <sstream>
 
 namespace streams {
-namespace {
 
-void show_alignment(
-		std::string::const_iterator qry,
-		const output::Hit &h,
-		bool for_fasta,
-		std::string& r,
-		std::string& q,
-		std::string& c,
-		int context = 0 ) 
+bool GenTextAlignment::xform( Result& res ) 
 {
-	GenomeHolder g ;
-	DnaP ref( 0 ) ;
-
-	try {
-		g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
-		if( g ) ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
-		if( ref && h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
-		if( !ref ) throw "sequence not found: " + h.sequence() ;
-	}
-	// if creating FASTA, we need the genome, else we can make do without it
-	catch(...) { if( for_fasta ) throw ; }
-
-	if( ref )
+	for( int i = 0 ; i != res.hit_size() ; ++i )
 	{
+		output::Hit& h = *res.mutable_hit(i) ;
+		std::string::const_iterator qry =
+			res.read().sequence().begin() + res.read().trim_left() ;
+
+		std::string& r = *h.mutable_aln_ref() ;
+		std::string& q = *h.mutable_aln_qry() ;
+		std::string& c = *h.mutable_aln_cns() ;
+
+		GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
+		DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
+		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
+
 		r.clear() ; q.clear() ; c.clear() ;
-		if( context ) 
+		if( context_ ) 
 		{
 			DnaP ref1 = ref ;
-			for( int i = 0 ; i != context ; ++i )
+			for( int i = 0 ; i != context_ ; ++i )
 			{
 				r = from_ambicode( ref1[-1] ) + r ;
 				if( ref1[-1] ) --ref1 ;
 			}
-			q = std::string( context, '-' ) ;
-			c = std::string( context, ' ' ) ;
+			q = std::string( context_, '-' ) ;
+			c = std::string( context_, ' ' ) ;
 		}
 
 		for( int i = 0 ; i != h.cigar_size() ; ++i )
@@ -75,12 +67,6 @@ void show_alignment(
 			switch( cigar_op( h.cigar(i) ) )
 			{
 				case output::Hit::Match:
-					if( !l && !for_fasta ) {
-						r.push_back('~') ;
-						q.push_back('~') ;
-						c.push_back('~') ;
-					}
-
 				case output::Hit::Mismatch:
 					for( size_t j = 0 ; j != l ; ++j, ++ref, ++qry ) {
 						r.push_back( from_ambicode( *ref ) ) ;
@@ -89,6 +75,7 @@ void show_alignment(
 					}
 					break ;
 
+				case output::Hit::SoftClip:
 				case output::Hit::Insert:
 					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
 						r.push_back( '-' ) ;
@@ -105,77 +92,22 @@ void show_alignment(
 					}
 					break ;
 
-				case output::Hit::SoftClip: break ; // ???
 				case output::Hit::Skip: break ; // ???
 				case output::Hit::HardClip: break ; // ???
 				case output::Hit::Pad: break ; // ???
 			}
 		}
 
-		for( int i = 0 ; i != context ; ++i )
+		for( int i = 0 ; i != context_ ; ++i )
 		{
 			r.push_back( from_ambicode( *ref ) ) ;
 			if( *ref ) ++ref ;
 		}
-		q += std::string( context, '-' ) ;
-		c += std::string( context, ' ' ) ;
+		q += std::string( context_, '-' ) ;
+		c += std::string( context_, ' ' ) ;
 	}
-	else
-	{
-		r.clear() ; q.clear() ; c.clear() ;
-
-		for( int i = 0 ; i != h.cigar().size() ; ++i )
-		{
-			unsigned l = cigar_len( h.cigar(i) ) ;
-			switch( cigar_op( h.cigar(i) ) )
-			{
-				case output::Hit::Match:
-					if( !l && !for_fasta ) {
-						r.push_back('~') ;
-						q.push_back('~') ;
-						c.push_back('~') ;
-					}
-					else for( size_t j = 0 ; j != l ; ++j, ++qry ) {
-						r.push_back('N') ;
-						q.push_back( *qry ) ;
-						c.push_back('*') ;
-					}
-					break ;
-
-				case output::Hit::Mismatch:
-					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
-						r.push_back('N') ;
-						q.push_back( *qry ) ;
-						c.push_back(' ') ;
-					}
-					break ;
-
-				case output::Hit::Insert:
-					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
-						r.push_back( '-' ) ;
-						q.push_back( *qry ) ;
-						c.push_back( ' ' ) ;
-					}
-					break ;
-
-				case output::Hit::Delete:
-					for( size_t j = 0 ; j != l ; ++j ) {
-						r.push_back( 'N' ) ;
-						q.push_back( '-' ) ;
-						c.push_back( ' ' ) ;
-					}
-					break ;
-
-				case output::Hit::SoftClip: break ; // ???
-				case output::Hit::Skip: break ; // ???
-				case output::Hit::HardClip: break ; // ???
-				case output::Hit::Pad: break ; // ???
-			}
-		}
-	}
+	return true ;
 }
-
-} // namespace
 
 void TextWriter::print_msg( const google::protobuf::Message& m )
 {
@@ -202,16 +134,8 @@ void TextWriter::put_header( const Header& h )
 
 void TextWriter::put_result( const Result& r )
 {
+	Stream::put_result( r ) ;
 	google::protobuf::TextFormat::Print( r, os_.get() ) ;
-	google::protobuf::io::Printer p( os_.get(), '`' ) ;
-	for( int i = 0 ; i != r.hit_size() ; ++i )
-	{
-		std::map< std::string, std::string > vars ;
-		show_alignment( r.read().sequence().begin(), r.hit(i),
-				false, vars["ref"], vars["qry"], vars["con"] ) ;
-		p.Print( vars, "\nREF: `ref`\nQRY: `qry`\nCON: `con`\n" ) ;
-	}
-	p.Print( "\n\n" ) ;
 }
 
 void TextWriter::put_footer( const Footer& f )
@@ -406,20 +330,23 @@ void FastaAlnWriter::put_header( const Header& h )
 		Metagenome::add_path( h.config().genome_path( i ) ) ;
 }
 
+//! \todo Coordinates in here are quite probably wrong (good thing
+//! nobody relies on them anyway).
 void FastaAlnWriter::put_result( const Result& r ) 
 {
 	if( const Hit* h = hit_to( r ) )
 	{
-		std::string ref, qry, con ;
-		show_alignment( r.read().sequence().begin(), *h, true, ref, qry, con, c_ ) ;
-		*out_ << '>' << h->sequence() << ' '
-			<< h->start_pos()
-			<< "-+"[ h->aln_length() > 0 ]
-			<< h->start_pos() + abs(h->aln_length()) - 1
-			<< '\n' << ref << '\n' 
-			<< '>' << r.read().seqid() 
-			<< ( r.read().has_trim_right() ? " adapter cut off\n" : "\n" ) 
-			<< qry << std::endl ;
+		if( h->has_aln_ref() && h->has_aln_qry() && h->has_aln_cns() )
+		{
+			*out_ << '>' << h->sequence() << ' '
+				<< h->start_pos()
+				<< "-+"[ h->aln_length() > 0 ]
+				<< h->start_pos() + abs(h->aln_length()) - 1
+				<< '\n' << h->aln_ref() << '\n' 
+				<< '>' << r.read().seqid() 
+				<< ( r.read().has_trim_right() ? " adapter cut off\n" : "\n" ) 
+				<< h->aln_qry() << std::endl ;
+		}
 	}
 }
 

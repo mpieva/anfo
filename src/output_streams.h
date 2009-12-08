@@ -118,10 +118,9 @@ class FastaAlnWriter : public Stream
 {
 	private:
 		std::auto_ptr< std::ostream > out_ ;
-		int c_ ;
 
 	public:
-		FastaAlnWriter( const pair< ostream*, string > &p, int c ) : out_( p.first ), c_(c) {}
+		FastaAlnWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 } ;
@@ -149,6 +148,16 @@ class TableWriter : public Stream
 	public:
 		TableWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
 		virtual void put_result( const Result& ) ;
+} ;
+
+class GenTextAlignment : public Filter
+{
+	private:
+		int context_ ;
+
+	public:
+		GenTextAlignment( int context ) : context_( context ) {}
+		virtual bool xform( Result& ) ;
 } ;
 
 } // namespace

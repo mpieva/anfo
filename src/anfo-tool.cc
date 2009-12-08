@@ -51,12 +51,11 @@ using namespace streams ;
 struct ParamBlock {
 	float slope ;
 	float intercept ;
-	int context ;
 	const char* genome ;
 	const char* arg ;
 
-	ParamBlock( float s, float i, int c, const char* g, const char* a )
-		: slope(s), intercept(i), context(c), genome(g), arg(a) {}
+	ParamBlock( float s, float i, const char* g, const char* a )
+		: slope(s), intercept(i), genome(g), arg(a) {}
 } ;
 
 typedef void (*G)( ostream&, const ParamBlock& ) ;
@@ -68,7 +67,7 @@ template< typename S > struct FilterParams : public ParamBlock {
 	G describe ;
 
 	FilterParams( const ParamBlock& p, const char* a, F m, G d )
-		: ParamBlock(p.slope, p.intercept, p.context, p.genome, a), maker(m), describe(d) {}
+		: ParamBlock(p.slope, p.intercept, p.genome, a), maker(m), describe(d) {}
 } ;
 
 typedef std::vector< FilterParams< Stream > > FilterStack ;
@@ -247,6 +246,12 @@ void desc_rmdup( ostream& ss, const ParamBlock& p )
 		<< "limit Q score to " << parse_int( p.arg, 127 ) ;
 }
 
+Stream* mk_add_alns( const ParamBlock& p )
+{ return new GenTextAlignment( parse_int( p.arg, 0 ) ) ; }
+
+void desc_add_alns( ostream& ss, const ParamBlock& p )
+{ ss << "add textual alignments with " << parse_int( p.arg, 0 ) << "nt of context." ; }
+
 Stream* mk_regions_only( const ParamBlock& p )
 { return new InsideRegion( make_input_stream_std( p.arg ) ) ; }
 
@@ -314,13 +319,10 @@ void desc_output_3aln( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in 3ALN format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_fasta( const ParamBlock& p )
-{ return new FastaAlnWriter( make_output_stream_std( p.arg ), p.context ) ; }
+{ return new FastaAlnWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_fasta( ostream& ss, const ParamBlock& p )
-{ 
-	ss << "write best alignments(!) in FASTA format to " << parse_fn( p.arg ) ;
-	if( p.context ) ss << " with " << p.context << "nt of context" ;
-}
+{ ss << "write best alignments(!) in FASTA format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_fastq( const ParamBlock& p )
 { return new FastqWriter( make_output_stream_std( p.arg ) ) ; }
@@ -380,7 +382,7 @@ WRAPPED_MAIN
 		opt_filter_score, opt_filter_mapq, opt_filter_hit,
 		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_subsample, opt_sanitize,
 		opt_filter_multi, opt_edit_header, opt_merge, opt_join,
-		opt_mega_merge, opt_concat, opt_rmdup, opt_output,
+		opt_mega_merge, opt_concat, opt_add_alns, opt_rmdup, opt_output,
 		opt_output_text, opt_output_sam, opt_output_glz,
 		opt_output_3aln, opt_output_fasta, opt_output_fastq,
 		opt_output_table, opt_duct_tape, opt_stats, opt_regions_only,
@@ -391,7 +393,7 @@ WRAPPED_MAIN
 		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit,
 		mk_delete_hit, mk_require_hit, mk_filter_qual, mk_subsample, mk_sanitize,
 		mk_filter_multi, mk_edit_header, 0, 0,
-		0, 0, mk_rmdup, 0,
+		0, 0, mk_add_alns, mk_rmdup, 0,
 		0, 0, 0,
 		0, 0, 0,
 		0, mk_duct_tape, 0, mk_regions_only,
@@ -402,7 +404,7 @@ WRAPPED_MAIN
 		0, 0, 0,
 		0, 0, 0, 0, 0,
 		0, 0, mk_merge, mk_join,
-		mk_mega_merge, mk_concat, 0, 0,
+		mk_mega_merge, mk_concat, 0, 0, 0,
 		0, 0, 0,
 		0, 0, 0,
 		0, 0, 0, 0,
@@ -413,7 +415,7 @@ WRAPPED_MAIN
 		0, 0, 0,
 		0, 0, 0, 0, 0,
 		0, 0, 0, 0,
-		0, 0, 0, mk_output,
+		0, 0, 0, 0, mk_output,
 		mk_output_text, mk_output_sam, mk_output_glz,
 		mk_output_3aln, mk_output_fasta, mk_output_fastq,
 		mk_output_table, 0, mk_stats, 0,
@@ -422,12 +424,11 @@ WRAPPED_MAIN
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
 		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_require_hit, desc_filter_qual, desc_subsample, desc_sanitize, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
-		desc_mega_merge, desc_concat, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
+		desc_mega_merge, desc_concat, desc_rmdup, desc_add_alns, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, desc_regions_only, desc_not_regions, 0 } ;
 
-	ParamBlock param( 7.5, 20.0, 0, 0, 0 ) ;
+	ParamBlock param( 7.5, 20.0, 0, 0 ) ;
 	int POPT_ARG_DFLT = POPT_ARG_FLOAT | POPT_ARGFLAG_SHOW_DEFAULT ;
-	int POPT_ARG_DINT = POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT ;
 	int core_limit = 0, dry_run = 0 ;
 
 	struct poptOption options[] = {
@@ -451,6 +452,7 @@ WRAPPED_MAIN
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
 		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid jobs", 0 },
 		{ "rmdup",         'd', POPT_ARG_INT,    0, opt_rmdup,         "remove PCR duplicates, clamp Q-scores to Q", "Q" },
+		{ "add-alns",       0 , POPT_ARG_INT,    0, opt_add_alns,      "add alignments with N nt of context", "N" },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
@@ -464,7 +466,6 @@ WRAPPED_MAIN
 
 		{ "set-slope",      0 , POPT_ARG_DFLT,   &param.slope,      0, "set slope parameter to S", "S" },
 		{ "set-intercept",  0 , POPT_ARG_DFLT,   &param.intercept,  0, "set length discount parameter to L", "L" },
-		{ "set-context",    0 , POPT_ARG_DINT,   &param.context,    0, "set context parameter to C", "C" },
 		{ "set-genome",     0 , POPT_ARG_STRING, &param.genome,     0, "set interesting genome parameter to G", "G" },
 		{ "clear-genome",   0 , POPT_ARG_VAL,    &param.genome,     0, "clear interesting genome parameter", 0 },
 
@@ -479,7 +480,7 @@ WRAPPED_MAIN
 
 	FilterStack filters_initial ;
 	FilterStack *filters_current = &filters_initial ;
-	FilterParams< StreamBundle > merging_filter( ParamBlock(0,0,0,0,0), 0, mk_concat, desc_concat ) ;
+	FilterParams< StreamBundle > merging_filter( ParamBlock(0,0,0,0), 0, mk_concat, desc_concat ) ;
 
 	typedef std::deque< FilterStack > FilterStacks ;
 	FilterStacks filters_terminal ;

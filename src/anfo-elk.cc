@@ -226,10 +226,11 @@ Object p_write_glz( Object f ) { return wrap_stream( new GlzWriter( open_any_out
 Object p_write_3aln( Object f ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }
 Object p_write_fastq( Object f ) { return wrap_stream( new FastqWriter( open_any_output_std( f ) ) ) ; }
 Object p_write_table( Object f ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
-Object p_write_fasta( Object f, Object c ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ), Get_Integer( c ) ) ) ; }
+Object p_write_fasta( Object f ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ) ) ) ; }
 
 // Processors
 Object p_duct_tape( Object n ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
+Object p_add_alns( Object c ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
 Object p_rmdup( Object s, Object i, Object q ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
 Object p_write_stats( Object f ) { return wrap_stream( new StatStream( object_to_string( f ) ) ) ; }
 
@@ -333,9 +334,10 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_3aln,       "write-three-aln",     1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_fastq,      "write-fastq",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_table,      "write-table",         1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_fasta,      "write-fasta",         2, 2, EVAL ) ;
+	Define_Primitive( (P)p_write_fasta,      "write-fasta",         1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_duct_tape,        "duct-tape",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_add_alns,         "add-alns",            1, 1, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;
 	Define_Primitive( (P)p_write_stats,      "write-stats",         1, 1, EVAL ) ;
 
