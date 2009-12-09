@@ -134,7 +134,6 @@ void TextWriter::put_header( const Header& h )
 
 void TextWriter::put_result( const Result& r )
 {
-	Stream::put_result( r ) ;
 	google::protobuf::TextFormat::Print( r, os_.get() ) ;
 }
 

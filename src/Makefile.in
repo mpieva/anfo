@@ -38,8 +38,9 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = fa2dna$(EXEEXT) dnaindex$(EXEEXT) anfo-sge$(EXEEXT) \
-	anfo-tool$(EXEEXT) file-info$(EXEEXT) $(am__EXEEXT_1)
-libexec_PROGRAMS = index-test$(EXEEXT) martin-table$(EXEEXT)
+	anfo-tool$(EXEEXT) $(am__EXEEXT_1)
+libexec_PROGRAMS = index-test$(EXEEXT) martin-table$(EXEEXT) \
+	file-info$(EXEEXT)
 EXTRA_PROGRAMS = anfo$(EXEEXT)
 @PTHREADS_TRUE@am__append_1 = anfo
 @ELK_TRUE@am__append_2 = anfo-elk.cc
@@ -285,13 +286,13 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
-dist_noinst_DATA = anfo.scm
+dist_noinst_DATA = anfo.scm.in
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 		     ducttape.h index.h logdom.h misc_streams.h output_streams.h \
 		     sequence.h stream.h trim.h util.h 
 
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
-CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc
+CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc anfo.scm
 LDADD = libanfo.la $(am__append_3)
 libanfo_la_LDFLAGS = -version-info 0:0:0
 libanfo_la_SOURCES = config.pb.h output.pb.h align.cc anfo_common.cc \
@@ -839,6 +840,9 @@ uninstall-am: uninstall-binPROGRAMS uninstall-dist_pkgdataDATA \
 	uninstall-libLTLIBRARIES uninstall-libexecPROGRAMS \
 	uninstall-pkgincludeHEADERS uninstall-schemeDATA
 
+
+anfo.scm: anfo.scm.in
+	sed -e "s#__LIBDIR__#$(libdir)#g" > anfo.scm < anfo.scm.in
 
 config.pb.cc: config.proto
 	$(PROTOC) --cpp_out=. config.proto

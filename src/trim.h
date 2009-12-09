@@ -35,19 +35,17 @@ inline bool match( Ambicode a, Ambicode b ) { return             a  &           
 inline bool match( const QSequence::Base &a, char b ) { return a.ambicode & to_ambicode(b) ; }
 inline bool match( char a, const QSequence::Base &b ) { return to_ambicode(a) & b.ambicode ; }
 
-/*
-	Alignment algorithm following Eugene W. Myers: "An O(ND) Difference
-	Algorithm and Its Variations".  seq_a and seq_b are input sequences,
-	given as iterator pairs.  maxd is the maximum edit distance to
-	consider.
-
-	Regarding overlap alignment:
+/*! \brief aligns two sequences to find an adapter sequence.
+ 
+	The alignment algorithm following Eugene W. Myers: "An O(ND)
+	Difference Algorithm and Its Variations", adapted to 'overlap
+	alignment'.
 
 	We want to align two sequences so they overlap with maximum score.
 	This is not possible with the plain "minimum distance" method, since
 	no overlap always results in the minimum distance of zero.  We do
-	need to score the overlapping part, but not as ordinary difference.
-	Now suppose you have an alignment:
+	need to score the overlapping part, but not the same as an ordinary
+	difference.  Now suppose you have an alignment:
 
 		xxxxxx--
 		--yyyyzz
@@ -65,26 +63,42 @@ inline bool match( char a, const QSequence::Base &b ) { return to_ambicode(a) & 
 		D = 1/2 * mat / (mat-mis)
 
 	and for typical parameters mat=1 and mis=-3 it equals D=1/8.
-    Therefore, end gaps should score 1/8 (but not for local alignments
-    (not implemented here), where only an X-drop algorithm is
-    appropriate).
+	Therefore, end gaps should score 1/8 (but not for local alignments
+	(not implemented here), where only an X-drop algorithm would be
+	appropriate).
 
 	To implement this, the following changes to the original algorithm
 	are necessary:
 	- allow a start gap that grows 8x quicker than a normal gap,
 	  consider the many more involved diagonals,
     - once finished, prefer alignments on lower numbered diagonals.
+
+
+	This function will try to overlap the left end of sequence A (query
+	sequence) with the right end of sequence B (adapter sequence).
+	(Typical adapter trimming therefore requires the sequences to be
+	passed in in reverse.)  It returns the score of the resulting
+	alignment, which will be positive, or -1 if the alignment would be
+	too bad.  The number of characters in sequence A that are overlapped
+	is returned in *yout.
+
+	\param seq_a iterator to beginning of sequence A.
+	\param seq_a_end iterator to end of sequence A.
+	\param seq_b iterator to beginning of sequence B.
+	\param seq_b_end iterator to end of sequence B.
+	\param yout pointer to location where number of trimmed chars is stores.
+	\return alignment score.
 */
 	
 template< typename A, typename B >
-int overlap_align( A seq_a, A seq_a_end, B seq_b, B seq_b_end, int maxd_, int*yout )
+int overlap_align( A seq_a, A seq_a_end, B seq_b, B seq_b_end, int*yout )
 {
 	static const int discount = 8 ;
 	using namespace std ;
 
 	int len_a = seq_a_end - seq_a ;
 	int len_b = seq_b_end - seq_b ;
-	int maxd = min( maxd_, len_a + len_b ) ;
+	int maxd = 2 * len_b / discount ;						// makes sure that score>=0
     int dim = discount*maxd + discount-1 ;
 
 	vector<int> v_d( dim+maxd+1 ), v_dm1( dim+maxd+1 ) ;	// v[d] & v[d-1]
@@ -107,11 +121,11 @@ int overlap_align( A seq_a, A seq_a_end, B seq_b, B seq_b_end, int maxd_, int*yo
 			if( x == len_b )
 			{
 				*yout = y ;
-				return d ;
+				return x + y - discount * d ; // computes score.
 			}
 		}
 	}
-	return maxd ;
+	return -1 ;
 }
 
 #endif

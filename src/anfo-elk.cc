@@ -186,6 +186,18 @@ Object wrap_streams( StreamBundle *m_, int argc, Object *argv )
 }
 
 
+#define WRAP( fun, proto, args ) \
+	Object wrap_##fun proto ; \
+	Object fun proto { \
+		try { return wrap_##fun args ; } \
+		catch( const std::string& e ) { Primitive_Error( e.c_str() ) ; } \
+		catch( const char *e ) { Primitive_Error( e ) ; } \
+		catch( const Exception& e ) { stringstream ss ; ss << e ; Primitive_Error( ss.str().c_str() ) ; } \
+		catch( const std::exception& e ) { Primitive_Error( e.what() ) ; } \
+		catch( ... ) { Primitive_Error( "unhandled C++ exception" ) ; } \
+		return Void ; \
+	} \
+	Object wrap_##fun proto 
 
 extern "C" {
 
@@ -205,7 +217,7 @@ SYMDESCR verbosity_syms[] = {
 	{ (char*) "critical", Console::critical },
 	{ 0, 0 } } ;
 
-Object p_set_verbosity( Object v )
+WRAP( p_set_verbosity, ( Object v ), (v) )
 {
 	if( TYPE(v) == T_Symbol )
 		console.loglevel = (Console::Loglevel) Symbols_To_Bits( v, 0, verbosity_syms ) ;
@@ -214,68 +226,68 @@ Object p_set_verbosity( Object v )
 	return Void ;
 }
 
-Object p_use_mmap( Object v ) { Metagenome::nommap = !Truep( v ) ; return Void ; }
+WRAP( p_use_mmap, ( Object v ), (v) ) { Metagenome::nommap = !Truep( v ) ; return Void ; }
 
 // ANFO stream constructors
 
 // Output
-Object p_write_native( Object f, Object c ) { return wrap_stream( new ChunkedWriter( open_any_output_zc( f ), Get_Integer( c ) ) ) ; }
-Object p_write_text( Object f ) { return wrap_stream( new TextWriter( open_any_output_zc( f ) ) ) ; }
-Object p_write_sam( Object f ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
-Object p_write_glz( Object f ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
-Object p_write_3aln( Object f ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }
-Object p_write_fastq( Object f ) { return wrap_stream( new FastqWriter( open_any_output_std( f ) ) ) ; }
-Object p_write_table( Object f ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
-Object p_write_fasta( Object f ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ) ) ) ; }
+WRAP( p_write_native, ( Object f, Object c ), (f,c) ) { return wrap_stream( new ChunkedWriter( open_any_output_zc( f ), Get_Integer( c ) ) ) ; }
+WRAP( p_write_text,   ( Object f ), (f) ) { return wrap_stream( new TextWriter( open_any_output_zc( f ) ) ) ; }
+WRAP( p_write_sam,    ( Object f ), (f) ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
+WRAP( p_write_glz,    ( Object f ), (f) ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
+WRAP( p_write_3aln,   ( Object f ), (f) ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }
+WRAP( p_write_fastq,  ( Object f ), (f) ) { return wrap_stream( new FastqWriter( open_any_output_std( f ) ) ) ; }
+WRAP( p_write_table,  ( Object f ), (f) ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
+WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ) ) ) ; }
 
 // Processors
-Object p_duct_tape( Object n ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
-Object p_add_alns( Object c ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
-Object p_rmdup( Object s, Object i, Object q ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
-Object p_write_stats( Object f ) { return wrap_stream( new StatStream( object_to_string( f ) ) ) ; }
+WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
+WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
+WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
+WRAP( p_write_stats, ( Object f ), (f) ) { return wrap_stream( new StatStream( object_to_string( f ) ) ) ; }
 
 // Filters
-Object p_sort_by_pos( Object mem, Object handles, Object genomes )
+WRAP( p_sort_by_pos, ( Object mem, Object handles, Object genomes ), (mem,handles,genomes) )
 { return wrap_stream( new SortingStream<by_genome_coordinate>(
 			Get_Integer( mem ) * 1024U * 1024U, Get_Integer( handles ),
 			by_genome_coordinate( obj_to_genomes( genomes ) ) ) ) ; }
 
-Object p_sort_by_name( Object mem, Object handles )
+WRAP( p_sort_by_name, ( Object mem, Object handles ), (mem,handles) )
 { return wrap_stream( new SortingStream<by_seqid>(
 			Get_Integer( mem ) * 1024U * 1024U, Get_Integer( handles ) ) ) ; }
 
-Object p_filter_by_length( Object l ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
+WRAP( p_filter_by_length, ( Object l ), (l) ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
 
-Object p_filter_by_score( Object slope, Object len, Object genomes )
+WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
 { return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
 
-Object p_filter_by_mapq( Object mapq, Object genomes )
+WRAP( p_filter_by_mapq, ( Object mapq, Object genomes ), (mapq,genomes) )
 { return wrap_stream( new MapqFilter( obj_to_genomes( genomes ), Get_Integer( mapq ) ) ) ; }
 
-Object p_require_best_hit( Object genomes, Object sequences ) 
+WRAP( p_require_best_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new RequireBestHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
-Object p_require_hit( Object genomes, Object sequences )
+WRAP( p_require_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new RequireHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
-Object p_ignore_hit( Object genomes, Object sequences ) 
+WRAP( p_ignore_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
-Object p_only_genome( Object genomes ) { return wrap_stream( new OnlyGenome( obj_to_genomes( genomes ) ) ) ; }
-Object p_filter_multi( Object m ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
-Object p_subsample( Object r ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
-Object p_sanitize() { return wrap_stream( new Sanitizer() ) ; }
-Object p_edit_header( Object e ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
-Object p_inside_region( Object f ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
-Object p_outside_region( Object f ) { return wrap_stream( new OutsideRegion( open_any_input_std( f ) ) ) ; }
+WRAP( p_only_genome, ( Object genomes ), (genomes) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( genomes ) ) ) ; }
+WRAP( p_filter_multi, ( Object m ), (m) ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
+WRAP( p_subsample, ( Object r ), (r) ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
+WRAP( p_sanitize, (), () ) { return wrap_stream( new Sanitizer() ) ; }
+WRAP( p_edit_header, ( Object e ), (e) ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
+WRAP( p_inside_region, ( Object f ), (f) ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
+WRAP( p_outside_region, ( Object f ), (f) ) { return wrap_stream( new OutsideRegion( open_any_input_std( f ) ) ) ; }
 
 
 // Mergers  (I'll drop the unholy mega-merge here, that's far better
 // scripted in Scheme)
 
-Object p_merge(  int argc, Object *argv ) { return wrap_streams( new MergeStream,   argc, argv ) ; }
-Object p_join(   int argc, Object *argv ) { return wrap_streams( new BestHitStream, argc, argv ) ; }
-Object p_concat( int argc, Object *argv ) { return wrap_streams( new ConcatStream,  argc, argv ) ; }
+WRAP( p_merge, (  int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new MergeStream,   argc, argv ) ; }
+WRAP( p_join, (   int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new BestHitStream, argc, argv ) ; }
+WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,  argc, argv ) ; }
 
 // Composition
 
@@ -283,7 +295,7 @@ Object p_concat( int argc, Object *argv ) { return wrap_streams( new ConcatStrea
 //! Gets one input stream and many output streams, copies between them.
 //! Might one day extract a tree of results and return it, but for now
 //! returns the final exit code (just like anfo-tool).
-Object p_anfo_run( int argc, Object *argv )
+WRAP( p_anfo_run, ( int argc, Object *argv ), (argc,argv) )
 {
 	StreamHolder inp = obj_to_stream( argv[0] ) ;
 	FanOut out ;
@@ -300,7 +312,7 @@ Object p_anfo_run( int argc, Object *argv )
 //! \brief stream composition.
 //! Gets many streams as argument, ties them into a chain and returns a
 //! new stream.
-Object p_chain( int argc, Object *argv )
+WRAP( p_chain, ( int argc, Object *argv ), (argc,argv) )
 {
 	Holder< Compose > c( new Compose ) ;
 	for( Object *o = argv ; o != argv+argc ; ++o )
@@ -308,7 +320,7 @@ Object p_chain( int argc, Object *argv )
 	return wrap_stream( c ) ;
 }
 
-Object p_read_file( Object fn, Object sol_scores, Object ori )
+WRAP( p_read_file, ( Object fn, Object sol_scores, Object ori ), (fn,sol_scores,ori) )
 { return wrap_stream( obj_to_stream( fn, Truep( sol_scores ), Get_Integer( ori ) ) ) ; }
 
 // init code

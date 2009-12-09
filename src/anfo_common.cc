@@ -92,11 +92,10 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 	}
 }
 
-static const int maxd = 32 ;
-static const int minscore = 4 ;
-
 int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol )
 {
+	static const int minscore = 4 ;
+
 	// trim adapters, set trim points
 	// How does this work?  We create an overlap alignment, then
 	// calculate an alignment score from the number of differences.  The
@@ -116,26 +115,20 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 
 	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
 	{
-		int ymax, xmax = mi.trim_right(i).size() ;
-		int diff = overlap_align(
+		int ymax, score = overlap_align(
 				seq.rbegin() + ( rd.has_trim_right() ? seq.length() - rd.trim_right() : 0 ), seq.rend(),
-				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(),
-				maxd, &ymax ) ;
-		int score = xmax + ymax - 8 * diff ;
-		if( diff < maxd && score >= minscore && ymax > 0 )
+				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(), &ymax ) ;
+		if( score >= minscore && ymax > 0 )
 			r.mutable_read()->set_trim_right(
 					(rd.has_trim_right() ? rd.trim_right() : seq.length()) - ymax ) ;
 	}
 
 	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
 	{
-		int ymax, xmax = mi.trim_left(i).size() ;
-		int diff = overlap_align(
+		int ymax, score = overlap_align(
 				seq.begin() + rd.trim_left(), seq.end(),
-				mi.trim_left(i).begin(), mi.trim_left(i).end(),
-				maxd, &ymax ) ;
-		int score = xmax + ymax - 8 * diff ;
-		if( diff < maxd && score >= minscore && ymax > 0 )
+				mi.trim_left(i).begin(), mi.trim_left(i).end(), &ymax ) ;
+		if( score >= minscore && ymax > 0 )
 			r.mutable_read()->set_trim_left( rd.trim_left() + ymax ) ;
 	}
 
