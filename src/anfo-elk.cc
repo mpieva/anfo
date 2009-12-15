@@ -86,12 +86,16 @@ pair< ZeroCopyOutputStream*, string > open_any_output_zc( Object o )
 		case T_String:
 			{
 				string nm = object_to_string(o) ;
-				FileOutputStream *s = new FileOutputStream( 
-						throw_errno_if_minus1(
-							open( nm.c_str(), O_WRONLY | O_CREAT ),
-							"opening file" ) ) ;
-				s->SetCloseOnDelete( true ) ;
-				return make_pair( s, nm ) ;
+				if( !nm.empty() && nm[0] == '|' )
+					return make_PipeOutputStream( nm.substr(1) ) ;
+				else {
+					FileOutputStream *s = new FileOutputStream( 
+							throw_errno_if_minus1(
+								open( nm.c_str(), O_WRONLY | O_CREAT ),
+								"opening file" ) ) ;
+					s->SetCloseOnDelete( true ) ;
+					return make_pair( s, nm ) ;
+				}
 			}
 		case T_Fixnum:
 			return make_pair( new FileOutputStream( Get_Exact_Integer( o ) ), "<pipe>" ) ;
@@ -107,21 +111,8 @@ pair< ZeroCopyOutputStream*, string > open_any_output_zc( Object o )
 
 pair< std::ostream*, string > open_any_output_std( Object o )
 {
-	switch( TYPE(o) )
-	{
-		case T_Symbol:
-		case T_String:
-			return make_pair( new ofstream( object_to_string(o).c_str() ), object_to_string(o) ) ;
-
-		case T_Boolean:
-			if( !Truep(o) ) return make_pair( new ostream( cout.rdbuf() ), "<stdout>" ) ;
-
-		case T_Fixnum: // needs support code
-		case T_Port: // needs support code
-		default:
-			break ;
-	}
-	throw "can't handle file argument" ;
+	pair< ZeroCopyOutputStream*, string > p = open_any_output_zc( o ) ;
+	return make_pair( new zero_copy_ostream( p.first ), p.second ) ;
 }
 
 pair< std::istream*, string > open_any_input_std( Object o )

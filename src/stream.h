@@ -33,6 +33,8 @@
 #include <memory>
 #include <vector>
 
+#include <sys/types.h>
+#include <sys/wait.h>
 
 namespace streams {
 	using namespace output ;
@@ -686,5 +688,38 @@ class FastqReader : public Stream
 } ;
 
 } // namespace streams
+
+class PipeOutputStream : public google::protobuf::io::FileOutputStream 
+{
+	private:
+		pid_t cpid_ ;
+
+	public:
+		PipeOutputStream( int fd, pid_t cpid ) : google::protobuf::io::FileOutputStream( fd ), cpid_( cpid ) {} 
+		virtual ~PipeOutputStream() { Close() ; throw_errno_if_minus1( waitpid( cpid_, 0, 0 ), "waiting for pipe process" ) ; }
+} ;
+
+std::pair< PipeOutputStream*, std::string > make_PipeOutputStream( const std::string& ) ;
+
+//! \brief adapts a ZeroCopyOutputStream into a streambuf
+class zero_copy_output_buf : public std::streambuf {
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > os_ ;
+
+	public:
+		zero_copy_output_buf( google::protobuf::io::ZeroCopyOutputStream* os ) : os_(os) {}
+		virtual ~zero_copy_output_buf() ;
+		virtual int sync() ;
+		virtual int_type overflow( int_type ) ;
+} ;
+
+class zero_copy_ostream : public std::ostream {
+	private:
+		zero_copy_output_buf b_ ;
+
+	public:
+		zero_copy_ostream( google::protobuf::io::ZeroCopyOutputStream* os ) 
+			: b_( os ) { rdbuf( &b_ ) ; }
+} ;
 
 #endif

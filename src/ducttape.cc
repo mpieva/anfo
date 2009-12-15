@@ -48,23 +48,28 @@ void DuctTaper::put_header( const Header& h )
 //! likelihoods for all possible dialleles.  From that we call the most
 //! likely base.  Calling ambiguity codes for heterozygous sites is not
 //! attempted, as that would be pointless without applying a prior for
-//! the rate of het sites.  Finally store the new contig as an \c
+//! the rate of het sites.  Finally we store the new contig as an \c
 //! output::Result and update internal state.
 //!
 //! Storage of likelihoods is done the same way as in GLF: the highest
 //! likelihood (smallest log-likelihood) becomes the base's quality,
-//! clipped at 255 if necessary.  Likelihoods are stored as difference
+//! clipped at 255 if necessary.  Likelihoods are stored as differences
 //! from the (true, unclipped) minimum, the difference being clipped at
 //! 255.  This means the basecall can be reproduced by seeing which
-//! likelihood value is zero.
+//! likelihood value is zero (there should be at least one).
+//!
+//! \todo If an indel is seen, there sould be a quality score for it.
+//!       However, there's neither a good way to encode said quality or
+//!       a good way to calculate or even define it...
 
 void DuctTaper::flush_contig()
 {
+	// Assigning in the order A,C,T,G was such a brilliant idea...
 	static int external_to_internal_base[4] = { 0, 1, 3, 2 } ;
 	if( observed_.empty() ) return ;
 
-	// if the last column was added, but nothing was observed, leave it
-	// out
+	// if the last column was added, but nothing was observed yet, do
+	// not call a base for it
 	if( observed_.back().pristine() )
 	{
 		observed_.pop_back() ;
@@ -149,7 +154,7 @@ void DuctTaper::put_footer( const Footer& f )
 }
 
 
-// A bit annoying:  we need to treat RC'd RC'd alignments differently.
+// A bit annoying:  we need to treat RC'd alignments differently.
 class AlnIter
 {
 	private:
@@ -285,8 +290,8 @@ void DuctTaper::put_result( const Result& r )
 	for( int offs = h->start_pos() - contig_start_ ; offs ; ++column )
 		if( !column->is_ins ) --offs ;
 
-	Logdom lk_ss_5 = adna_.overhang_enter_penalty, lk_ds_5 ;
-	Logdom lk_ss_3 = adna_.overhang_enter_penalty, lk_ds_3 ;
+	Logdom lk_ds_5, lk_ss_5 = adna_.overhang_enter_penalty ;
+	Logdom lk_ds_3, lk_ss_3 = adna_.overhang_enter_penalty ;
 
 	GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
 	DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
@@ -353,7 +358,8 @@ no_match:
 					
 #if 0
 					// Original code, unrolled and simplified below to
-					// avoid addition of inifinite quantities.
+					// avoid addition of infinite quantities (which
+					// would create NaNs).
 					Logdom lk_base[4]
 					for( int k = 0 ; k != 4 ; ++k )
 					{
@@ -376,17 +382,17 @@ no_match:
 					Logdom lk_base[4] = {
 						( 0 == aln_i.base() ? l_mat : l_mismat ),			// k == 0
 						( 1 == aln_i.base() ? l_mat : l_mismat ) *			// k == 1
-							( 1 - lerp( prob_ss_5, rate_ss, rate_ds ) ) +	// l == 1
+							( 1 - lerp( prob_ss_5, rate_ss, rate_ds ) ) +	//   l == 1
 
-							( 2 == aln_i.base() ? l_mat : l_mismat ) *		// l == 2
+							( 2 == aln_i.base() ? l_mat : l_mismat ) *		//   l == 2
 							lerp( prob_ss_5, rate_ss, rate_ds ),
 
 						( 2 == aln_i.base() ? l_mat : l_mismat ),			// k == 2
 						
 						( 0 == aln_i.base() ? l_mat : l_mismat ) *			// k == 3
-							lerp( prob_ss_3, rate_ss, rate_ds ) +			// l == 0
+							lerp( prob_ss_3, rate_ss, rate_ds ) +			//   l == 0
 
-							( 3 == aln_i.base() ? l_mat : l_mismat ) *		// l == 3
+							( 3 == aln_i.base() ? l_mat : l_mismat ) *		//   l == 3
 							( 1 - lerp( prob_ss_3, rate_ss, rate_ds ) )
 					} ;
 						

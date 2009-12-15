@@ -1056,3 +1056,39 @@ StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInp
 }
 
 } ; // namespace
+
+std::pair< PipeOutputStream*, std::string > make_PipeOutputStream( const std::string& p )
+{
+	console.output( Console::notice, "piping to " + p ) ;
+
+	int fds[2] ;
+	throw_errno_if_minus1( pipe( fds ), "creating pipe" ) ;
+
+	pid_t chld = throw_errno_if_minus1( fork(), "forking pipe process" ) ;
+	if( chld == 0 ) {
+		throw_errno_if_minus1( dup2( fds[0], 0 ), "duplicating file descriptor" ) ;
+		if( fds[0] != 0 ) throw_errno_if_minus1( close( fds[0] ), "closing fd" ) ;
+		throw_errno_if_minus1( close( fds[1] ), "closing fd" ) ;
+		const char *c = p.c_str() ;
+		while( *c && isspace( *c ) ) ++c ;
+		execl( "/bin/sh", "/bin/sh", "-c", c, (char*)0 ) ;
+	}
+
+	throw_errno_if_minus1( close( fds[0] ), "closing fd" ) ;
+	return std::make_pair( new PipeOutputStream( fds[1], chld ), "<pipe>" ) ;
+}
+
+zero_copy_output_buf::~zero_copy_output_buf() { sync() ; }
+
+int zero_copy_output_buf::sync() { if( epptr() != pptr() ) os_->BackUp( epptr() - pptr() ) ; return 0 ; }
+
+zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_buf::int_type c )
+{
+	sync() ;
+	void *buf ;
+	int len ;
+	if( !os_->Next( &buf, &len ) ) return traits_type::eof() ;
+	setp( (char*)buf, (char*)buf + len ) ;
+	return c == traits_type::eof() ? !traits_type::eof() : sputc( c ) ;
+}
+
