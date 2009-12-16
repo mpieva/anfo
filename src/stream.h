@@ -719,7 +719,7 @@ class zero_copy_ostream : public std::ostream {
 
 	public:
 		zero_copy_ostream( google::protobuf::io::ZeroCopyOutputStream* os ) 
-			: b_( os ) { rdbuf( &b_ ) ; }
+			: std::ostream( &b_ ), b_( os ) {}
 } ;
 
 #endif

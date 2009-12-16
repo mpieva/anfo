@@ -171,16 +171,15 @@ void RepairHeaderStream::put_header( const Header& h )
 
 void FanOut::put_header( const Header& h )
 {
+	Stream::put_header( h ) ;
 	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
 		(*i)->put_header( h ) ;
-	state_ = streams_.front()->get_state() ;
 }
 
 void FanOut::put_result( const Result& r )
 {
 	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
-		(*i)->put_result( r ) ;
-	state_ = streams_.front()->get_state() ;
+		if( (*i)->get_state() == need_input ) (*i)->put_result( r ) ;
 }
 
 void FanOut::put_footer( const Footer& f )

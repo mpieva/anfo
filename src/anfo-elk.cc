@@ -91,7 +91,7 @@ pair< ZeroCopyOutputStream*, string > open_any_output_zc( Object o )
 				else {
 					FileOutputStream *s = new FileOutputStream( 
 							throw_errno_if_minus1(
-								open( nm.c_str(), O_WRONLY | O_CREAT ),
+								open( nm.c_str(), O_WRONLY | O_CREAT | O_TRUNC ),
 								"opening file" ) ) ;
 					s->SetCloseOnDelete( true ) ;
 					return make_pair( s, nm ) ;
@@ -329,8 +329,8 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_set_verbosity,    "set-verbosity",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_use_mmap,         "use-mmap",            1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_read_file,        "read-file",           3, 3, EVAL ) ;
-	Define_Primitive( (P)p_write_native,     "write-native",        2, 2, EVAL ) ;
+	Define_Primitive( (P)p_read_file,        "read-file",           3, 3, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_write_native,     "write-native",        2, 2, EVAL ) ;  // wrap?
 	Define_Primitive( (P)p_write_text,       "write-text",          1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_sam,        "write-sam",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_glz,        "write-glz",           1, 1, EVAL ) ;
@@ -339,27 +339,27 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_table,      "write-table",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_fasta,      "write-fasta",         1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_duct_tape,        "duct-tape",           1, 1, EVAL ) ;
-	Define_Primitive( (P)p_add_alns,         "add-alns",            1, 1, EVAL ) ;
-	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;
-	Define_Primitive( (P)p_write_stats,      "write-stats",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_write_stats,      "write-stats",         1, 1, EVAL ) ;  // redesign?
 
 	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;
-	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;
-	Define_Primitive( (P)p_filter_multi,     "filter-multiplicity", 1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;
 	Define_Primitive( (P)p_subsample,        "subsample",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_sanitize,         "sanitize",            0, 0, EVAL ) ;
-	Define_Primitive( (P)p_edit_header,      "edit-header",         1, 1, EVAL ) ;
-	Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;
-	Define_Primitive( (P)p_require_best_hit, "require-best-hit",    2, 2, EVAL ) ;
-	Define_Primitive( (P)p_require_hit,      "require-hit",         2, 2, EVAL ) ;
-	Define_Primitive( (P)p_ignore_hit,       "ignore-hit",          2, 2, EVAL ) ;
+	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;
+	Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;  // redesign?
+	Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;  // redesign?
+	Define_Primitive( (P)p_require_best_hit, "prim-require-bht",    2, 2, EVAL ) ;
+	Define_Primitive( (P)p_require_hit,      "prim-require-hit",    2, 2, EVAL ) ;
+	Define_Primitive( (P)p_ignore_hit,       "prim-ignore-hit",     2, 2, EVAL ) ;
 	Define_Primitive( (P)p_only_genome,		 "only-genome",         1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_sort_by_pos,      "sort-pos",            3, 3, EVAL ) ;
-	Define_Primitive( (P)p_sort_by_name,     "sort-name",           3, 3, EVAL ) ;
+	Define_Primitive( (P)p_sort_by_pos,      "sort-pos",            3, 3, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_sort_by_name,     "sort-name",           3, 3, EVAL ) ;  // wrap?
 
 	Define_Primitive( (P)p_merge,            "merge",               1, MANY, VARARGS ) ; 
 	Define_Primitive( (P)p_join,             "join",                1, MANY, VARARGS ) ; 

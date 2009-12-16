@@ -1071,7 +1071,7 @@ std::pair< PipeOutputStream*, std::string > make_PipeOutputStream( const std::st
 		throw_errno_if_minus1( close( fds[1] ), "closing fd" ) ;
 		const char *c = p.c_str() ;
 		while( *c && isspace( *c ) ) ++c ;
-		execl( "/bin/sh", "/bin/sh", "-c", c, (char*)0 ) ;
+		execl( "/bin/sh", "sh", "-c", c, (char*)0 ) ;
 	}
 
 	throw_errno_if_minus1( close( fds[0] ), "closing fd" ) ;
@@ -1080,7 +1080,14 @@ std::pair< PipeOutputStream*, std::string > make_PipeOutputStream( const std::st
 
 zero_copy_output_buf::~zero_copy_output_buf() { sync() ; }
 
-int zero_copy_output_buf::sync() { if( epptr() != pptr() ) os_->BackUp( epptr() - pptr() ) ; return 0 ; }
+int zero_copy_output_buf::sync()
+{
+	if( epptr() != pptr() ) {
+		os_->BackUp( epptr() - pptr() ) ;
+		setp( 0, 0 ) ;
+	}
+	return 0 ;
+}
 
 zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_buf::int_type c )
 {
@@ -1088,7 +1095,8 @@ zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_
 	void *buf ;
 	int len ;
 	if( !os_->Next( &buf, &len ) ) return traits_type::eof() ;
-	setp( (char*)buf, (char*)buf + len ) ;
-	return c == traits_type::eof() ? !traits_type::eof() : sputc( c ) ;
+	setp( static_cast<char_type*>( buf ), static_cast<char_type*>( buf ) + len ) ;
+	return traits_type::eq_int_type( c, traits_type::eof() )
+		? traits_type::not_eof( c ) : sputc( c ) ;
 }
 
