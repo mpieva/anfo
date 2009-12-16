@@ -103,7 +103,6 @@ pair< ZeroCopyOutputStream*, string > open_any_output_zc( Object o )
 		case T_Boolean:
 			if( !Truep(o) ) return make_pair( new FileOutputStream( 1 ), "<stdout>" ) ;
 
-		case T_Port: // needs support code
 		default:
 			throw "can't handle file argument" ;
 	}
@@ -115,6 +114,8 @@ pair< std::ostream*, string > open_any_output_std( Object o )
 	return make_pair( new zero_copy_ostream( p.first ), p.second ) ;
 }
 
+// note: this is only used to initialize the "region filters".  Use of a
+// scheme data structure might be beneficial here.
 pair< std::istream*, string > open_any_input_std( Object o )
 {
 	switch( TYPE(o) )
@@ -126,8 +127,6 @@ pair< std::istream*, string > open_any_input_std( Object o )
 		case T_Boolean:
 			if( !Truep(o) ) return make_pair( new istream( cin.rdbuf() ), "<stdin>" ) ;
 
-		case T_Fixnum: // needs support code
-		case T_Port: // needs support code
 		default:
 			break ;
 	}
@@ -147,14 +146,15 @@ StreamHolder obj_to_stream( Object o, bool sol = false , int ori = 33 )
 		case T_String:
 			return make_input_stream( object_to_string(o).c_str(), sol, ori ) ;
 
+		case T_Fixnum:
+			return make_input_stream( Get_Integer(o), "<pipe>", sol, ori ) ;
+
 		case T_Boolean:
 			if( !Truep(o) ) return make_input_stream( 0, "<stdin>", sol, ori ) ;
 
-		case T_Fixnum: // needs support code
-		case T_Port: // needs support code
-			break ;
+		default:
+			throw "can't handle file argument" ;
 	}
-	throw "can't handle file argument" ;
 }
 
 vector<string> obj_to_genomes( Object o )

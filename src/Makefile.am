@@ -43,7 +43,7 @@ if ELK
 endif
 
 anfo.scm: anfo.scm.in
-	sed -e "s#__LIBDIR__#$(libdir)#g" > anfo.scm < anfo.scm.in
+	sed -e "s#__LIBDIR__#$(libdir)#g" > $@ < $<
 
 config.pb.cc: config.proto
 	$(PROTOC) --cpp_out=. config.proto
