@@ -44,7 +44,7 @@ using namespace std ;
 using namespace google::protobuf::io ;
 
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version, opt_quiet } ;
@@ -83,7 +83,7 @@ int main_( int argc, const char * argv[] )
 	unsigned total_seeded = 0, total_failures = 0 ;
 	while( const char* arg = poptGetArg( pc ) ) 
 	{
-		std::auto_ptr<streams::Stream> inp( streams::make_input_stream( arg ) ) ;
+		Holder< streams::Stream > inp( streams::make_input_stream( arg ) ) ;
 		while( inp->get_state() == streams::Stream::have_output )
 		{
 			QSequence ps ;
@@ -115,15 +115,15 @@ int main_( int argc, const char * argv[] )
 				}
 			}
 
-			if( r.has_aln_stats() )
+			if( r.aln_stats_size() )
 			{
 				++total_seeded ;
 				cout << setw(27) << r.read().seqid()
 					<< setw(5) << seq_len
-					<< setw(10) << r.aln_stats().num_raw_seeds()
-					<< setw(10) << r.aln_stats().num_useless()
-					<< setw(10) << r.aln_stats().num_grown_seeds()
-					<< setw(10) << r.aln_stats().num_clumps() ;
+					<< setw(10) << r.aln_stats(0).num_raw_seeds()
+					<< setw(10) << r.aln_stats(0).num_useless()
+					<< setw(10) << r.aln_stats(0).num_grown_seeds()
+					<< setw(10) << r.aln_stats(0).num_clumps() ;
 
 				if( simulation )
 				{

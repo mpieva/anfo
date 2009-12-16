@@ -87,11 +87,11 @@ struct CommonData
 	Queue<output::Result*, 8> output_queue ;
 	Queue<AlignmentWorkload*, 8> intermed_queue ;
 	Queue<output::Result*, 8> input_queue ;
-	streams::AnfoWriter output_stream ;
+	streams::StreamHolder output_stream ;
 	Mapper mapper ;
 
 	CommonData( const Config& conf, const char* fn )
-		: output_stream( fn ), mapper( conf ) {}
+		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf ) {}
 } ;
 
 void* run_output_thread( void* p )
@@ -99,7 +99,7 @@ void* run_output_thread( void* p )
 	CommonData *q = (CommonData*)p ;
 	while( output::Result *r = q->output_queue.dequeue() )
 	{
-		q->output_stream.put_result( *r ) ;
+		q->output_stream->put_result( *r ) ;
 		delete r ;
 	}
 	return 0 ;
@@ -165,7 +165,7 @@ void* run_worker_thread( void* cd_ )
 //!
 //! \todo Actually implement search for multiple alignments in its full generality...
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version } ;
@@ -175,7 +175,12 @@ int main_( int argc, const char * argv[] )
 	int nthreads = 1 ;
 	int nxthreads = 1 ;
 	int solexa_scale = 0 ;
+	int clobber = 0 ;
 	int fastq_origin = 33 ;
+	int task_id = 0 ;
+	if( const char *t = getenv( "SGE_TASK_ID" ) ) task_id = atoi( t ) -1 ; 
+	if( const char *t = getenv( "NSLOTS" ) ) { nthreads = atoi( t ) ; nxthreads = (3+nthreads) / 4 ; }
+
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
@@ -183,8 +188,10 @@ int main_( int argc, const char * argv[] )
 		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
 		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
-		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "suppress most output", 0 },
-		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "produce more output", 0 },
+		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
+		{ "nommap",       0 , POPT_ARG_NONE,   &Metagenome::nommap, opt_none,     "Don't use mmap(), read() indexes instead", 0 },
+		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "Suppress most output", 0 },
+		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "Produce more output", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
 		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -211,10 +218,16 @@ int main_( int argc, const char * argv[] )
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
 	Config conf = get_default_config( config_file ) ;
-	CommonData common_data( conf, output_file ) ; // zos.get() ) ;
+	std::string ofile = expand( output_file, task_id ) ;
+
+	// no-op if output exists and overwriting wasn't asked for
+    if( !clobber && 0 == access( ofile.c_str(), F_OK ) ) return 0 ;
+
+	CommonData common_data( conf, (ofile+".#new#").c_str() ) ;
 
 	deque<string> files ;
-	while( const char* arg = poptGetArg( pc ) ) files.push_back( arg ) ;
+	while( const char* arg = poptGetArg( pc ) ) files.push_back( expand( arg, task_id ) ) ;
+
 	poptFreeContext( pc ) ;
 	if( files.empty() ) files.push_back( "-" ) ; 
 
@@ -223,7 +236,7 @@ int main_( int argc, const char * argv[] )
 	ohdr.set_version( PACKAGE_VERSION ) ;
 
 	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	common_data.output_stream.put_header( ohdr ) ;
+	common_data.output_stream->put_header( ohdr ) ;
 
 	// Running in multiple threads.  The main thread will read the
 	// input and enqueue it, then signal end of input by adding a null
@@ -243,7 +256,7 @@ int main_( int argc, const char * argv[] )
 
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
-		std::auto_ptr< streams::Stream > inp( 
+		Holder< streams::Stream > inp( 
 				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
@@ -267,7 +280,8 @@ int main_( int argc, const char * argv[] )
 	clog << endl ;
 	output::Footer ofoot ;
 	ofoot.set_exit_code( exit_with ) ;
-	common_data.output_stream.put_footer( ofoot ) ;
+	common_data.output_stream->put_footer( ofoot ) ;
+	if( !exit_with ) std::rename( (ofile+".#new#").c_str(), ofile.c_str() ) ;
 	return 0 ;
 }
 

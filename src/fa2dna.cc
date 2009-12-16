@@ -319,7 +319,7 @@ std::string drop_suffix( const std::string& suf, const std::string& s )
 	else return s ;
 }
 
-int main_( int argc, const char * argv[] )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum option_tags { opt_none, opt_version } ;
@@ -352,7 +352,7 @@ int main_( int argc, const char * argv[] )
 			return 0 ;
 
 		default:
-			std::cerr << argv[0] << ": " << poptStrerror( rc ) 
+			std::clog << argv[0] << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
 			return 1 ; 
 	}

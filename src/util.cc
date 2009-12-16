@@ -30,8 +30,7 @@ volatile int exit_with = 0 ;
 std::string program_name ;
 Console console ;
 
-extern int main_( int argc, const char * argv[] ) ;
-int main( int argc, const char * argv[] )
+int wrap_main( int argc, const char * argv[], int (*main_)( int, const char *[] ) )
 {
 	program_name = argv[0] ;
 	try { return main_( argc, argv ) ; }
@@ -147,7 +146,7 @@ void Console::progress( int c, Loglevel l, const std::string& s )
 		if( i->first == c )
 		{
 			i->second = s ;
-			if( i != chans_.begin() ) std::swap( i[0], i[-1] ) ;
+			// if( i != chans_.begin() ) std::swap( i[0], i[-1] ) ;
 			update() ;
 			return ;
 		}

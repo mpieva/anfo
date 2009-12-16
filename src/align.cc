@@ -20,15 +20,12 @@
 
 #include "align.h"
 
+#include "config.pb.h"
+
 #include <ostream>
 #include <iomanip>
 
-subst_mat simple_adna::ds_mat ;
-subst_mat simple_adna::ss_mat ;
-Logdom simple_adna::overhang_ext_penalty ;
-Logdom simple_adna::overhang_enter_penalty ;
-Logdom simple_adna::gap_open_penalty ;
-Logdom simple_adna::gap_ext_penalty ;
+adna_parblock simple_adna::pb ;
 
 namespace {
 	void print_subst_mat( std::ostream& s, const subst_mat mat )
@@ -90,7 +87,7 @@ namespace {
 //! \param conf set of configuration parameters
 //! \param out if not NULL, receives a protocol of the calculated
 //!            internal parameters
-void simple_adna::configure( const config::Aligner& conf, std::ostream *out ) 
+adna_parblock::adna_parblock( const config::Aligner& conf )
 {
 	gap_ext_penalty = Logdom::from_float( conf.gap_extension_rate() ) ;
 	gap_open_penalty = conf.has_gap_open_rate() ? Logdom::from_float( conf.gap_open_rate() ) : gap_ext_penalty ;
@@ -155,23 +152,24 @@ void simple_adna::configure( const config::Aligner& conf, std::ostream *out )
 			ss_mat[ref][qry] = Logdom::from_float( p_ss / npairs ) ;
 		}
 	}
-	
-	if( out ) 
-	{
-		*out << "\n\e[1mALIGNMENT PARAMETERS\e[0m:\n\n"
-			 << "  \e[4mDouble Stranded Substitution Matrix\e[0m:\n\n" ;
-		print_subst_mat( *out, ds_mat ) ;
-		*out << "\n  \e[4mSingle Stranded Substitution Matrix\e[0m:" ;
-		if( conf.has_rate_of_ss_deamination() ) {
-			*out << "\n\n" ; print_subst_mat( *out, ss_mat ) ;
-		} else *out << " N/A\n" ;
-		*out << "\n  \e[4mGap Open Penalty\e[0m: " << gap_open_penalty.to_phred()
-			 << "\n  \e[4mGap Extension Penalty\e[0m: " << gap_ext_penalty.to_phred()
-			 << "\n\n  \e[4mOverhang Penalty\e[0m: " ;
-		if( !overhang_enter_penalty.is_finite() ) *out << "N/A" ; else *out << overhang_enter_penalty.to_phred() ;
-		*out << "\n  \e[4mOverhang Extension Penalty\e[0m: " ;
-		if( !overhang_ext_penalty.is_finite() ) *out << "N/A" ; else *out << overhang_ext_penalty.to_phred() ;
-		*out << '\n' << std::endl ;
-	}
 }
+
+std::ostream& operator << ( std::ostream& s, const adna_parblock& p )
+{
+	s << "\n\e[1mALIGNMENT PARAMETERS\e[0m:\n\n"
+		<< "  \e[4mDouble Stranded Substitution Matrix\e[0m:\n\n" ;
+	print_subst_mat( s, p.ds_mat ) ;
+	s << "\n  \e[4mSingle Stranded Substitution Matrix\e[0m:" ;
+	if( p.ss_mat[1][1] != p.ds_mat[1][1] ) {
+		s << "\n\n" ; print_subst_mat( s, p.ss_mat ) ;
+	} else s << " N/A\n" ;
+	s << "\n  \e[4mGap Open Penalty\e[0m: " << p.gap_open_penalty.to_phred()
+		<< "\n  \e[4mGap Extension Penalty\e[0m: " << p.gap_ext_penalty.to_phred()
+		<< "\n\n  \e[4mOverhang Penalty\e[0m: " ;
+	if( !p.overhang_enter_penalty.is_finite() ) s << "N/A" ; else s << p.overhang_enter_penalty.to_phred() ;
+	s << "\n  \e[4mOverhang Extension Penalty\e[0m: " ;
+	if( !p.overhang_ext_penalty.is_finite() ) s << "N/A" ; else s << p.overhang_ext_penalty.to_phred() ;
+	return s << '\n' << std::endl ;
+}
+
 

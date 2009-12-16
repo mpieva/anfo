@@ -31,9 +31,14 @@
 #include <deque>
 #include <fstream>
 #include <memory>
+#include <vector>
+
+#include <sys/types.h>
+#include <sys/wait.h>
 
 namespace streams {
 	using namespace output ;
+	using namespace std ;
 
 inline uint32_t mk_msg_tag( uint32_t i ) { return i << 3 | 2 ; }
 
@@ -75,6 +80,13 @@ void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int t
 }
 
 template< typename Msg >
+void write_delimited_message( google::protobuf::io::ZeroCopyOutputStream *os, int tag, const Msg& m )
+{
+	google::protobuf::io::CodedOutputStream o( os ) ;
+	write_delimited_message( o, tag, m ) ;
+}
+
+template< typename Msg >
 bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m )
 {
 	uint32_t size ;
@@ -92,19 +104,26 @@ void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 
-//! \brief checks if a genome was hit
-//! If an empty genome is asked for, checks for any hit.
-bool has_hit_to( const output::Result&, const char* ) ;
 
 //! \brief returns the hit to some genome
 //! If an empty genome is asked for, returns the best hit.  Behaviour is
 //! undefined if no suitable hit exists.
-const output::Hit& hit_to( const output::Result&, const char* ) ;
+const output::Hit* hit_to( const output::Result& ) ;
+const output::Hit* hit_to( const output::Result&, const string& ) ;
+inline const output::Hit* hit_to( const output::Result& r, const char* g ) { return g ? hit_to( r ) : hit_to( r, string(g) ) ; }
+
+template< typename I > const output::Hit* hit_to( const output::Result& r, I begin, I end )
+{
+	for( ; begin != end ; ++begin )
+		if( const output::Hit* h = hit_to( r, *begin ) ) return h ;
+	return 0 ;
+}
 
 //! \brief returns the mutable hit to some genome
 //! If an empty genome is asked for, returns the best hit.  If no
 //! suitable hit exists, a new one is created.
-output::Hit* mutable_hit_to( output::Result*, const char* ) ;
+output::Hit* mutable_hit_to( output::Result* ) ;
+output::Hit* mutable_hit_to( output::Result*, const string& ) ;
 
 //! \brief computes (trimmed) query length from CIGAR line
 template< typename C > unsigned len_from_bin_cigar( const C& cig )
@@ -164,7 +183,10 @@ inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, outp
 class Stream
 {
 	public:
+		int refcount_ ;
 		enum state { invalid, end_of_stream, need_input, have_output } ;
+
+		static void cleanup( Stream* p ) { delete p ; }
 
 	protected:
 		// internal state---not strictly necessary here, but used almost
@@ -174,9 +196,14 @@ class Stream
 		Footer foot_ ;
 		state state_ ;
 
+		virtual ~Stream() {} 				// want control over instantiation
+
+	private:
+		Stream( const Stream& ) ; 			// must not copy
+		void operator = ( const Stream& ) ;	// must not copy
+
 	public:
-		Stream() : state_( end_of_stream ) {}
-		virtual ~Stream() {}
+		Stream() : refcount_(0), state_( end_of_stream ) {}
 
 		//! \brief returns stream state
 		//! The state determines which methods may be called: get_header
@@ -189,7 +216,7 @@ class Stream
 		//! to either need_input or have_output.  Particular streams may
 		//! need special initialization before the state bacomes
 		//! something other than invalid.
-		state get_state() const { return state_ ; }
+		virtual state get_state() { return state_ ; }
 
 		//! \brief returns the header
 		//! The header can be requested any time, unless the stream is
@@ -224,26 +251,38 @@ class Stream
 		//! signals that no more input is available.  A filter will then
 		//! flush internal buffers and signal end_of_stream.
 		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
+
+		// doesn't belong here, but is convenient
+		void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
 } ;
 
-void transfer( Stream& in, Stream& out ) ;
+typedef ::Holder<Stream> StreamHolder ;
+
+int transfer( Stream& in, Stream& out ) ;
 
 //! \brief base class of streams that read from many streams
 class StreamBundle : public Stream
 {
 	protected:
-		std::deque< Stream* > streams_ ;
-		typedef std::deque< Stream* >::const_iterator citer ;
-		typedef std::deque< Stream* >::const_reverse_iterator criter ;
+		std::deque< StreamHolder > streams_ ;
+		typedef std::deque< StreamHolder >::const_iterator citer ;
+		typedef std::deque< StreamHolder >::const_reverse_iterator criter ;
 
 	public:
-		virtual ~StreamBundle() { for_each( streams_.begin(), streams_.end(), delete_ptr<Stream>() ) ; }
-		
-		//! \brief adds an input stream
-		//! The stream is taken ownership of and freed when the StreamBundle
-		//! is destroyed.
-		virtual void add_stream( Stream* ) = 0 ;
+		virtual void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 } ;
+
+//! \internal
+//! Tracked to avoid bumping into the file descriptor limit
+//! (mostly important for merge sorting and mega-merge).
+extern int anfo_reader__num_files_ ;
+
+struct ParseError : public Exception {
+	std::string msg_ ;
+	ParseError( const std::string& m ) : msg_(m) {}
+	virtual void print_to( std::ostream& s ) const { s << "AnfoReader: " << msg_ ; }
+} ;
+
 
 //! \brief presents ANFO files as series of messages
 //! This class will read a possibly compressed result stream and present
@@ -255,27 +294,14 @@ class AnfoReader : public Stream
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
 
-		void read_next_message( google::protobuf::io::CodedInputStream& ) ;
-
-		//! \internal
-		//! Tracked to avoid bumping into the file descriptor limit
-		//! (mostly important for merge sorting and mega-merge).
-		static int num_files_ ;
+		virtual ~AnfoReader() { --anfo_reader__num_files_ ; }
 
 	public: 
-		struct ParseError : public Exception {
-			std::string msg_ ;
-			ParseError( const std::string& m ) : msg_(m) {}
-			virtual void print_to( std::ostream& ) const ;
-		} ;
-
-		AnfoReader( google::protobuf::io::ZeroCopyInputStream *is, const std::string& name ) ;
-
-		virtual ~AnfoReader() { --num_files_ ; }
+		AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
 		virtual Result fetch_result() ;
 
 		//! \internal
-		static unsigned num_open_files() { return num_files_ ; }
+		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
 } ;
 
 //! \brief stream that writes result in native (ANFO) format
@@ -294,16 +320,78 @@ class AnfoWriter : public Stream
 		AnfoWriter( int fd, const char* = "<pipe>", bool expensive = false ) ;
 		AnfoWriter( const char* fname, bool expensive = false ) ;
 
-
 		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; Stream::put_header( h ) ; } 
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
 		virtual void put_result( const Result& r ) ;
 } ;
 
+//! \brief new blocked native format
+//! Writes in a format that can be read by stream::ChunkedReader.  The
+//! file is made up of individually compressed blocks so that
+//! near-random access is possible... in principle.
+class ChunkedWriter : public Stream
+{
+	public:
+		enum method { none, fastlz, gzip, bzip } ;
+
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > zos_ ;	// final output
+		std::vector< char > buf_ ;											// in-memory buffer
+		std::auto_ptr< google::protobuf::io::ArrayOutputStream > aos_ ;		// output to buffer
+		Chan chan_ ;
+		std::string name_ ;
+		int64_t wrote_ ;
+		uint8_t method_, level_ ;
+
+		virtual ~ChunkedWriter() ;
+		void flush_buffer( unsigned needed = 0 ) ;
+		void init() ;
+
+	public:
+		static uint8_t method_of( int l ) {
+			if( l >= 75 ) return bzip ;
+			if( l >= 50 ) return gzip ;
+			if( l >= 10 ) return fastlz ;
+			return none ;
+		}
+		static uint8_t level_of( int l ) {
+			if( l >= 65 ) return 9 ;	// thorough gzip or bzip
+			if( l >= 30 ) return 2 ;	// thorough fastlz or fast gzip
+			return 1 ;					// fast fastlz or none 
+		}
+
+		ChunkedWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >&, int ) ;
+		ChunkedWriter( int fd, int, const char* = "<pipe>" ) ;
+		ChunkedWriter( const char* fname, int ) ;
+
+		virtual void put_header( const Header& h ) ;
+		virtual void put_result( const Result& r ) ;
+		virtual void put_footer( const Footer& f ) ;
+} ;
+
+class ChunkedReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		std::vector< char > buf_ ;											// in-memory buffer
+		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
+		std::string name_ ;
+
+		virtual ~ChunkedReader() { --anfo_reader__num_files_ ; }
+		bool get_next_chunk() ;
+
+	public: 
+		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
+		virtual Result fetch_result() ;
+		virtual Footer fetch_footer() ;
+
+		//! \internal
+		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
+} ;
+
 //! \brief filters that drop or modify isolated records
 //! Think "mapMaybe".
-//! \todo Maybe the fact that some filtering was done should be recorded
-//! in a header, maybe some stats could be put into the footer.
+//! \todo Maybe some stats could be gathered into some sort of a result.
 
 class Filter : public Stream
 {
@@ -312,42 +400,90 @@ class Filter : public Stream
 		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
 } ;
 
+//! \brief filters that drop some alignments
+//! \todo Maybe some stats could be gathered into some sort of a result.
+class HitFilter : public Stream
+{
+	private:
+		vector<string> gs_ ;
+
+	public:
+		HitFilter() {}
+		HitFilter( const vector<string> &gs ) : gs_(gs) {}
+
+		virtual void put_header( const Header& h ) {
+			Stream::put_header( h ) ;
+			hdr_.clear_is_sorted_by_coordinate() ;
+			hdr_.clear_is_sorted_by_all_genomes() ;
+		}
+
+		virtual bool keep( const Hit& ) = 0 ;
+		virtual void put_result( const Result& res ) ; 
+} ;
+
+namespace {
+	template < typename C, typename V > bool contains( const C& c, const V& v )
+	{ return find( c.begin(), c.end(), v ) != c.end() ; }
+}
+
+//! \brief deletes some alignments
+//! A list of sequences and a list of genomes can be given.  An
+//! alignment is deleted if a) the list of genomes is empty or the hit
+//! genome is a member of that list and b) the list of sequences is
+//! empty or the hit sequence is a member of that list.
+class IgnoreHit : public HitFilter
+{
+	private:
+		vector< string > ss_ ;
+
+	public:
+		IgnoreHit( const vector< string > &gs, const vector< string > &ss ) : HitFilter( gs ), ss_( ss ) {}
+		virtual bool keep( const Hit& h ) { return !ss_.empty() && !contains( ss_, h.sequence() ) ; }
+} ;
+
+class OnlyGenome : public Filter
+{
+	private:
+		vector< string > gs_ ;
+
+	public:
+		OnlyGenome( const vector< string > &gs ) : Filter(), gs_( gs ) {}
+		virtual bool xform( Result& r ) ;
+} ;
+
 //! \brief stream that filters for a given score
 //! Alignments that exceed the score are deleted, but the sequences are
-//! kept.  If a genome is given, only alignments to that genome are
-//! removed, else all are considered individually and selectively
-//! removed.  If no alignments remains, \c reason is set to \c
-//! bad_alignment.  Most interesting downstream operations will ignore
-//! sequences without alignments.  Scores are in Phred scale now,
+//! kept.  If genomes are given, only alignments to that genome are
+//! tested and removed, else all are considered individually and
+//! selectively removed.  If no alignments remains, \c reason is set to
+//! \c bad_alignment.  Most interesting downstream operations will
+//! ignore sequences without alignments.  Scores are in Phred scale now,
 //! experience tells that a typical butoff between good alignments and
 //! junk is \f$ 7.5 \cdot ( \mbox{length} - 20 ) \f$
 
-class ScoreFilter : public Filter
+class ScoreFilter : public HitFilter
 {
 	private:
 		double slope_ ;
 		double intercept_ ;
-		const char *genome_ ;
 
 	public:
-		ScoreFilter( double s, double i, const char* g ) : slope_(s), intercept_(i), genome_(g) {}
-		virtual ~ScoreFilter() {}
-		virtual bool xform( Result& ) ;
+		ScoreFilter( double s, double i, const vector<string> &gs ) : HitFilter(gs), slope_(s), intercept_(i) {}
+		virtual bool keep( const Hit& ) ;
 } ;
 
 //! \brief stream that filters for minimum mapping quality
-//! All alignments of sequences where the differenc eto the next hit is
-//! too low are deleted.
-class MapqFilter : public Filter
+//! All alignments of sequences where the difference to the next hit is
+//! too low are deleted.  Filtering can be restricted to some genomes.
+//! The sequence itself is always kept.
+class MapqFilter : public HitFilter
 {
 	private:
-		const char* g_ ;
 		int minmapq_ ; ;
 
 	public:
-		MapqFilter( const char* g, int q ) : g_(g), minmapq_(q) {}
-		virtual ~MapqFilter() {}
-		virtual bool xform( Result& ) ;
+		MapqFilter( const vector<string> &gs, int q ) : HitFilter(gs), minmapq_(q) {}
+		virtual bool keep( const Hit& ) ;
 } ;
 
 //! \brief stream that filters for minimum sequence length
@@ -361,23 +497,32 @@ class LengthFilter : public Filter
 
 	public:
 		LengthFilter( int l ) : minlength_(l) {}
-		virtual ~LengthFilter() {}
 		virtual bool xform( Result& ) ;
 } ;
 
-//! \brief a stream that removes sequences without a hit
+//! \brief a stream that removes sequences without a specific hit
 //! This is intended to shrink a file by removing junk that didn't
-//! align.  It's not needed for conversion to SAM or similar, since
-//! those filters drop unaligned sequences internally.
-class HitFilter : public Filter
+//! align at all.
+class RequireHit : public Filter
 {
 	private:
-		const char* g_ ;
-		const char* s_ ;
+		vector< string > gs_, ss_ ;
 
 	public:
-		HitFilter( const char* g, const char* s ) : g_(g), s_(s) {}
-		virtual ~HitFilter() {}
+		RequireHit( const vector<string> &gs, const vector<string> &ss ) : gs_(gs), ss_(ss) {}
+		virtual bool xform( Result& ) ;
+} ;
+
+//! \brief a stream that removes sequences without a specific best hit
+//! This is intended to shrink a file by removing junk that didn't
+//! align to the expected genome.
+class RequireBestHit : public Filter
+{
+	private:
+		vector< string > gs_, ss_ ;
+
+	public:
+		RequireBestHit( const vector<string> &gs, const vector<string> &ss ) : gs_(gs), ss_(ss) {}
 		virtual bool xform( Result& ) ;
 } ;
 
@@ -388,7 +533,6 @@ class Subsample : public Filter
 
 	public:
 		Subsample( float f ) : f_(f) {}
-		virtual ~Subsample() {}
 		virtual bool xform( Result& ) ;
 } ;
 //! \brief filters for minimum multiplicity
@@ -402,7 +546,6 @@ class MultiFilter : public Filter
 
 	public:
 		MultiFilter( int n ) : n_(n) {}
-		virtual ~MultiFilter() {}
 		virtual bool xform( Result& r ) { return r.member_size() >= n_ ; }
 } ;
 
@@ -419,18 +562,13 @@ class QualFilter : public Filter
 
 	public:
 		QualFilter( int q ) : q_(q) {}
-		virtual ~QualFilter() {}
 		virtual bool xform( Result& ) ;
 } ;
 
 /*! \brief stream with PCR duplicates removed
-    A set of duplicate is (more or less by definition) a set of reads
+
+    A set of duplicates is (more or less by definition) a set of reads
     that map to the same position.
-   
-    \todo Refine the definition of 'duplicate'.  It appears sensible to
-		  forbid alignments that hang off of a contig, though maybe the
-		  requirement for the same length will catch most of them.
-	\todo Check what happens when sequences are trimmed (compare effective lengths?)
    
 	Any set of duplicates is merged (retaining the original reads in an
 	auxilliary structure), and a consensus is called with new quality
@@ -443,15 +581,16 @@ class QualFilter : public Filter
 	(\f$ P(A)=\frac{1}{4} \f$) and after base calling (\f$
 	P(\omega)=\frac{1}{4} \f$).
 
-	When combining observations \f$ \omega_1, \ldots, \omega_n \f$, they
-	are all independent, hence the probabilities conditioned on the
-	actual base can be multiplied.  To get the final quality when
-	calling an A:
+	When combining observations \f$ \omega_1, \ldots, \omega_n \f$
+	conditional on the same base, they are all independent, hence the
+	probabilities conditioned on the actual base can be multiplied.  To
+	get the final quality when calling an A:
 	\f[ P(A|\bigcap_n \omega_n) = \frac{ P(\bigcap_n \omega_n | A) P(A) }{ P(\bigcap_n \omega_n) }
 	                            = \frac{ P(A) \prod_n P(\omega_n | A) }{ P(\bigcap_n \omega_n) } \f]
 
 	The unconditional probabilities in the denominator are not
-	independent, we have to replace them by total probabilites:
+	independent (for they collectively depend on the true base), we have
+	to replace them by total probabilites:
 	\f[ = \frac{ P(A) \prod_n P(\omega_n | A) }{ \sum_N P(\bigcap_n \omega_n | N) P(N) } \f]
 
 	Again, assuming a uniform base composition, the priors are all equal
@@ -461,10 +600,14 @@ class QualFilter : public Filter
 
 	Tracking this incrementally is easy, we need to store the four
 	products.  Computation needs to be done in the log domain to avoid
-	loss of precision.  What remains is how to get an estimate of \f$
+	loss of precision.  Likewise, computation of a quality must not involve \f$ P(A|\omega) \f$,
+	since that is too close to one to be representable, so we calculate the quality as
+	\f[ Q := -10 \log_{10} P( \bar{A} | \omega ) = -10 \log_{10} ( P(C | \omega ) + P(G | \omega ) + P(T | \omega ) ) \f]
+
+	What remains is how to get an estimate of \f$
 	P(\omega | N) \f$.  We easily get \f$ P(\omega | A) \f$ (see above),
 	which will normally be very close to one, and the sum of the other
-	three.  To distribute the sum, we set
+	three.  To estimate the summands, we set
 	\f[ P(\omega|N) = \frac{P(N|\omega) * P(\omega)}{P(N)} =
 	P(N|\omega) = P(N|\bar{A}) * P(\bar{A}|\omega) \f]
 	and estimate \f$ P(N|\bar{A}) \f$ from misclassfication statistics
@@ -478,7 +621,7 @@ class RmdupStream : public Stream
 		std::vector< Logdom > quals_[4] ;
 		double slope_ ;
 		double intercept_ ;
-		const char *g_ ;
+		vector<string> gs_ ;
 		int maxq_ ;
 
 		// XXX double err_prob_[4][4] ; // get this from config or
@@ -489,13 +632,17 @@ class RmdupStream : public Stream
 		void call_consensus() ;
 
 	public:
-		RmdupStream( double s, double i, int maxq ) : slope_(s), intercept_(i), g_(0), maxq_( std::min(maxq,127) ) {}
-		virtual ~RmdupStream() { free( const_cast<char*>(g_) ) ; }
+		//! \brief sets parameters
+		//! \param s Slope of score function, bad alignments are disregarded.
+		//! \param i Intercept of score function.
+		//! \param q (Assumed) quality of the polymerase.
+		RmdupStream( double s, double i, int q ) : slope_(s), intercept_(i), maxq_( std::min(q,127) ) {}
 
 		virtual void put_header( const Header& h )
 		{
-			if( !h.has_is_sorted_by_coordinate() ) throw "RmdupStream: need sorted stream to remove duplicates" ;
-			g_ = h.is_sorted_by_coordinate().empty() ? 0 : strdup( h.is_sorted_by_coordinate().c_str() ) ;
+			if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+				throw "RmdupStream: need sorted stream to remove duplicates" ;
+			gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
 			Stream::put_header( h ) ;
 		}
 
@@ -513,13 +660,13 @@ class ConcatStream : public StreamBundle
 		std::deque< output::Result > rs_ ;
 
 	public:
-		virtual void add_stream( Stream* ) ;
+		virtual void add_stream( StreamHolder ) ;
 		virtual Result fetch_result() ;
 } ;
 
-Stream* make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
-Stream* make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
-Stream* make_input_stream( google::protobuf::io::ZeroCopyInputStream *is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
+StreamHolder make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
+StreamHolder make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
+StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
 
 
 class FastqReader : public Stream
@@ -536,10 +683,43 @@ class FastqReader : public Stream
 		}
 
 	public: 
-		FastqReader( google::protobuf::io::ZeroCopyInputStream *is, bool solexa_scores, char origin ) ;
+		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) ;
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 } ;
 
 } // namespace streams
+
+class PipeOutputStream : public google::protobuf::io::FileOutputStream 
+{
+	private:
+		pid_t cpid_ ;
+
+	public:
+		PipeOutputStream( int fd, pid_t cpid ) : google::protobuf::io::FileOutputStream( fd ), cpid_( cpid ) {} 
+		virtual ~PipeOutputStream() { Close() ; throw_errno_if_minus1( waitpid( cpid_, 0, 0 ), "waiting for pipe process" ) ; }
+} ;
+
+std::pair< PipeOutputStream*, std::string > make_PipeOutputStream( const std::string& ) ;
+
+//! \brief adapts a ZeroCopyOutputStream into a streambuf
+class zero_copy_output_buf : public std::streambuf {
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyOutputStream > os_ ;
+
+	public:
+		zero_copy_output_buf( google::protobuf::io::ZeroCopyOutputStream* os ) : os_(os) {}
+		virtual ~zero_copy_output_buf() ;
+		virtual int sync() ;
+		virtual int_type overflow( int_type ) ;
+} ;
+
+class zero_copy_ostream : public std::ostream {
+	private:
+		zero_copy_output_buf b_ ;
+
+	public:
+		zero_copy_ostream( google::protobuf::io::ZeroCopyOutputStream* os ) 
+			: std::ostream( &b_ ), b_( os ) {}
+} ;
 
 #endif

@@ -178,7 +178,11 @@ static const int MADV_SEQUENTIAL = 0 ;
 static const int MADV_WILLNEED = 0 ;
 #endif
 
-int main( int argc, const char * argv[] ) ;
+int wrap_main( int argc, const char * argv[], int(*)(int,const char*[]) ) ;
+#define WRAPPED_MAIN \
+	int main_(int,const char*[]) ; \
+	int main(int argc, const char*  argv[]) { return wrap_main( argc, argv, main_ ) ; } \
+	int main_(int argc, const char* argv[])
 
 /*! \brief tries to set proc title for ps
  *
@@ -265,6 +269,39 @@ class Chan
 		~Chan() { close() ; }
 		void close() { console.free_chan( n_ ) ; }
 		void operator()( Console::Loglevel l, const std::string& s ) { console.progress( n_, l, s ) ; }
+} ;
+
+template< typename T > class Holder
+{
+	private:
+		T* s_ ;
+
+	public:
+		Holder<T>( const Holder<T>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
+		template< typename U > Holder<T>( const Holder<U>& rhs ) : s_( rhs.operator->() ) { if( s_ ) ++s_->refcount_ ; }
+		template< typename U > Holder<T>( U *s ) : s_( s ) { if( s_ ) ++s_->refcount_ ; }
+		Holder<T>() : s_(0) {}
+		~Holder<T>() { if( s_ && --s_->refcount_ == 0 ) T::cleanup( s_ ) ; }
+
+		template< typename U > Holder<T>& operator = ( U *s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		Holder<T>& operator = ( const Holder<T>& s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		template< typename U > Holder<T>& operator = ( const Holder<U>& s ) 
+		{ Holder<T>( s ).swap( *this ) ; return *this ; }
+
+		void swap( Holder<T>& s ) { std::swap( s_, s.s_ ) ; }
+
+		T* operator -> () const { return s_ ; }
+		T& operator * () const { return *s_ ; }
+
+		operator const void* () const { return s_ ; }
+} ;
+
+namespace std { template < typename T > void swap( Holder<T>& a, Holder<T>& b ) { a.swap( b ) ; } 
+
 } ;
 
 #endif

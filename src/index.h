@@ -42,7 +42,8 @@ class CompactGenome
 		// pointers would be internal and make copying of this object a
 		// lot harder.
 
-		// the pair is (index of sequence, index of contig)
+		// key is offset into genome, value is (index of sequence, index
+		// of contig)
 		typedef std::map< uint32_t, std::pair< int, int > > ContigMap ;
 		
 		// value is index of contig
@@ -50,6 +51,8 @@ class CompactGenome
 
 		// first half of value is index of sequence
 		typedef std::map< std::string, std::pair< int, PosnMap1 > > PosnMap ;
+
+		static void cleanup( const CompactGenome* ) {}
 
 	private:
 		DnaP base_ ;
@@ -62,15 +65,19 @@ class CompactGenome
 		CompactGenome( const CompactGenome& ) ; // not implemented
 		void operator = ( const CompactGenome& ) ; // not implemented
 
+		~CompactGenome() ; // must control life cycle
+		friend class Metagenome ;
+
 	public:
 		config::Genome g_ ;
+		mutable int refcount_ ;
 
 	public:
 		//! \brief constructs an invalid genome
 		//! Genomes constructed in the default fashion are unusable;
 		//! however, this makes \c CompactGenome default constructible
 		//! for use in standard containers.
-		CompactGenome() : base_(0), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_() {}
+		// CompactGenome() : base_(0), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_() {}
 
 		//! \brief makes accessible a genome file
 		//! \param name file name of the genome
@@ -78,7 +85,8 @@ class CompactGenome
 		//! \param adv advise passed to madvise(), if you anticipate
 		//!            specific use of the genome
 		CompactGenome( const std::string& name, int adv = MADV_NORMAL ) ;
-		~CompactGenome() ;
+
+		void add_ref() const { ++refcount_ ; }
 
 		std::string name() const { return g_.name() ; }
 		std::string describe() const 
@@ -112,8 +120,9 @@ class CompactGenome
 		//!                nucleotides
 		//! \param msg if set, switches on progress reports and is
 		//!            included in them
-		template< typename F > void scan_words( unsigned w, F mk_word, const char* msg = 0 ) ;
+		template< typename F > void scan_words( unsigned w, F mk_word, const char* msg = 0 ) const ;
 
+		/*
 		void swap( CompactGenome& g )
 		{
 			std::swap( base_, g.base_ ) ;
@@ -124,6 +133,7 @@ class CompactGenome
 			std::swap( posn_map_, g.posn_map_ ) ;
 			std::swap( g_, g.g_ ) ;
 		}
+		*/
 
 		const ContigMap &get_contig_map() const { return contig_map_ ; }
 
@@ -212,7 +222,7 @@ class FixedIndex
 		config::CompactIndex ci_ ;
 } ;
 
-template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, const char* msg )
+template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, const char* msg ) const
 {
 	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
 	madvise( (void*)base_.unsafe_ptr(), length_, MADV_SEQUENTIAL ) ;
@@ -277,18 +287,18 @@ template < typename C > void combine_seeds( C& v )
 	if( !v.empty() )
 	{
 		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
+
 		typename C::const_iterator a = v.begin(), e = v.end() ;
 		typename C::iterator       d = v.begin() ;
 		Seed s = *a ; 
 		while( ++a != e )
 		{
-			if( a->diagonal == s.diagonal )
+			if( a->diagonal == s.diagonal &&
+					(a->offset >= 0) == (s.offset >= 0) &&
+					a->offset - s.offset <= (int32_t)s.size )
 			{
-				if( (a->offset >= 0) == (s.offset >= 0) &&
-						a->offset - s.offset <= (int32_t)s.size ) {
-					uint32_t size_ = a->offset - s.offset + a->size ;
-					if( size_ > s.size ) s.size = size_ ;
-				}
+				uint32_t size2 = a->offset - s.offset + a->size ;
+				if( size2 > s.size ) s.size = size2 ;
 			}
 			else
 			{
@@ -332,8 +342,8 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 	typename C::iterator clump_begin = v.begin(),
 			 input_end = v.end(), out = v.begin() ;
 
-	// Start building a clump, assuming there's is still something
-	// to build from
+	// Start building a clump, assuming there is still something to
+	// build from
 	while( clump_begin != input_end )
 	{
 		typename C::iterator clump_end = clump_begin + 1 ;
@@ -345,7 +355,7 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 		{
 			// Decide whether open_in_clump and candidate are actually
 			// neighbors.  They are not if they end up in different
-			// contigs; else they are if their diagonals are dloser than
+			// contigs; else they are if their diagonals are closer than
 			// ±d and their offsets are closer than ±r.
 			for( typename C::iterator candidate = clump_end ;
 					candidate != input_end &&
@@ -355,13 +365,13 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 				if( abs( candidate->offset - open_in_clump->offset ) <= r
 						&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
 				{
-					CompactGenome::ContigMap::const_iterator low = cm.lower_bound(
-							open_in_clump->offset + open_in_clump->diagonal + open_in_clump->size ) ;
-					CompactGenome::ContigMap::const_iterator high = cm.upper_bound(
+					// make sure both parts belong to the same contig
+					CompactGenome::ContigMap::const_iterator left = cm.upper_bound(
+							open_in_clump->offset + open_in_clump->diagonal ) ;
+					CompactGenome::ContigMap::const_iterator right = cm.upper_bound(
 							candidate->offset + candidate->diagonal ) ;
 
-					// make sure no contig start is in between
-					if( low == high ) {
+					if( left == right ) {
 						// Include the candidate by swapping it with the
 						// first seed not in our clump and extending the
 						// clump.  Remember that we swapped, we may have
@@ -405,16 +415,17 @@ template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t
 
 typedef std::map< std::string, CompactGenome > Genomes ;
 typedef std::map< std::string, FixedIndex > Indices ;
+typedef Holder< const CompactGenome > GenomeHolder ;
 
 class Metagenome
 {
 	public:
-		enum Persistence { persistent = 0, ephemeral = 1 } ;
-		static bool nommap ;
+		static int nommap ;
+		static void make_room() ;
 
 	private:
 		// maps file name to genome object
-		typedef std::map< std::string, std::pair< Persistence, CompactGenome* > > Genomes ;
+		typedef std::map< std::string, CompactGenome* > Genomes ;
 
 		// maps sequence id to genome object
 		typedef std::map< std::string, CompactGenome* > SeqMap1 ;
@@ -431,7 +442,7 @@ class Metagenome
 	public:
 
 		Metagenome( const char* p ) ;
-		~Metagenome() { for( Genomes::iterator i = genomes.begin() ; i != genomes.end() ; ++i ) delete i->second.second ; }
+		~Metagenome() { for( Genomes::iterator i = genomes.begin() ; i != genomes.end() ; ++i ) delete i->second ; }
 
 		static void add_path( const std::string& s ) { the_metagenome.path.push_front( s ) ; }
 
@@ -439,9 +450,9 @@ class Metagenome
 		//! If a genome is given, only genome files whose name starts with
 		//! the genome name are considered.  If genome is empty, all files
 		//! are searched.
-		static CompactGenome &find_sequence( const std::string& genome, const std::string& seq, Persistence ) ;
+		static GenomeHolder find_sequence( const std::string& genome, const std::string& seq ) ;
 
-		static CompactGenome &find_genome( const std::string& genome, Persistence ) ;
+		static GenomeHolder find_genome( const std::string& genome ) ;
 
 		static glob_t glob_path( const std::string& genome ) ;
 

@@ -1,0 +1,44 @@
+; ELK extension for Anfo
+;
+; Loads the Anfo library and provides a few wrappers/ convenience
+; functions.
+
+(load "__LIBDIR__/libanfo.la")
+
+(define (require-hit . args)
+ (cond
+  ((null? args) (prim-require-hit '() '()))
+  ((null? (cdr args)) (prim-require-hit (car args) '()))
+  (else (prim-require-hit . args))))
+
+(define (require-bht . args)
+ (cond
+  ((null? args) (prim-require-bht '() '()))
+  ((null? (cdr args)) (prim-require-bht (car args) '()))
+  (else (prim-require-bht . args))))
+
+(define (ignore-hit . args)
+ (cond
+  ((null? (cdr args)) (prim-ignore-hit (car args) '()))
+  (else (prim-ignore-hit . args))))
+
+(define (filter-multiplicity . args)
+ (cond
+  ((null? args) (prim-filter-multi 2))
+  (else (prim-filter-multi . args))))
+
+(define (edit-header . args)
+ (cond
+  ((not (null? args)) (prim-edit-header . args))
+  (else (prim-edit-header #f))))
+
+(define (duct-tape . args)
+ (cond
+  ((null? args) (prim-duct-tape #f))
+  (else (prim-duct-tape . args))))
+
+(define (add-alns . args)
+ (cond
+  ((null? args) (prim-add-alns 0))
+  (else (prim-add-alns . args))))
+

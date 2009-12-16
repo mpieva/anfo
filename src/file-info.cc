@@ -32,7 +32,7 @@
 #include <fstream>
 #include <iostream>
 
-int main_( int argc, const char**argv )
+WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	for( int argi = 1 ; argi != argc ; ++argi )
@@ -72,7 +72,7 @@ int main_( int argc, const char**argv )
 		else 
 		{
 			config::Config conf ;
-			std::auto_ptr< streams::Stream > af( streams::make_input_stream( argv[argi] ) ) ;
+			Holder< streams::Stream > af( streams::make_input_stream( argv[argi] ) ) ;
 			try {
 				conf = af->fetch_header().config() ;
 				if( conf.has_aligner() )
@@ -89,7 +89,7 @@ int main_( int argc, const char**argv )
 			{
 				google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
 				google::protobuf::TextFormat::Print( conf, &os ) ;
-				simple_adna::configure( conf.aligner(), &std::cout ) ;
+				std::cout << adna_parblock( conf.aligner() ) ;
 			}
 			else if( af->get_state() == streams::Stream::have_output )
 			{

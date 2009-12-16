@@ -22,6 +22,7 @@
 #include "util.h"
 
 #include <cmath>
+#include <new>
 
 #include <fcntl.h>
 #include <glob.h>
@@ -33,7 +34,7 @@ using namespace config ;
 using namespace std ; 
 
 CompactGenome::CompactGenome( const std::string &name, int adv )
-	: base_(), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_()
+	: base_(), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_(), refcount_(0)
 {
 	try
 	{
@@ -291,6 +292,32 @@ DnaP CompactGenome::find_pos( const std::string& seq, uint32_t pos ) const
 
 Metagenome Metagenome::the_metagenome( getenv("ANFO_PATH") ) ;
 
+void Metagenome::make_room()
+{
+	// make room by forgetting about some genome
+	int nephemeral = 0 ;
+	for( Genomes::iterator gi = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; gi != ge ; ++gi )
+		if( gi->second->refcount_ == 0 ) ++nephemeral ;
+
+	if( !nephemeral ) throw std::bad_alloc() ;
+
+	Genomes::iterator gi = the_metagenome.genomes.begin() ;
+	for( int i = random() % nephemeral ; i || gi->second->refcount_ ; ++gi ) if( gi->second->refcount_ == 0 ) --i ;
+
+	for( SeqMap::iterator i = the_metagenome.seq_map.begin(), ie = the_metagenome.seq_map.end() ; i != ie ; ++i )
+	{
+		for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; )
+		{
+			SeqMap1::iterator k = j ; ++j ;
+			if( k->second == gi->second ) i->second.erase( k ) ;
+		}
+	}
+
+	console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
+	delete gi->second ;
+	the_metagenome.genomes.erase( gi ) ;
+}
+
 Metagenome::Metagenome( const char* p )
 {
 	if( p ) 
@@ -305,6 +332,7 @@ Metagenome::Metagenome( const char* p )
 			p = q ;
 		}
 	}
+	std::set_new_handler( &Metagenome::make_room ) ;
 }
 
 //! \brief searches genome path for matching files
@@ -327,7 +355,7 @@ glob_t Metagenome::glob_path( const std::string& genome )
 	return the_glob ;
 }
 
-CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::string& seq, Persistence ps )
+GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::string& seq )
 {
 	SeqMap1 &m = the_metagenome.seq_map[ genome ] ;
 
@@ -349,7 +377,7 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 					console.output( Console::info, "Metagenome: trying file " + std::string(n) ) ;
 
 					CompactGenome* g = new CompactGenome( n ) ;
-					the_metagenome.genomes[ n ] = std::make_pair( ps, g ) ;
+					the_metagenome.genomes[ n ] = g ;
 
 					console.output( Console::info, "Metagenome: loaded (part of) genome " + g->name() ) ;
 
@@ -359,7 +387,6 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 
 					if( g->name() == genome ) i = m.find( seq ) ;
 				}
-				else if( ps == persistent ) gi->second.first = persistent ;
 			}
 			catch( const std::string& e ) { perr( e ) ; }
 			catch( const char *e ) { perr( e ) ; }
@@ -374,13 +401,13 @@ CompactGenome &Metagenome::find_sequence( const std::string& genome, const std::
 	if( i == m.end() )
 		throw "could not find " + genome + ( genome.empty() ? "" : ":" ) + seq ;
 
-	return *i->second ;
+	return i->second ;
 }
 
-CompactGenome &Metagenome::find_genome( const std::string& genome, Persistence ps )
+GenomeHolder Metagenome::find_genome( const std::string& genome )
 {
-	// would be nicer to check if we already a suitable genome, but this
-	// is called so rarely, I won't bother
+	// would be nicer to check if we already have a suitable genome, but
+	// this is called so rarely, I won't bother
 
 	glob_t the_glob = glob_path( genome ) ;
 	if( !the_glob.gl_pathc ) throw "no genome file found for " + genome ;
@@ -390,23 +417,22 @@ CompactGenome &Metagenome::find_genome( const std::string& genome, Persistence p
 	if( gi == the_metagenome.genomes.end() )
 	{
 		CompactGenome *g = new CompactGenome( n ) ;
-		the_metagenome.genomes[ n ] = std::make_pair( ps, g ) ;
+		the_metagenome.genomes[ n ] = g ;
 		globfree( &the_glob ) ;
-		return *g ;
+		return g ;
 	}
 	globfree( &the_glob ) ;
-	if( ps == persistent ) gi->second.first = persistent ;
-	return *gi->second.second ;
+	return gi->second ;
 }
 
 bool Metagenome::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const config::Sequence** s_out, const config::Genome** g_out )
 {
 	for( Genomes::const_iterator g = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; g != ge ; ++g )
 	{
-		if( const Sequence *sequ = g->second.second->translate_back( pos, xpos ) )
+		if( const Sequence *sequ = g->second->translate_back( pos, xpos ) )
 		{
 			if( s_out ) *s_out = sequ ;
-			if( g_out ) *g_out = &g->second.second->g_ ;
+			if( g_out ) *g_out = &g->second->g_ ;
 			return true ;
 		}
 	}
@@ -420,7 +446,7 @@ static int get_zero_device()
 	return fdz ;
 }
 
-bool Metagenome::nommap = false ;
+int Metagenome::nommap = false ;
 
 void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd, off_t offset )
 {
@@ -436,29 +462,7 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int fd,
 			void *p = ::mmap( start, length, prot, flags, fd, offset ) ;
 			if( p != (void*)(-1) ) return p ;
 		}
-
-		// make room by forgetting about some genome
-		int nephemeral = 0 ;
-		for( Genomes::iterator gi = the_metagenome.genomes.begin(), ge = the_metagenome.genomes.end() ; gi != ge ; ++gi )
-			if( gi->second.first == ephemeral ) ++nephemeral ;
-		
-		if( !nephemeral ) return (void*)(-1) ;
-
-		Genomes::iterator gi = the_metagenome.genomes.begin() ;
-		for( int i = random() % nephemeral ; i || gi->second.first != ephemeral ; ++gi ) if( gi->second.first == ephemeral ) --i ;
-
-		for( SeqMap::iterator i = the_metagenome.seq_map.begin(), ie = the_metagenome.seq_map.end() ; i != ie ; ++i )
-		{
-			for( SeqMap1::iterator j = i->second.begin(), je = i->second.end() ; j != je ; )
-			{
-				SeqMap1::iterator k = j ; ++j ;
-				if( k->second == gi->second.second ) i->second.erase( k ) ;
-			}
-		}
-
-		console.output( Console::info, "Metagenome: forgot about " + gi->first ) ;
-		delete gi->second.second ;
-		the_metagenome.genomes.erase( gi ) ;
+		make_room() ;
 	}
 }
 

@@ -24,38 +24,6 @@
 #include <memory>
 #include <ostream>
 
-//! \brief decompression filter that doesn't actually decompress
-//! A placeholder for cases where a filter is needed that does nothing.
-//! Forwards all calls to another stream
-class IdInputStream : public google::protobuf::io::ZeroCopyInputStream
-{
-	private:
-		google::protobuf::io::ZeroCopyInputStream *is_ ;
-
-	public:
-		IdInputStream( google::protobuf::io::ZeroCopyInputStream *is ) : is_( is ) {}
-		~IdInputStream() {}
-
-		bool Next( const void **data, int *size ) { return is_->Next( data, size ) ; }
-		void BackUp( int count ) { is_->BackUp( count ) ; }
-		bool Skip( int count ) { return is_->Skip( count ) ; }
-		int64_t ByteCount() const { return is_->ByteCount() ; }
-} ;
-
-class IdOutputStream : public google::protobuf::io::ZeroCopyOutputStream
-{
-	private:
-		google::protobuf::io::ZeroCopyOutputStream *is_ ;
-
-	public:
-		IdOutputStream( google::protobuf::io::ZeroCopyOutputStream *is ) : is_( is ) {}
-		~IdOutputStream() {}
-
-		bool Next( void **data, int *size ) { return is_->Next( data, size ) ; }
-		void BackUp( int count ) { is_->BackUp( count ) ; }
-		int64_t ByteCount() const { return is_->ByteCount() ; }
-} ;
-
 #if HAVE_LIBZ
 #include <zlib.h>
 
@@ -63,7 +31,7 @@ class IdOutputStream : public google::protobuf::io::ZeroCopyOutputStream
 class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 {
 	private:
-		google::protobuf::io::ZeroCopyInputStream *is_ ;
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 
 		z_stream zs_ ;
 		const Bytef *next_undelivered_ ;
@@ -121,7 +89,7 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 		}
 
 	public:
-		InflateStream( google::protobuf::io::ZeroCopyInputStream *is ) : is_( is ), total_( 0 )
+		InflateStream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is ) : is_( is ), total_( 0 )
 		{
 			zs_.avail_in = 0 ;
 
@@ -145,7 +113,7 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 			catch( ... ) { is_->BackUp( l  ) ; throw ; }
 		}
 
-		virtual ~InflateStream() { inflateEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; delete is_ ; }
+		virtual ~InflateStream() { inflateEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; }
 		virtual bool Next( const void **data, int *size ) { return next( data, size ) ; }
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual bool Skip( int count ) { return skip( count ) ; }
@@ -270,7 +238,7 @@ struct BzipError : public Exception {
 class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 {
 	private:
-		google::protobuf::io::ZeroCopyInputStream *is_ ;
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 
 		bz_stream zs_ ;
 		char *next_undelivered_ ;
@@ -323,7 +291,7 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 		}
 
 	public:
-		BunzipStream( google::protobuf::io::ZeroCopyInputStream *is ) : is_( is )
+		BunzipStream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is ) : is_( is )
 		{
 			zs_.avail_in = 0 ;
 
@@ -350,7 +318,7 @@ class BunzipStream : public google::protobuf::io::ZeroCopyInputStream
 			catch( ... ) { is_->BackUp( l  ) ; throw ; }
 		}
 
-		virtual ~BunzipStream() { BZ2_bzDecompressEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; delete is_ ; }
+		virtual ~BunzipStream() { BZ2_bzDecompressEnd( &zs_ ) ; if( zs_.avail_in ) is_->BackUp( zs_.avail_in ) ; }
 		virtual bool Next( const void **data, int *size ) { return next( data, size ) ; }
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual bool Skip( int count ) { return skip( count ) ; }
@@ -457,12 +425,14 @@ struct BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 } ;
 #endif
 
+/*
 inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::io::ZeroCopyInputStream *s )
 {
 	try { return new BunzipStream( s ) ; } catch( ... ) {}
 	try { return new InflateStream( s ) ; } catch( ... ) {}
-	return new IdInputStream( s ) ;
+	return s ;
 }
+*/
 
 inline google::protobuf::io::FileOutputStream *make_output_stream( const char *name )
 {
@@ -479,13 +449,12 @@ inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::proto
 {
 	try { return new BzipStream( s ) ; } catch( ... ) {}
 	try { return new DeflateStream( s, Z_BEST_COMPRESSION ) ; } catch( ... ) {}
-	return new IdOutputStream( s ) ;
+	return s ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_fast( google::protobuf::io::ZeroCopyOutputStream *s )
 {
-	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) {}
-	return new IdOutputStream( s ) ;
+	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) { return s ; }
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_any( bool expensive, google::protobuf::io::ZeroCopyOutputStream *s )

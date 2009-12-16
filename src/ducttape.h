@@ -17,6 +17,7 @@
 #ifndef INCLUDED_DUCTTAPE_H
 #define INCLUDED_DUCTTAPE_H
 
+#include "align.h"
 #include "stream.h"
 #include "util.h"
 #include <string>
@@ -44,7 +45,7 @@ namespace streams {
 class DuctTaper : public Stream
 {
 	private:
-		const char* g_, *name_ ;	// will be 'assembled'
+		string name_ ;
 		Chan report_ ;
 
 		// tracking of current reference sequence; we need to start a
@@ -87,13 +88,15 @@ class DuctTaper : public Stream
 		// went into a contig.
 		int mapq_accum_ ;
 
+		// needed for probability calculations
+		adna_parblock adna_ ;
+
 		void flush_contig() ;
 
 	public:
-		DuctTaper( const char* g, const char* name )
-			: g_(g), name_(name), contig_start_(0), contig_end_(0)
-			, nreads_(0), num_(0), mapq_accum_(0) {}
-		virtual ~DuctTaper() {}
+		DuctTaper( const string& name )
+			: name_(name), contig_start_(0), contig_end_(0)
+			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
@@ -108,9 +111,7 @@ class GlzWriter : public Stream
 		Chan chan_ ;
 
 	public:
-		GlzWriter( int fd ) ;
-		GlzWriter( const char* fn ) ;
-		virtual ~GlzWriter() {}
+		GlzWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >& p ) : gos_( p.first ) {}
 		virtual void put_result( const Result& ) ;
 } ;
 
@@ -128,16 +129,12 @@ class GlzWriter : public Stream
 class ThreeAlnWriter : public Stream
 {
 	private:
-		std::auto_ptr< std::filebuf > buf_ ;
-		std::ostream out_ ;
+		std::auto_ptr< std::ostream > out_ ;
 		std::string name_ ;
 		Chan chan_ ;
 
 	public:
-		ThreeAlnWriter( const char* fn ) : buf_( new std::filebuf ), out_( buf_.get() )
-		{ buf_->open( fn, std::ios_base::binary | std::ios_base::out | std::ios_base::trunc ) ; }
-		ThreeAlnWriter( std::streambuf *s ) : buf_(), out_( s ) {}
-		virtual ~ThreeAlnWriter() {} 
+		ThreeAlnWriter( const pair< ostream*, string > &p ) : out_( p.first ), name_( p.second ) {}
 		virtual void put_result( const Result& ) ;
 } ;
 

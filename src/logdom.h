@@ -118,6 +118,9 @@ class Logdom {
 		bool operator >= ( Logdom b ) { return b.v_ >= v_ ; }
 		bool operator <  ( Logdom b ) { return b.v_ <  v_ ; }
 		bool operator <= ( Logdom b ) { return b.v_ <= v_ ; }
+
+		friend inline bool operator == ( Logdom a, Logdom b ) { return a.v_ == b.v_ ; }
+		friend inline bool operator != ( Logdom a, Logdom b ) { return a.v_ != b.v_ ; }
 } ;
 
 inline Logdom operator + ( double a, Logdom b ) { return Logdom::from_float( a ) + b ; }

@@ -34,6 +34,26 @@ using namespace config ;
 using namespace output ;
 using namespace std; 
 
+string expand( const string& s, int x )
+{
+    if( s.size() <= 1 ) return s ;
+
+    char u = 'a' + (x%26), v = 'a' + (x/26) ;
+    string r ;
+    size_t i = 0 ;
+    for( ; i+1 != s.size() ; ++i )
+    {
+        if( s[i] == '%' && s[i+1] == '%' ) {
+            r.push_back( v ) ;
+            r.push_back( u ) ;
+            ++i ;
+        }
+        else r.push_back( s[i] ) ;
+    }
+    r.push_back( s[i] ) ;
+    return r ;
+}
+
 Policy select_policy( const Config &c, const Read &r )
 {
 	Policy p ;
@@ -56,7 +76,7 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
     for( int i = mi.genome_path_size() ; i != 0 ; --i )
         Metagenome::add_path( mi.genome_path(i-1) ) ;
 
-	simple_adna::configure( mi.aligner() ) ;
+	simple_adna::pb = adna_parblock( mi.aligner() ) ;
 	for( int i = 0 ; i != mi.policy_size() ; ++i )
 	{
 		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )
@@ -66,17 +86,16 @@ Mapper::Mapper( const config::Config &config ) : mi(config)
 			if( !ix ) {
 				FixedIndex( ixs.name(), mi, MADV_WILLNEED ).swap( ix ) ;
 				const string& genome_name = ix.ci_.genome_name() ; 
-				Metagenome::find_genome( genome_name, Metagenome::persistent ) ;
+				Metagenome::find_genome( genome_name ) ;
 			}
 		}
 	}
 }
 
-static const int maxd = 32 ;
-static const int minscore = 4 ;
-
 int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol )
 {
+	static const int minscore = 4 ;
+
 	// trim adapters, set trim points
 	// How does this work?  We create an overlap alignment, then
 	// calculate an alignment score from the number of differences.  The
@@ -96,26 +115,20 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 
 	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
 	{
-		int ymax, xmax = mi.trim_right(i).size() ;
-		int diff = align(
+		int ymax, score = overlap_align(
 				seq.rbegin() + ( rd.has_trim_right() ? seq.length() - rd.trim_right() : 0 ), seq.rend(),
-				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(),
-				maxd, overlap, 0, &ymax ) ;
-		int score = xmax + ymax - 8 * diff ;
-		if( diff < maxd && score >= minscore && ymax > 0 )
+				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(), &ymax ) ;
+		if( score >= minscore && ymax > 0 )
 			r.mutable_read()->set_trim_right(
 					(rd.has_trim_right() ? rd.trim_right() : seq.length()) - ymax ) ;
 	}
 
 	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
 	{
-		int ymax, xmax = mi.trim_left(i).size() ;
-		int diff = align(
+		int ymax, score = overlap_align(
 				seq.begin() + rd.trim_left(), seq.end(),
-				mi.trim_left(i).begin(), mi.trim_left(i).end(),
-				maxd, overlap, 0, &ymax ) ;
-		int score = xmax + ymax - 8 * diff ;
-		if( diff < maxd && score >= minscore && ymax > 0 )
+				mi.trim_left(i).begin(), mi.trim_left(i).end(), &ymax ) ;
+		if( score >= minscore && ymax > 0 )
 			r.mutable_read()->set_trim_left( rd.trim_left() + ymax ) ;
 	}
 
@@ -127,24 +140,27 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
 		const FixedIndex &ix = indices[ cis.name() ] ;
-		const CompactGenome &g = Metagenome::find_genome( ix.ci_.genome_name(), Metagenome::persistent ) ;
-		assert( ix ) ; assert( g.get_base() ) ;
+		GenomeHolder g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
+		assert( ix ) ; assert( g->get_base() ) ;
 
 		vector<Seed> seeds ;
 		num_raw += ix.lookupS( 
-				r.read().sequence(), seeds, cis.allow_near_perfect(), &num_useless,
+				seq.substr( rd.trim_left(), rd.has_trim_right() ? rd.trim_right() : std::string::npos ),
+				seeds, cis.allow_near_perfect(), &num_useless,
 				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
 		num_comb += seeds.size() ;
-		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g.get_contig_map() ) ;
+		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g->get_contig_map() ) ;
 		num_clumps += seeds.size() ;
 
-		setup_alignments( g, qs, seeds.begin(), seeds.end(), ol ) ;
+		g->add_ref() ; // XXX dirty hack
+		setup_alignments( *g, qs, seeds.begin(), seeds.end(), ol ) ;
 	}
-	AlnStats *as = r.mutable_aln_stats() ;
+	AlnStats *as = r.add_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
 	as->set_num_grown_seeds( num_comb ) ;
 	as->set_num_clumps( num_clumps ) ;
+	if( p.has_tag() ) as->set_tag( p.tag() ) ;
 
 	if( !p.has_max_penalty_per_nuc() )
 	{
@@ -170,7 +186,7 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
 
-	AlnStats *as = r.mutable_aln_stats() ;
+	AlnStats *as = r.mutable_aln_stats( r.aln_stats_size()-1 ) ;
 	as->set_open_nodes_after_alignment( o ) ;
 	as->set_closed_nodes_after_alignment( c ) ;
 	as->set_tracked_closed_nodes_after_alignment( tt ) ;

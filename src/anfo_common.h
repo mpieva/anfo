@@ -60,4 +60,6 @@ class Mapper
 		void process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r ) ;
 } ;
 
+std::string expand( const std::string&, int ) ;
+
 #endif
