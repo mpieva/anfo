@@ -295,7 +295,7 @@ void desc_output( ostream& ss, const ParamBlock& p )
 { ss << "write native output to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_text( const ParamBlock& p )
-{ return new TextWriter( make_output_stream_zc( p.arg ) ) ; }
+{ return new TextWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_text( ostream& ss, const ParamBlock& p )
 { ss << "write in text format to " << parse_fn( p.arg ) ; }

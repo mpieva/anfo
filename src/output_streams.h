@@ -40,12 +40,13 @@ namespace streams {
 class TextWriter : public Stream
 {
 	private:
-		auto_ptr< ZeroCopyOutputStream > os_ ;
+		auto_ptr< std::ostream > out_ ;
+		// auto_ptr< ZeroCopyOutputStream > os_ ;
 
 		void print_msg( const google::protobuf::Message& ) ;
 
 	public:
-		TextWriter( const pair< ZeroCopyOutputStream*, string > &p ) : os_( p.first ) {}
+		TextWriter( const pair< std::ostream*, string > &p ) : out_( p.first ) {}
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;

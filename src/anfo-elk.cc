@@ -223,7 +223,7 @@ WRAP( p_use_mmap, ( Object v ), (v) ) { Metagenome::nommap = !Truep( v ) ; retur
 
 // Output
 WRAP( p_write_native, ( Object f, Object c ), (f,c) ) { return wrap_stream( new ChunkedWriter( open_any_output_zc( f ), Get_Integer( c ) ) ) ; }
-WRAP( p_write_text,   ( Object f ), (f) ) { return wrap_stream( new TextWriter( open_any_output_zc( f ) ) ) ; }
+WRAP( p_write_text,   ( Object f ), (f) ) { return wrap_stream( new TextWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_sam,    ( Object f ), (f) ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
 WRAP( p_write_glz,    ( Object f ), (f) ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
 WRAP( p_write_3aln,   ( Object f ), (f) ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }

@@ -46,10 +46,10 @@ anfo.scm: anfo.scm.in
 	sed -e "s#__LIBDIR__#$(libdir)#g" > $@ < $<
 
 config.pb.cc: config.proto
-	$(PROTOC) --cpp_out=. config.proto
+	$(PROTOC) -I. -I$(dir $(PROTOC))../include --cpp_out=. config.proto
 
 output.pb.cc: output.proto
-	$(PROTOC) --cpp_out=. output.proto
+	$(PROTOC) -I. -I$(dir $(PROTOC))../include --cpp_out=. output.proto
 
 config.pb.h: config.pb.cc
 	@:

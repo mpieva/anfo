@@ -32,7 +32,10 @@
 #include <popt.h>
 #include <sys/resource.h>
 
-static int gap_buffer = 5 ; // must be this far from a gap to not set a flag
+static int gap_buffer  =   5 ; // must be this far from a gap to not set a flag
+static unsigned min_support =   1 ; // need this many observations
+static unsigned max_support = 127 ; // don't want this many observations
+static int sanity_check = 0 ; // try to double check with genome
 
 using namespace std ;
 using namespace streams ;
@@ -56,11 +59,11 @@ char lookup_sym( const string &s )
 struct SnpRec1 {
 	int pos ;
 	string nt_bases, nt_qual ; 			// too bad we may observe more than a single base
-	unsigned short length ;				// one for SNPs, zero for inserts(!), length for deletions
+	unsigned short length : 15 ;		// one for SNPs, zero for inserts(!), length for deletions
+	unsigned short strand : 1 ;			// is this on the 'sense' strand?
 	unsigned char chr ;					// symbol index
 	unsigned char base : 4 ;			// base as an ambiguity code
-	unsigned char strand : 1 ;			// is this on the 'sense' strand?
-	unsigned char seen : 1 ;			// set once we have an observation
+	unsigned char seen : 2 ;			// set to 1 once we have an observation, to 2 if support is inadequate
 	unsigned char gap_near_flag : 1 ;	// set if a gap was near (±5nt)
 	unsigned char edge_near_flag : 1 ;	// set if contig end was near (±5nt)
 } ;
@@ -68,10 +71,42 @@ struct SnpRec1 {
 struct SnpRec {
 	SnpRec1 hsa, ptr ;
 	string sequence ;		// for indels: the original sequence
+	string more_flags ;
 	char out_base ;
 } ;
 
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
+
+void decode_flags( const string& f, SnpRec& r )
+{
+	r.more_flags.clear() ;
+	r.hsa.gap_near_flag = 0 ;
+	r.ptr.gap_near_flag = 0 ;
+	r.hsa.edge_near_flag = 0 ;
+	r.ptr.edge_near_flag = 0 ;
+
+	for( size_t i = 0 ; i != f.size() ; )
+	{
+		if( i+1 != f.size() && f[i] == 'G' && f[i+1] == 'C' )
+		{
+			r.hsa.gap_near_flag = 1 ;
+			r.ptr.gap_near_flag = 1 ;
+			i+=2 ;
+			if( i != f.size() && f[i] == ':' ) ++i ;
+		}
+		else if( i+1 != f.size() && f[i] == 'E' && f[i+1] == 'C' )
+		{
+			r.hsa.edge_near_flag = 1 ;
+			r.ptr.edge_near_flag = 1 ;
+			i+=2 ;
+			if( i != f.size() && f[i] == ':' ) ++i ;
+		}
+		else {
+			r.more_flags.push_back( f[i] ) ;
+			++i ;
+		}
+	}
+}
 
 template< typename C > istream& read_martin_table_snp( istream& s, C& d, const char* fn )
 {
@@ -111,9 +146,7 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 		r.hsa.base = maybe_compl( r.hsa.strand, to_ambicode( hsa_base ) ) ;
 		r.ptr.base = maybe_compl( r.ptr.strand, to_ambicode( ptr_base ) ) ;
 
-		if( !flags.empty() ) error( 0, 0, "Flags field not empty at %s:%d", symbols[r.hsa.chr].c_str(), r.hsa.pos ) ;
-		r.hsa.gap_near_flag = 0 ;
-		r.ptr.gap_near_flag = 0 ;
+		decode_flags( flags, r ) ;
 		r.hsa.seen = 0 ;
 		r.ptr.seen = 0 ;
 	}
@@ -184,11 +217,7 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 		r.hsa.length = hsa_end - r.hsa.pos ;
 		r.ptr.length = ptr_end - r.ptr.pos ;
 
-		if( !flags.empty() ) error( 0, 0, "Flags field not empty at %s:%d", hsa_chr.c_str(), r.hsa.pos ) ;
-		r.hsa.edge_near_flag = 0 ;
-		r.ptr.edge_near_flag = 0 ;
-		r.hsa.gap_near_flag = 0 ;
-		r.ptr.gap_near_flag = 0 ;
+		decode_flags( flags, r ) ;
 		r.hsa.seen = 0 ;
 		r.ptr.seen = 0 ;
 	}
@@ -212,15 +241,18 @@ inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
 }
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
 {
-	return r.seen
+	return r.seen == 1
 		? s << '\t' << '"' << r.nt_bases << '"' << '\t' << r.nt_qual
 	    : s << "\tn/a\tn/a" ;
 }
-inline const char* encode_flags( const SnpRec& r )
+inline string encode_flags( const SnpRec& r )
 {
 	bool g = r.hsa.gap_near_flag || r.ptr.gap_near_flag ;
 	bool e = r.hsa.edge_near_flag || r.ptr.edge_near_flag ;
-	return g ? e ? "GC:EC" : "GC" : e ? "EC" : "" ;
+	string f = r.more_flags ;
+	if( g ) f.append( f.empty() ? "GC" : ":GC" ) ;
+	if( e ) f.append( f.empty() ? "EC" : ":EC" ) ;
+	return f ;
 }
 
 template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
@@ -339,8 +371,11 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 
 			if( get( first_snp ).chr != cur_chr ) continue ;
 
-			GenomeHolder g = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
-			DnaP ref = g->find_pos( h->sequence(), h->start_pos() ) ;
+			GenomeHolder g( sanity_check
+					? Metagenome::find_sequence( h->genome_name(), h->sequence() )
+					: GenomeHolder() ) ;
+			DnaP ref( g ? g->find_pos( h->sequence(), h->start_pos() ) : DnaP() ) ;
+
 			int cigar_maj = 0, ref_pos = h->start_pos() ;
 			size_t cigar_min = 0, qry_pos = 0 ;
 
@@ -371,7 +406,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 					if( snp.chr != cur_chr || snp.pos - gap_buffer >= ref_pos ) break ;
 
 					// sanity check: only possible if we're not looking at an insert
-					if( snp.pos == ref_pos && snp.base && *ref != snp.base ) switch( op )
+					if( ref && snp.pos == ref_pos && snp.base && *ref != snp.base ) switch( op )
 					{
 						case Hit::Delete:
 						case Hit::Match:
@@ -417,7 +452,14 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 						// close to contig edge? if so, set flag
 						if( (int)qry_pos < gap_buffer || qry_pos >= res.read().sequence().size() - gap_buffer )
 							snp.edge_near_flag = 1 ;
-						snp.seen = 1 ;
+
+						// observation depth in window?  then the snp
+						// was seen, else it will never be seen
+						if( res.read().depth( qry_pos ) >= min_support &&
+								res.read().depth( qry_pos ) <= max_support && snp.seen != 2 )
+							snp.seen = 1 ;
+						else
+							snp.seen = 2 ;
 					}
 				}
 
@@ -426,7 +468,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 					case Hit::Delete:
 						++cigar_min ;
 						++ref_pos ;
-						++ref ;
+						if( ref ) ++ref ;
 						break ;
 
 					case Hit::Insert:
@@ -439,7 +481,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 						++cigar_min ;
 						++qry_pos ;
 						++ref_pos ;
-						++ref ;
+						if( ref ) ++ref ;
 						break ;
 
 					default: // anything else: can't do anything  In fact, isn't even supported.
@@ -466,8 +508,11 @@ WRAPPED_MAIN
 		{ "ptr-file",     0 , POPT_ARG_STRING, &ptr_file,           0,    "Neandertalized Chimp is in FILE", "FILE" },
 		{ "output-snp",   0 , POPT_ARG_STRING, &snp_out_file,       0,    "Write SNPs table to FILE", "FILE" },
 		{ "output-indel", 0 , POPT_ARG_STRING, &indel_out_file,     0,    "Write indels table to FILE", "FILE" },
-		{ "buffer",       0 , POPT_ARG_INT,    &gap_buffer,         0,    "Flag gaps closer than N", "N" },
-		{ "vmem",         0 , POPT_ARG_INT,    &core_limit,         0, "limit virtual memory to X megabytes", "X" },
+		{ "buffer",       0 , POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &gap_buffer,         0,    "Flag gaps closer than N", "N" },
+		{ "min-support",  0 , POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &min_support,        0,    "Require a minimum support of M", "M" },
+		{ "max-support",  0 , POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &max_support,        0,    "Require a maximum support of M", "M" },
+		{ "sanity-check", 0 , POPT_ARG_NONE,   &sanity_check,       0,    "Compare claimed bases to genome", 0 },
+		{ "vmem",         0 , POPT_ARG_INT,    &core_limit,         0, 	  "Limit virtual memory to X megabytes", "X" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
