@@ -15732,7 +15732,7 @@ else
   PTHREADS_FALSE=
 fi
 
- if test "$ELK" && test "$ac_cv_lib_elk_ElkInit"; then
+ if test "$ELK" && test "$ac_cv_lib_elk_Elk_Init"; then
   ELK_TRUE=
   ELK_FALSE='#'
 else

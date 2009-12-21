@@ -323,7 +323,8 @@ void StatStream::put_result( const Result& r )
 void StatStream::put_footer( const Footer& f )
 {
 	Stream::put_footer( f ) ;
-	if( fn_.empty() || fn_ == "-" ) printout( cout, true ) ;
+	if( fn_.empty() ) {}
+	else if( fn_ == "-" ) printout( cout, true ) ;
 	else if( fn_ == "+-" ) printout( cout, false ) ;
 	else if( fn_[0] == '+' ) 
 	{
@@ -335,6 +336,60 @@ void StatStream::put_footer( const Footer& f )
 		ofstream s( fn_.c_str(), ios_base::trunc ) ;
 		printout( s, true ) ;
 	}
+}
+
+Object StatStream::get_summary() const
+{
+	GC_Node ;
+
+	Object n0 = Make_String( name_.data(), name_.size() ) ;		GC_Link( n0 ) ;
+	Object n = Cons( Intern( "name" ), n0 ) ;					GC_Link( n ) ;
+	Object t = Cons( Intern( "total" ), Make_Integer( total_ ) ) ; GC_Link( t ) ;
+	Object m = Cons( Intern( "mapped" ), Make_Integer( mapped_ ) ) ; GC_Link( m ) ;
+	Object mu = Cons( Intern( "mapuniq" ), Make_Integer( mapped_u_ ) ) ; GC_Link( mu ) ;
+	Object d = Cons( Intern( "distinct" ), Make_Integer( different_ ) ) ; GC_Link( d ) ;
+	Object gc = Cons( Intern( "gc-raw" ), Make_Flonum( 100*(float)bases_gc_ / (float)bases_ ) ) ; GC_Link( gc ) ;
+	Object gcm = Cons( Intern( "gc-mapped" ), Make_Flonum( 100*(float)bases_gc_m_ / (float)bases_m_ ) ) ; GC_Link( gcm ) ;
+	Object b = Cons( Intern( "bases" ), Make_Integer( bases_ ) ) ; GC_Link( b ) ;
+	Object b2 = Cons( Intern( "bases-m2" ), Make_Integer( bases_squared_ ) ) ; GC_Link( b2 ) ;
+	Object bm = Cons( Intern( "mapbases" ), Make_Integer( bases_m_ ) ) ; GC_Link( b ) ;
+	Object bm2 = Cons( Intern( "mapbases-m2" ), Make_Integer( bases_m_squared_ ) ) ; GC_Link( b2 ) ;
+
+	Object r = Cons( n, Cons( t, Cons( m, Cons( mu, Cons( d, Cons( gc, Cons( gcm, Cons( b, Cons( b2, Cons( bm, Cons( bm2, Null ))))))))))) ;
+	GC_Unlink ;
+	return r ;
+}
+
+void MismatchStats::put_result( const Result& r )
+{
+	for( int i = 0 ; i != r.hit_size() ; ++i )
+	{
+		const Hit& h = r.hit(i) ;
+		assert( h.has_aln_ref() && h.has_aln_qry() ) ;
+		for( size_t j = 0 ; j != h.aln_ref().size() && j != h.aln_qry().size() ; ++j )
+		{
+			char a = h.aln_ref()[j], b = h.aln_qry()[j] ;
+			int u = a == 'A' ? 0 : a == 'C' ? 1 : a == 'G' ? 2 : a == 'T' ? 3 : -1 ;
+			int v = b == 'A' ? 0 : b == 'C' ? 1 : b == 'G' ? 2 : b == 'T' ? 3 : -1 ;
+			if( u >= 0 && v >= 0 ) ++mat_[u][v] ;
+		}
+	}
+}
+
+Object MismatchStats::get_summary() const
+{
+	GC_Node ;
+	Object r = Make_Vector( 4, False ) ;
+	GC_Link( r ) ;
+	for( int i = 0 ; i != 4 ; ++i )
+	{
+		Object s = Make_Vector( 4, False ) ;
+		for( int j = 0 ; j != 4 ; ++j )
+			VECTOR(s)->data[j] = Make_Integer( mat_[i][j] ) ;
+		VECTOR(r)->data[i] = s ;
+	}
+	GC_Unlink ;
+	return r ;
 }
 
 RegionFilter::Regions3 RegionFilter::all_regions ;

@@ -51,7 +51,7 @@ AC_TYPE_SIGNAL
 AC_CHECK_FUNCS([memset munmap pow strerror])
 
 AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
-AM_CONDITIONAL([ELK],[test "$ELK" && test "$ac_cv_lib_elk_ElkInit"])
+AM_CONDITIONAL([ELK],[test "$ELK" && test "$ac_cv_lib_elk_Elk_Init"])
 
 AC_CONFIG_FILES([
 		 Makefile

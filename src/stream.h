@@ -36,6 +36,20 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+// Including Elk defines some macros that collide with protobuf.  We
+// undefine them (and hope they aren't needed...).
+//
+// If Elk is missing, we typedef Object to be an int---that's still
+// better that having nothing at all.
+
+#if HAVE_LIBELK
+#include <elk/scheme.h>
+#undef Print
+#undef MAX_TYPE
+#else
+  typedef Object int ;
+#endif
+
 namespace streams {
 	using namespace output ;
 	using namespace std ;
@@ -257,10 +271,7 @@ class Stream
 		//! the meaning of what the 'summary' is differs from stream to
 		//! stream, the result is simply an Elk object.  The default is
 		//! to return the exit code contained in the footer.
-		//! Note that the returned (void*) is actually an (Object*), but
-		//! we don't want to include the Elk headers here to avoid
-		//! namespace pollution.
-		virtual void* get_summary() const ;
+		virtual Object get_summary() const ;
 
 	protected:
 		// doesn't belong here, but it's convenient
@@ -281,6 +292,7 @@ class StreamBundle : public Stream
 
 	public:
 		virtual void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
+		virtual Object get_summary() const ;
 } ;
 
 //! \internal

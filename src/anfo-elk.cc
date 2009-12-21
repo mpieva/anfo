@@ -39,6 +39,8 @@
 
 #include <iostream>
 
+#include <glob.h>
+
 using namespace std ;
 using namespace streams ;
 using namespace google::protobuf::io ;
@@ -235,7 +237,8 @@ WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWrit
 WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
 WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
-WRAP( p_write_stats, ( Object f ), (f) ) { return wrap_stream( new StatStream( object_to_string( f ) ) ) ; }
+WRAP( p_stats, (), () ) { return wrap_stream( new StatStream( "" ) ) ; }
+WRAP( p_mismatches, (), () ) { return wrap_stream( new MismatchStats() ) ; }
 
 // Filters
 WRAP( p_sort_by_pos, ( Object mem, Object handles, Object genomes ), (mem,handles,genomes) )
@@ -297,7 +300,15 @@ WRAP( p_anfo_run, ( int argc, Object *argv ), (argc,argv) )
 	while( inp->get_state() == Stream::have_output && out.get_state() == Stream::need_input )
 		out.put_result( inp->fetch_result() ) ;
 	out.put_footer( inp->fetch_footer() ) ;
-	return Make_Integer( out.fetch_footer().exit_code() ) ;
+
+	GC_Node ;
+	Object in_summary = inp->get_summary() ;
+	GC_Link( in_summary ) ;
+	Object out_summary = out.get_summary() ;
+	GC_Link( out_summary ) ;
+	Object r = Cons( in_summary, out_summary ) ;
+	GC_Unlink ;
+	return r ;
 }
 
 //! \brief stream composition.
@@ -314,11 +325,27 @@ WRAP( p_chain, ( int argc, Object *argv ), (argc,argv) )
 WRAP( p_read_file, ( Object fn, Object sol_scores, Object ori ), (fn,sol_scores,ori) )
 { return wrap_stream( obj_to_stream( fn, Truep( sol_scores ), Get_Integer( ori ) ) ) ; }
 
+WRAP( p_glob, ( Object path ), (path) )
+{
+	glob_t the_glob ;
+	throw_errno_if_minus1( glob( Get_String( path ), GLOB_MARK, 0, &the_glob ), "globbing" ) ;
+
+	GC_Node ;
+	Object r = Null ;
+	GC_Link( r ) ;
+	for( int i = the_glob.gl_pathc ; i != 0 ; --i )
+		r = Cons( Make_String( the_glob.gl_pathv[i-1], strlen( the_glob.gl_pathv[i-1] ) ), r ) ;
+	GC_Unlink ;
+	globfree( &the_glob ) ;
+	return r ;
+}
+
 // init code
 
 void elk_finit_libanfo() {}
 void elk_init_libanfo() 
 {
+	std::cerr << __PRETTY_FUNCTION__ << std::endl ;
 	t_stream = Define_Type( 0, "anfo-stream", 
         0, sizeof( StreamWrapper ),
 		compare_stream_wrappers, 
@@ -342,7 +369,8 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_write_stats,      "write-stats",         1, 1, EVAL ) ;  // redesign?
+	Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
+	Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
 
 	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;  // wrap?
@@ -367,6 +395,9 @@ void elk_init_libanfo()
 
 	Define_Primitive( (P)p_anfo_run,         "anfo-run",            2, MANY, VARARGS ) ;
 	Define_Primitive( (P)p_chain,            "chain", 	            1, MANY, VARARGS ) ;
+
+	// not exactly Anfo, but damn practical
+	Define_Primitive( (P)p_glob,             "glob",                1, 1, EVAL ) ;
 }
 
 } // extern C

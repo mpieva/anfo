@@ -1100,15 +1100,32 @@ zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_
 		? traits_type::not_eof( c ) : sputc( c ) ;
 }
 
-namespace streams {
 #if HAVE_LIBELK
-#include <elk/scheme.h>
-	void *Stream::get_summary() const 
+namespace streams {
+	Object Stream::get_summary() const 
 	{
-		return new Object( Make_Integer( foot_.exit_code() ) ) ;
+		return Make_Integer( foot_.exit_code() ) ;
 	}
-#else
-	void *Stream::get_summary() const { return 0 ; }
-#endif
+	Object StreamBundle::get_summary() const 
+	{
+		GC_Node;
+		Object vec = Make_Vector( streams_.size(), False ) ;
+        GC_Link(vec);
+        
+		for( size_t i = 0 ; i != streams_.size() ; ++i )
+			VECTOR(vec)->data[i] = streams_[i]->get_summary() ;
+		GC_Unlink ;
+		return vec ;
+	}
 }
+#else
+namespace streams {
+	Object Stream::get_summary() const { return foot_.exit_code() ; }
+	Object StreamBundle::get_summary() const {
+		int r = 0 ;
+		for( int i = 0 ; i != streams_.size() ; ++i ) r |= streams_[i]->fetch_footer().exit_code() ;
+		return r ; 
+	}
+}
+#endif
 

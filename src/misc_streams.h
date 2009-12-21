@@ -157,6 +157,10 @@ class MergeStream : public StreamBundle
 			return hdr_ ;
 		}
 		virtual Result fetch_result() ;
+
+		//! \todo totally broken, need to think about how to keep the
+		//!       necessary information.
+		virtual Object get_summary() const { return False ; }
 } ;
 
 //! \brief merges multiple streams by taking the best hit
@@ -315,6 +319,7 @@ template <class Comp> class SortingStream : public Stream
 			return r ;
 		}
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_->fetch_footer() ) ; return foot_ ; }
+		virtual Object get_summary() const { return final_stream_->get_summary() ; }
 } ;
 
 template < typename Comp > void SortingStream<Comp>::flush_scratch()
@@ -481,6 +486,18 @@ class StatStream : public Stream
 
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
+		virtual Object get_summary() const ;
+} ;
+
+class MismatchStats : public Stream
+{
+	private:
+		int mat_[4][4] ;
+
+	public:
+		MismatchStats() { memset( mat_, 0, sizeof( mat_ ) ) ; }
+		virtual void put_result( const Result& ) ;
+		virtual Object get_summary() const ;
 } ;
 
 class RegionFilter : public HitFilter

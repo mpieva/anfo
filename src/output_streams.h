@@ -33,15 +33,16 @@ namespace streams {
 
 	using namespace google::protobuf::io ;
 
-//! \brief writes in google's text format
-//! This is the human readable version of the native format.
+//! \brief writes in (a modification of) Google's text format
+//! This is essentially the human readable version of the native format.
 //! Additionally, alignment strings and a CLUSTAL-style 'conservation'
-//! line are added, provided the reference genome is available.
+//! line are added, provided they were looked up using the reference
+//! genome beforehand, and some fields, notably the CIGAR line, are
+//! printed in a more compact format.
 class TextWriter : public Stream
 {
 	private:
 		auto_ptr< std::ostream > out_ ;
-		// auto_ptr< ZeroCopyOutputStream > os_ ;
 
 		void print_msg( const google::protobuf::Message& ) ;
 
