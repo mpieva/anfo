@@ -252,7 +252,18 @@ class Stream
 		//! flush internal buffers and signal end_of_stream.
 		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
 
-		// doesn't belong here, but is convenient
+		//! \brief get the 'summary' of having processed this stream
+		//! This functionality is dependent on Elk being present:  since
+		//! the meaning of what the 'summary' is differs from stream to
+		//! stream, the result is simply an Elk object.  The default is
+		//! to return the exit code contained in the footer.
+		//! Note that the returned (void*) is actually an (Object*), but
+		//! we don't want to include the Elk headers here to avoid
+		//! namespace pollution.
+		virtual void* get_summary() const ;
+
+	protected:
+		// doesn't belong here, but it's convenient
 		void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
 } ;
 

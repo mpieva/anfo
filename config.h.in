@@ -12,6 +12,9 @@
 /* Define to 1 if you have the `bz2' library (-lbz2). */
 #undef HAVE_LIBBZ2
 
+/* Define to 1 if you have the `elk' library (-lelk). */
+#undef HAVE_LIBELK
+
 /* Define to 1 if you have the `Judy' library (-lJudy). */
 #undef HAVE_LIBJUDY
 

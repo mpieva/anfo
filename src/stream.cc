@@ -1100,3 +1100,15 @@ zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_
 		? traits_type::not_eof( c ) : sputc( c ) ;
 }
 
+namespace streams {
+#if HAVE_LIBELK
+#include <elk/scheme.h>
+	void *Stream::get_summary() const 
+	{
+		return new Object( Make_Integer( foot_.exit_code() ) ) ;
+	}
+#else
+	void *Stream::get_summary() const { return 0 ; }
+#endif
+}
+

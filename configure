@@ -14719,12 +14719,13 @@ if test "$ac_res" != no; then :
   have_pthread=1
 fi
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing Elk_Init" >&5
-$as_echo_n "checking for library containing Elk_Init... " >&6; }
-if test "${ac_cv_search_Elk_Init+set}" = set; then :
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for Elk_Init in -lelk" >&5
+$as_echo_n "checking for Elk_Init in -lelk... " >&6; }
+if test "${ac_cv_lib_elk_Elk_Init+set}" = set; then :
   $as_echo_n "(cached) " >&6
 else
-  ac_func_search_save_LIBS=$LIBS
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lelk  $LIBS"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -14743,36 +14744,24 @@ return Elk_Init ();
   return 0;
 }
 _ACEOF
-for ac_lib in '' elk; do
-  if test -z "$ac_lib"; then
-    ac_res="none required"
-  else
-    ac_res=-l$ac_lib
-    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
-  fi
-  if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_search_Elk_Init=$ac_res
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_elk_Elk_Init=yes
+else
+  ac_cv_lib_elk_Elk_Init=no
 fi
 rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext
-  if test "${ac_cv_search_Elk_Init+set}" = set; then :
-  break
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
 fi
-done
-if test "${ac_cv_search_Elk_Init+set}" = set; then :
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_elk_Elk_Init" >&5
+$as_echo "$ac_cv_lib_elk_Elk_Init" >&6; }
+if test "x$ac_cv_lib_elk_Elk_Init" = x""yes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBELK 1
+_ACEOF
 
-else
-  ac_cv_search_Elk_Init=no
-fi
-rm conftest.$ac_ext
-LIBS=$ac_func_search_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_Elk_Init" >&5
-$as_echo "$ac_cv_search_Elk_Init" >&6; }
-ac_res=$ac_cv_search_Elk_Init
-if test "$ac_res" != no; then :
-  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
-  have_libelk=1
+  LIBS="-lelk $LIBS"
+
 fi
 
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Judy1Set in -lJudy" >&5
@@ -15743,7 +15732,7 @@ else
   PTHREADS_FALSE=
 fi
 
- if test "$ELK" && test "$have_libelk"; then
+ if test "$ELK" && test "$ac_cv_lib_elk_ElkInit"; then
   ELK_TRUE=
   ELK_FALSE='#'
 else

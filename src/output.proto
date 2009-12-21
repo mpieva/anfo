@@ -55,10 +55,10 @@ message Header {
     // (useful to merge files?)
     optional bool is_sorted_by_name = 15 [default=false] ;
 
-	// indicates whether an output file is sorted by genome coordinate,
-	// and if so, which genomes were used in what order (that is target
-	// sequence name, then earliest matching position, then alignment
-	// length; needed for consensus calling and merging)
+    // indicates whether an output file is sorted by genome coordinate,
+    // and if so, which genomes were used in what order (that is target
+    // sequence name, then earliest matching position, then alignment
+    // length; needed for consensus calling and merging)
     repeated string is_sorted_by_coordinate = 13 ;
 
     // old way to encode sorting, don't use
@@ -172,9 +172,9 @@ message OldResult {
     // index of first base that's not trimmed from 5' end
     optional uint32 trim_left = 11 [ default = 0 ] ;
 
-	// index of first base that is trimmed from 3' end
-	// Note that the part trimmed from the 5' end still counts for this
-	// index.  If absent, nothing was trimmed from the 3' end.
+    // index of first base that is trimmed from 3' end
+    // Note that the part trimmed from the 5' end still counts for this
+    // index.  If absent, nothing was trimmed from the 3' end.
     optional uint32 trim_right = 12 ;
 
     // Reason we arrived at this result
@@ -225,17 +225,17 @@ message Read {
     required string sequence = 2 ;
 
     // quality scores (Phred scale, raw, without silly offsets)
-	// also: min_lk in the sense iof GLF when applicable
+    // also: min_lk in the sense of GLF when applicable
     optional bytes quality = 14 [ (show) = "show_quality" ] ;
 
     // likelihoods of consensus sequence
-	// This is intended to resemble the GL format or at least allow
-	// generation of GLF.  For each position in the sequence, we store
-	// either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
-	// as specified for GLF.  Each entry is as long as the sequence, the
-	// order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
-	// Bytes should be sufficient for storage, since we clamp almost
-	// everything at 254 anyway.
+    // This is intended to resemble the GL format or at least allow
+    // generation of GLF.  For each position in the sequence, we store
+    // either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
+    // as specified for GLF.  Each entry is as long as the sequence, the
+    // order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
+    // Bytes should be sufficient for storage, since we clamp almost
+    // everything at 254 anyway.
     repeated bytes likelihoods = 15 ;
 
     // raw counts of what base was seen in a position
@@ -335,7 +335,12 @@ message Hit {
     // different chromosome, to next on different class of chromosomes,
     // if they exist.  Classes for this purpose are sex chromosomes,
     // autosomes and organelles.
+    // This is the same as MAPQ in sam/bam.  If we're looking at a
+    // pseudo-assembly, it is actually the RMS of the MAPQs of the reads
+    // that were included in it.
     optional sint32 diff_to_next = 8 ;
+
+    // following two aren't actually used yet
     optional sint32 diff_to_next_chromosome = 9 ;
     optional sint32 diff_to_next_chromosome_class = 10 ;
 
@@ -370,3 +375,4 @@ message AlnStats {
     optional string tag = 15 ;
 }
 
+// vim:expandtab

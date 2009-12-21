@@ -20,7 +20,7 @@ AC_ARG_VAR([ELK], [location of elk interpreter])
 AC_SEARCH_LIBS([exp], [m])
 AC_SEARCH_LIBS([log1p], [m])
 AC_SEARCH_LIBS([pthread_create], [pthread], [have_pthread=1])
-AC_SEARCH_LIBS([Elk_Init], [elk], [have_libelk=1])
+AC_CHECK_LIB([elk], [Elk_Init])
 AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
@@ -51,7 +51,7 @@ AC_TYPE_SIGNAL
 AC_CHECK_FUNCS([memset munmap pow strerror])
 
 AM_CONDITIONAL([PTHREADS],[test "$have_pthread"])
-AM_CONDITIONAL([ELK],[test "$ELK" && test "$have_libelk"])
+AM_CONDITIONAL([ELK],[test "$ELK" && test "$ac_cv_lib_elk_ElkInit"])
 
 AC_CONFIG_FILES([
 		 Makefile
