@@ -423,7 +423,7 @@ WRAPPED_MAIN
 	G descriptions[opt_MAX] = {
 		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
 		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_require_hit, desc_filter_qual, desc_subsample, desc_sanitize, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
-		desc_mega_merge, desc_concat, desc_rmdup, desc_add_alns, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
+		desc_mega_merge, desc_concat, desc_add_alns, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
 		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, desc_regions_only, desc_not_regions, 0 } ;
 
 	ParamBlock param( 7.5, 20.0, 0, 0 ) ;

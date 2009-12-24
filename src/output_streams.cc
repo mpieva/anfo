@@ -466,8 +466,8 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 				*out_ << '*' ;
 		}
 
-		/*[TAGS]*/ /*SCORE*/
-		*out_ << "\tAS:i:" << hit.score() << '\n' ;
+		/*[TAGS]*/ /* score is actually phred likelihood */
+		*out_ << "\tUQ:i:" << hit.score() << '\n' ;
 	}
 
 	if( result.hit_size() == 0 )

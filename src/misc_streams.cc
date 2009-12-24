@@ -432,5 +432,96 @@ bool Sanitizer::xform( Result& r )
 	return true ;
 }
 
+inline static bool good( char x ) { return x == 'A' || x == 'C' || x == 'G' || x == 'T' ; }
+
+void DivergenceStream::put_result( const Result& r ) 
+{
+	const Hit *pri = hit_to( r, primary_genome_ ) ;
+	const Hit *sec = hit_to( r, secondary_genome_ ) ;
+	if( pri && sec ) 
+	{
+		if( !pri->has_aln_ref() || !pri->has_aln_qry() ||
+				!sec->has_aln_ref() || !sec->has_aln_qry() )
+			throw "Divergence: need reconstructed alignments" ;
+
+		string::const_iterator pri_ref = pri->aln_ref().begin(),
+					pri_qry = pri->aln_qry().begin(),
+					pri_qry_end = pri->aln_qry().end(),
+					sec_ref = sec->aln_ref().begin(),
+					sec_qry = sec->aln_qry().begin(),
+					sec_qry_end = sec->aln_qry().end() ;
+
+		while( pri_qry != pri_qry_end ) {
+			while( pri_qry != pri_qry_end && !good( *pri_qry ) )
+				++pri_qry, ++pri_ref ;
+			while( sec_qry != sec_qry_end && !good( *sec_qry ) )
+				++sec_qry, ++sec_ref ;
+
+			char p = *pri_ref, s = *sec_ref, q = *pri_qry ;
+			if( q != *sec_qry ) throw "disagreement in alignments" ;
+
+			if( good(p) && good(s) && good(q) ) {
+				if( q == p && q == s ) ++b1 ;
+				else if( q == p && q != s ) ++b2 ;
+				else if( q != s && p == s ) ++b3 ;
+				else if( q == s && q != p ) ++b4 ;
+				else ++b5 ;
+			}
+
+			++pri_ref ;
+			++sec_ref ;
+			++pri_qry ;
+			++sec_qry ;
+		}
+	}
+}
+
+static inline Object Make_StringL( const char* c ) { return Make_String( c, strlen(c) ) ; }
+
+Object DivergenceStream::get_summary() const
+{
+	GC_Node ;
+	Object aa = Make_Vector( 5, False ) ;
+	GC_Link( aa ) ;
+	Object bb = Make_Vector( 5, False ) ;
+	GC_Link( bb ) ;
+	Object cd = False ;
+
+	Object* b = VECTOR(bb)->data ;
+	b[0] = Make_Flonum( b1 ) ;
+	b[1] = Make_Flonum( b2 ) ;
+	b[2] = Make_Flonum( b3 ) ;
+	b[3] = Make_Flonum( b4 ) ;
+	b[4] = Make_Flonum( b5 ) ;
+
+	bb = Cons( Make_StringL( "raw-counts" ), bb ) ;
+	bb = Cons( bb, Null ) ;
+	bb = Cons( Cons( Make_StringL( "raw-div" ), Make_Flonum( 2.0*b4 / (b2+b4) )), bb ) ;
+	
+	if( int64_t d1 = 3*b1 - b2 + 3*b3 - b4 - b5 ) {
+		double e = ( 3 * b3 - 3 * b4 ) / (double)d1 ;
+		double d = 4*e - 3 ;
+
+		double a2, a4 ;
+
+		Object* a = VECTOR(aa)->data ;
+		a[0] = Make_Flonum(      ( -3*b1 + b1*e + b3*e )/d ) ;
+		a[1] = Make_Flonum( a2 = ( -3*b2 + b2*e + b4*e + b5*e )/d ) ;
+		a[2] = Make_Flonum(      ( -3*b3 + 3*b1*e + 3*b3*e )/d ) ;
+		a[3] = Make_Flonum( a4 = ( -3*b4 + b2*e + b4*e + b5*e )/d ) ;
+		a[4] = Make_Flonum(      ( -3*b5 + 2*b2*e + 2*b4*e + 2*b5*e )/d ) ;
+
+		cd = Make_Flonum( 2*a4 / (a2+a4) ) ;
+	}
+	else aa = False ;
+
+	aa = Cons( Make_StringL( "corrected-counts" ), aa ) ;
+	aa = Cons( aa, bb ) ;
+	aa = Cons( Cons( Make_StringL( "corrected-div" ), cd ), aa ) ;
+
+	GC_Unlink ;
+	return aa ;
+}
+
 } ; // namespace
 

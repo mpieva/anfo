@@ -1109,13 +1109,13 @@ namespace streams {
 	Object StreamBundle::get_summary() const 
 	{
 		GC_Node;
-		Object vec = Make_Vector( streams_.size(), False ) ;
-        GC_Link(vec);
+		Object r = Null ;
+        GC_Link(r);
         
-		for( size_t i = 0 ; i != streams_.size() ; ++i )
-			VECTOR(vec)->data[i] = streams_[i]->get_summary() ;
+		for( size_t i = streams_.size() ; i != 0 ; )
+			r = Cons( streams_[--i]->get_summary(), r ) ;
 		GC_Unlink ;
-		return vec ;
+		return r ;
 	}
 }
 #else

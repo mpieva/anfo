@@ -238,6 +238,7 @@ WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( obje
 WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
 WRAP( p_stats, (), () ) { return wrap_stream( new StatStream( "" ) ) ; }
+WRAP( p_divergence, ( Object p, Object s ), (p,s) ) { return wrap_stream( new DivergenceStream( object_to_string(p), object_to_string(s) ) ) ; }
 WRAP( p_mismatches, (), () ) { return wrap_stream( new MismatchStats() ) ; }
 
 // Filters
@@ -340,12 +341,14 @@ WRAP( p_glob, ( Object path ), (path) )
 	return r ;
 }
 
+Object p_version() { return Make_String( PACKAGE_VERSION, strlen(PACKAGE_VERSION) ) ; }
+
 // init code
 
 void elk_finit_libanfo() {}
 void elk_init_libanfo() 
 {
-	std::cerr << __PRETTY_FUNCTION__ << std::endl ;
+	std::clog << "Anfo bindings initialized" << std::endl ;
 	t_stream = Define_Type( 0, "anfo-stream", 
         0, sizeof( StreamWrapper ),
 		compare_stream_wrappers, 
@@ -370,6 +373,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;  // wrap?
 	Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
+	Define_Primitive( (P)p_divergence,       "divergence",          2, 2, EVAL ) ;
 	Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
 
 	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
@@ -398,6 +402,7 @@ void elk_init_libanfo()
 
 	// not exactly Anfo, but damn practical
 	Define_Primitive( (P)p_glob,             "glob",                1, 1, EVAL ) ;
+	Define_Primitive( (P)p_version,          "anfo-version",        0, 0, EVAL ) ;
 }
 
 } // extern C

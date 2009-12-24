@@ -489,6 +489,30 @@ class StatStream : public Stream
 		virtual Object get_summary() const ;
 } ;
 
+//! \brief calculates divergence
+//! Divergence is calculated by the Green Triangulation method.  Two
+//! genomes are needed (primary and secondary) and alignments to both of
+//! them.  Differences are counted (all equal, either sequence
+//! different, all different), then error corrected (math stolen from
+//! dropin_AHA.pl) and turned into divergence of the last common
+//! ancestor, expressed as fraction of total divergence between primary
+//! and secondary genome.
+
+class DivergenceStream : public Stream
+{
+	private:
+		string primary_genome_, secondary_genome_ ;
+		int64_t b1, b2, b3, b4, b5 ;
+
+	public:
+		DivergenceStream( const string& primary, const string& secondary )
+			: primary_genome_( primary ), secondary_genome_( secondary )
+			, b1(0), b2(0), b3(0), b4(0), b5(0) {}
+
+		virtual void put_result( const Result& ) ;
+		virtual Object get_summary() const ;
+} ;
+
 class MismatchStats : public Stream
 {
 	private:

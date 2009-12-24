@@ -9,23 +9,23 @@
  (cond
   ((null? args) (prim-require-hit '() '()))
   ((null? (cdr args)) (prim-require-hit (car args) '()))
-  (else (prim-require-hit . args))))
+  (else (apply prim-require-hit args))))
 
 (define (require-bht . args)
  (cond
   ((null? args) (prim-require-bht '() '()))
   ((null? (cdr args)) (prim-require-bht (car args) '()))
-  (else (prim-require-bht . args))))
+  (else (apply prim-require-bht args))))
 
 (define (ignore-hit . args)
  (cond
   ((null? (cdr args)) (prim-ignore-hit (car args) '()))
-  (else (prim-ignore-hit . args))))
+  (else (apply prim-ignore-hit args))))
 
 (define (filter-multiplicity . args)
  (cond
   ((null? args) (prim-filter-multi 2))
-  (else (prim-filter-multi . args))))
+  (else (apply prim-filter-multi args))))
 
 (define (edit-header . args)
  (cond
@@ -35,10 +35,10 @@
 (define (duct-tape . args)
  (cond
   ((null? args) (prim-duct-tape #f))
-  (else (prim-duct-tape . args))))
+  (else (apply prim-duct-tape args))))
 
 (define (add-alns . args)
  (cond
   ((null? args) (prim-add-alns 0))
-  (else (prim-add-alns . args))))
+  (else (apply prim-add-alns args))))
 
