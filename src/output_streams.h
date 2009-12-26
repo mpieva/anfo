@@ -162,6 +162,22 @@ class GenTextAlignment : public Filter
 		virtual bool xform( Result& ) ;
 } ;
 
+//! \brief writes out coverage depth in WIG format
+//! This only works after DuctTaper has been applied, afterwards it
+//! extracts the depth of coverage (aka number of observations) per
+//! position.
+//! Note that the output file will get huge; we're talking about a text
+//! based format...
+class WigCoverageWriter : public Stream
+{
+	private:
+		std::auto_ptr< std::ostream > out_ ;
+
+	public:
+		WigCoverageWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
+		virtual void put_result( const Result& ) ;
+} ;
+
 } // namespace
 
 #endif

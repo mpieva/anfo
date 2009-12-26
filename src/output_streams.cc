@@ -563,5 +563,42 @@ void TableWriter::put_result( const Result& r )
 	}
 }
 
+void WigCoverageWriter::put_result( const Result& r )
+{
+	// depth must be known at all
+	if( !r.read().depth_size() ) return ;
+
+	// assume one hit, but if there are more, take the best one
+	const Hit* h = hit_to( r ) ;
+
+	// must be on forward strand (by construction, in fact)
+	if( !h || h->aln_length() <= 0 ) return ;
+
+	*out_ << "fixedStep\tchrom=" << h->sequence() << "\tstart=" << h->start_pos() << "\tstep=1\n" ;
+
+	int alnpos = 0 ;
+	int cigar_maj = 0 ;
+	size_t cigar_min = 0 ;
+	while( alnpos != r.read().depth_size() && cigar_maj != h->cigar_size() ) {
+		switch( cigar_op( h->cigar(cigar_maj) ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Delete:
+				*out_ << r.read().depth(alnpos) << '\n' ;
+				++alnpos ;
+				break ;
+			default:
+				break ;
+		} 
+		++cigar_min ;
+		while( cigar_maj != h->cigar_size() && cigar_min == cigar_len( h->cigar(cigar_maj) ) ) {
+			++cigar_maj ;
+			cigar_min = 0 ;
+		}
+	}
+	*out_ << '\n' ;
+}
+
 } // namespace
 

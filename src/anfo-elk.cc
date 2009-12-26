@@ -93,7 +93,7 @@ pair< ZeroCopyOutputStream*, string > open_any_output_zc( Object o )
 				else {
 					FileOutputStream *s = new FileOutputStream( 
 							throw_errno_if_minus1(
-								open( nm.c_str(), O_WRONLY | O_CREAT | O_TRUNC ),
+								open( nm.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666 ),
 								"opening file" ) ) ;
 					s->SetCloseOnDelete( true ) ;
 					return make_pair( s, nm ) ;
@@ -232,6 +232,7 @@ WRAP( p_write_3aln,   ( Object f ), (f) ) { return wrap_stream( new ThreeAlnWrit
 WRAP( p_write_fastq,  ( Object f ), (f) ) { return wrap_stream( new FastqWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_table,  ( Object f ), (f) ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ) ) ) ; }
+WRAP( p_write_wig,    ( Object f ), (f) ) { return wrap_stream( new WigCoverageWriter( open_any_output_std( f ) ) ) ; }
 
 // Processors
 WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
@@ -368,6 +369,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_fastq,      "write-fastq",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_table,      "write-table",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_fasta,      "write-fasta",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_wig,        "write-wiggle",        1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;

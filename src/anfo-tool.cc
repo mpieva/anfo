@@ -333,9 +333,13 @@ Stream* mk_output_table( const ParamBlock& p )
 { return new TableWriter( make_output_stream_std( p.arg ) ) ; }
 
 void desc_output_table( ostream& ss, const ParamBlock& p )
-{ 
-	ss << "write useless table to " << parse_fn( p.arg ) ;
-}
+{ ss << "write useless table to " << parse_fn( p.arg ) ; }
+
+Stream* mk_output_wiggle( const ParamBlock& p )
+{ return new WigCoverageWriter( make_output_stream_std( p.arg ) ) ; }
+
+void desc_output_wiggle( ostream& ss, const ParamBlock& p )
+{ ss << "write depth-of-coverage in WIG format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_duct_tape( const ParamBlock& p )
 { return new DuctTaper( p.arg ? p.arg : "contig" ) ; }
@@ -373,58 +377,64 @@ const char *poptGetOptArg1( poptContext con )
 	return p ;
 }
 
+struct optdef {
+	FilterParams<Stream>::F filter_maker ;
+	FilterParams<StreamBundle>::F merge_maker ;
+	FilterParams<Stream>::F output_maker ;
+	G description ;
+} ;
+
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
 	enum {
 		opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit,
-		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_subsample, opt_sanitize,
-		opt_filter_multi, opt_edit_header, opt_merge, opt_join,
-		opt_mega_merge, opt_concat, opt_add_alns, opt_rmdup, opt_output,
-		opt_output_text, opt_output_sam, opt_output_glz,
+		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_subsample,
+		opt_sanitize, opt_filter_multi, opt_regions_only,
+		opt_not_regions, opt_edit_header, opt_add_alns, opt_rmdup,
+		opt_duct_tape, opt_merge, opt_join, opt_mega_merge, opt_concat,
+		opt_output, opt_output_text, opt_output_sam, opt_output_glz,
 		opt_output_3aln, opt_output_fasta, opt_output_fastq,
-		opt_output_table, opt_duct_tape, opt_stats, opt_regions_only,
-		opt_not_regions, opt_version, opt_MAX } ;
+		opt_output_table, opt_output_wiggle, opt_stats, opt_version,
+	} ;
 
-	FilterParams<Stream>::F filter_makers[opt_MAX] = {
-		0, mk_sort_by_pos, mk_sort_by_name, mk_filter_by_length,
-		mk_filter_by_score, mk_filter_by_mapq, mk_filter_by_hit,
-		mk_delete_hit, mk_require_hit, mk_filter_qual, mk_subsample, mk_sanitize,
-		mk_filter_multi, mk_edit_header, 0, 0,
-		0, 0, mk_add_alns, mk_rmdup, 0,
-		0, 0, 0,
-		0, 0, 0,
-		0, mk_duct_tape, 0, mk_regions_only,
-		mk_not_regions, 0 } ;
-
-	FilterParams<StreamBundle>::F merge_makers[opt_MAX] = {
-		0, 0, 0, 0,
-		0, 0, 0,
-		0, 0, 0, 0, 0,
-		0, 0, mk_merge, mk_join,
-		mk_mega_merge, mk_concat, 0, 0, 0,
-		0, 0, 0,
-		0, 0, 0,
-		0, 0, 0, 0,
-		0, 0 } ;
-
-	FilterParams<Stream>::F output_makers[opt_MAX] = {
-		0, 0, 0, 0,
-		0, 0, 0,
-		0, 0, 0, 0, 0,
-		0, 0, 0, 0,
-		0, 0, 0, 0, mk_output,
-		mk_output_text, mk_output_sam, mk_output_glz,
-		mk_output_3aln, mk_output_fasta, mk_output_fastq,
-		mk_output_table, 0, mk_stats, 0,
-		0, 0 } ;
-
-	G descriptions[opt_MAX] = {
-		0, desc_sort_by_pos, desc_sort_by_name, desc_filter_by_length,
-		desc_filter_by_score, desc_filter_by_mapq, desc_filter_by_hit, desc_delete_hit, desc_require_hit, desc_filter_qual, desc_subsample, desc_sanitize, desc_filter_multi, desc_edit_header, desc_merge, desc_join, 
-		desc_mega_merge, desc_concat, desc_add_alns, desc_rmdup, desc_output, desc_output_text, desc_output_sam, desc_output_glz, desc_output_3aln,
-		desc_output_fasta, desc_output_fastq, desc_output_table, desc_duct_tape, desc_stats, desc_regions_only, desc_not_regions, 0 } ;
+	struct optdef optdefs[] = {
+		{ 0,                   0, 0,                         0 },
+		{ mk_sort_by_pos,      0, 0,          desc_sort_by_pos },
+		{ mk_sort_by_name,     0, 0,         desc_sort_by_name },
+		{ mk_filter_by_length, 0, 0,     desc_filter_by_length },
+		{ mk_filter_by_score,  0, 0,      desc_filter_by_score },
+		{ mk_filter_by_mapq,   0, 0,       desc_filter_by_mapq },
+		{ mk_filter_by_hit,    0, 0,        desc_filter_by_hit },
+		{ mk_delete_hit,       0, 0,           desc_delete_hit },
+		{ mk_require_hit,      0, 0,          desc_require_hit },
+		{ mk_filter_qual,      0, 0,          desc_filter_qual },
+		{ mk_subsample,        0, 0,            desc_subsample },
+		{ mk_sanitize,         0, 0,             desc_sanitize },
+		{ mk_filter_multi,     0, 0,         desc_filter_multi },
+		{ mk_regions_only,     0, 0,         desc_regions_only },
+		{ mk_not_regions,      0, 0,          desc_not_regions },
+		{ mk_edit_header,      0, 0,          desc_edit_header },
+		{ mk_add_alns,         0, 0,             desc_add_alns },
+		{ mk_rmdup,            0, 0,                desc_rmdup },
+		{ mk_duct_tape,        0, 0,            desc_duct_tape },
+		{ 0, mk_merge,            0,                desc_merge },
+		{ 0, mk_join,             0,                 desc_join },
+		{ 0, mk_mega_merge,       0,           desc_mega_merge },
+		{ 0, mk_concat,           0,               desc_concat },
+		{ 0, 0, mk_output,                         desc_output },
+		{ 0, 0, mk_output_text,               desc_output_text },
+		{ 0, 0, mk_output_sam,                 desc_output_sam },
+		{ 0, 0, mk_output_glz,                 desc_output_glz },
+		{ 0, 0, mk_output_3aln,               desc_output_3aln },
+		{ 0, 0, mk_output_fasta,             desc_output_fasta },
+		{ 0, 0, mk_output_fastq,             desc_output_fastq },
+		{ 0, 0, mk_output_table,             desc_output_table },
+		{ 0, 0, mk_output_wiggle,           desc_output_wiggle },
+		{ 0, 0, mk_stats,                           desc_stats },
+		{ 0, 0, 0, 0 }
+	} ;
 
 	ParamBlock param( 7.5, 20.0, 0, 0 ) ;
 	int POPT_ARG_DFLT = POPT_ARG_FLOAT | POPT_ARGFLAG_SHOW_DEFAULT ;
@@ -460,8 +470,9 @@ WRAPPED_MAIN
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments(!) in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
+		{ "output-wiggle",  0 , POPT_ARG_STRING, 0, opt_output_wiggle, "write depth-of-coverage in WIG format to FILE", "FILE" }, 
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble into contigs named NAME", "NAME" },
-		{ "stats",          0,  POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
+		{ "stats",          0 , POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_DFLT,   &param.slope,      0, "set slope parameter to S", "S" },
 		{ "set-intercept",  0 , POPT_ARG_DFLT,   &param.intercept,  0, "set length discount parameter to L", "L" },
@@ -496,25 +507,25 @@ WRAPPED_MAIN
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 		}
-		else if( rc >= 0 && filter_makers[rc] )
+		else if( rc >= 0 && optdefs[rc].filter_maker )
 		{
 			filters_current->push_back( FilterParams< Stream >(
-						param, poptGetOptArg1( pc ), filter_makers[rc],
-						descriptions[rc] ) );
+						param, poptGetOptArg1( pc ), optdefs[rc].filter_maker,
+						optdefs[rc].description ) );
 		}
-		else if( rc >= 0 && merge_makers[rc] )
+		else if( rc >= 0 && optdefs[rc].merge_maker )
 		{
 			// make sure we are still creating input filters
 			if( filters_current != &filters_initial )
 				throw "merge-like commands cannot not follow merge- or output-like commands" ;
 
 			merging_filter = FilterParams< StreamBundle >(
-				param, poptGetOptArg1( pc ), merge_makers[rc], descriptions[rc] ) ;
+				param, poptGetOptArg1( pc ), optdefs[rc].merge_maker, optdefs[rc].description ) ;
 
 			// from now on we build output filters
 			filters_current = &filters_terminal.back() ;
 		}
-		else if( rc >= 0 && output_makers[rc] )
+		else if( rc >= 0 && optdefs[rc].output_maker )
 		{
 			// make sure we are creating output filters
 			if( filters_current == &filters_initial )
@@ -522,7 +533,7 @@ WRAPPED_MAIN
 
 			// create filter
 			filters_current->push_back( FilterParams< Stream >(
-				param, poptGetOptArg( pc ), output_makers[rc], descriptions[rc] ) ) ;
+				param, poptGetOptArg( pc ), optdefs[rc].output_maker, optdefs[rc].description ) ) ;
 
 			// start new output stream
 			filters_terminal.push_back( FilterStack() ) ;
