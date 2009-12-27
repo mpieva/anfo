@@ -293,6 +293,7 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 				comp_size = fastlz_compress_level( level_, &buf_[0], uncomp_size, &tmp[0] ) ;
 				break ;
 
+#if HAVE_LIBZ && HAVE_ZLIB_H
 			case gzip:
 				comp_size_l = compressBound( uncomp_size ) ;
 				tmp.resize( comp_size_l ) ;
@@ -300,7 +301,9 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 					throw "cannot happen!  overflow in compress2" ;
 				comp_size = comp_size_l ;
 				break ;
+#endif
 
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
 			case bzip:
                 // docu says 5% is overkill.  didn't work with 1% reserve, though...
 				comp_size = uncomp_size * 21 / 20 + 601 ;
@@ -308,6 +311,7 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 				if( BZ_OK != BZ2_bzBuffToBuffCompress( &tmp[0], &comp_size, &buf_[0], uncomp_size, level_, 0, 0 ) )
 					throw "cannot happen!  overflow in BZ2_bzBuffToBuffCompress" ;
 				break ;
+#endif
 
 			default:
 				throw "cannot happen!  unknown compression method" ;
@@ -394,14 +398,22 @@ bool ChunkedReader::get_next_chunk()
 			break ;
 
 		case ChunkedWriter::gzip: 
+#if HAVE_LIBZ && HAVE_ZLIB_H
 			if( Z_OK != uncompress( (Bytef*)&buf_[0], &dlen, (const Bytef*)&tmp[0], comp_size ) 
 					|| uncomp_size != dlen )
 				throw "GZip decompression failed" ;
+#else
+			throw "GZip'ed chunk found, but no zlib support present." ;
+#endif
 			break ;
 
 		case ChunkedWriter::bzip:
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
 			if( BZ_OK != BZ2_bzBuffToBuffDecompress( &buf_[0], &uncomp_size, &tmp[0], comp_size, 0, 0 ) )
 				throw "BZip2 decompression failed" ;
+#else
+			throw "Bzip'ed chunk found, but no libbz2 support present." ;
+#endif
 			break ;
 
 		default:
@@ -1100,7 +1112,7 @@ zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_
 		? traits_type::not_eof( c ) : sputc( c ) ;
 }
 
-#if HAVE_LIBELK
+#if HAVE_ELK_SCHEME_H
 namespace streams {
 	Object Stream::get_summary() const 
 	{
@@ -1116,15 +1128,6 @@ namespace streams {
 			r = Cons( streams_[--i]->get_summary(), r ) ;
 		GC_Unlink ;
 		return r ;
-	}
-}
-#else
-namespace streams {
-	Object Stream::get_summary() const { return foot_.exit_code() ; }
-	Object StreamBundle::get_summary() const {
-		int r = 0 ;
-		for( int i = 0 ; i != streams_.size() ; ++i ) r |= streams_[i]->fetch_footer().exit_code() ;
-		return r ; 
 	}
 }
 #endif

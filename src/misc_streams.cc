@@ -338,6 +338,7 @@ void StatStream::put_footer( const Footer& f )
 	}
 }
 
+#if HAVE_ELK_SCHEME_H
 Object StatStream::get_summary() const
 {
 	GC_Node ;
@@ -359,6 +360,7 @@ Object StatStream::get_summary() const
 	GC_Unlink ;
 	return r ;
 }
+#endif
 
 void MismatchStats::put_result( const Result& r )
 {
@@ -376,6 +378,7 @@ void MismatchStats::put_result( const Result& r )
 	}
 }
 
+#if HAVE_ELK_SCHEME_H
 Object MismatchStats::get_summary() const
 {
 	GC_Node ;
@@ -391,6 +394,7 @@ Object MismatchStats::get_summary() const
 	GC_Unlink ;
 	return r ;
 }
+#endif
 
 RegionFilter::Regions3 RegionFilter::all_regions ;
 
@@ -476,6 +480,7 @@ void DivergenceStream::put_result( const Result& r )
 	}
 }
 
+#if HAVE_ELK_SCHEME_H
 static inline Object Make_StringL( const char* c ) { return Make_String( c, strlen(c) ) ; }
 
 Object DivergenceStream::get_summary() const
@@ -522,6 +527,7 @@ Object DivergenceStream::get_summary() const
 	GC_Unlink ;
 	return aa ;
 }
+#endif
 
 } ; // namespace
 

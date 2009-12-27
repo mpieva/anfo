@@ -26,6 +26,9 @@
 #include "../config.h"
 #endif
 
+// don't do anything unless Elk is present
+#if HAVE_ELK_SCHEME_H
+
 #include "ducttape.h"
 #include "index.h"
 #include "misc_streams.h"
@@ -349,7 +352,6 @@ Object p_version() { return Make_String( PACKAGE_VERSION, strlen(PACKAGE_VERSION
 void elk_finit_libanfo() {}
 void elk_init_libanfo() 
 {
-	std::clog << "Anfo bindings initialized" << std::endl ;
 	t_stream = Define_Type( 0, "anfo-stream", 
         0, sizeof( StreamWrapper ),
 		compare_stream_wrappers, 
@@ -357,7 +359,7 @@ void elk_init_libanfo()
 		print_stream_wrapper, 0 ) ;
 
 	Define_Primitive( (P)p_is_stream,        "anfo-stream?",        1, 1, EVAL ) ;
-	Define_Primitive( (P)p_set_verbosity,    "set-verbosity",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_set_verbosity,    "set-verbosity!",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_use_mmap,         "use-mmap",            1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_read_file,        "read-file",           3, 3, EVAL ) ;  // wrap?
@@ -409,3 +411,4 @@ void elk_init_libanfo()
 
 } // extern C
 
+#endif

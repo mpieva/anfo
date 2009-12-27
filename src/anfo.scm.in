@@ -5,6 +5,9 @@
 
 (load "__LIBDIR__/libanfo.la")
 
+; sets sensible verbosity, but also makes sure that libanfo was actually loaded
+(set-verbosity! 'warning)
+
 (define (require-hit . args)
  (cond
   ((null? args) (prim-require-hit '() '()))

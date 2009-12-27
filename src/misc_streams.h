@@ -160,7 +160,9 @@ class MergeStream : public StreamBundle
 
 		//! \todo totally broken, need to think about how to keep the
 		//!       necessary information.
+#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return False ; }
+#endif
 } ;
 
 //! \brief merges multiple streams by taking the best hit
@@ -319,7 +321,9 @@ template <class Comp> class SortingStream : public Stream
 			return r ;
 		}
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_->fetch_footer() ) ; return foot_ ; }
+#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return final_stream_->get_summary() ; }
+#endif
 } ;
 
 template < typename Comp > void SortingStream<Comp>::flush_scratch()
@@ -486,7 +490,9 @@ class StatStream : public Stream
 
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
+#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
+#endif
 } ;
 
 //! \brief calculates divergence
@@ -510,7 +516,9 @@ class DivergenceStream : public Stream
 			, b1(0), b2(0), b3(0), b4(0), b5(0) {}
 
 		virtual void put_result( const Result& ) ;
+#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
+#endif
 } ;
 
 class MismatchStats : public Stream
@@ -521,7 +529,9 @@ class MismatchStats : public Stream
 	public:
 		MismatchStats() { memset( mat_, 0, sizeof( mat_ ) ) ; }
 		virtual void put_result( const Result& ) ;
+#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
+#endif
 } ;
 
 class RegionFilter : public HitFilter
