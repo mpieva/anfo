@@ -2,20 +2,23 @@ bin_PROGRAMS =  fa2dna  dnaindex  anfo  anfo-sge  anfo-tool
 libexec_PROGRAMS =  index-test  martin-table  file-info
 lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
-dist_noinst_DATA = anfo.scm.in
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 		     ducttape.h index.h logdom.h misc_streams.h output_streams.h \
 		     sequence.h stream.h trim.h util.h 
+
 schemedir = $(prefix)/share/elk
-scheme_DATA = anfo.scm
+dist_scheme_SCRIPTS = anfo.scm
+EXTRA_DIST = anfo.scm.in
 
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc anfo.scm
 
 CFLAGS += $(protobuf_CFLAGS)
-LDADD = libanfo.la $(protobuf_LIBS)
+CXXFLAGS += $(protobuf_CFLAGS)
+LDADD = libanfo.la
 
 libanfo_la_LDFLAGS = -version-info 0:0:0
+libanfo_la_LIBADD = $(protobuf_LIBS)
 
 libanfo_la_SOURCES = config.pb.h output.pb.h \
 		     align.cc anfo_common.cc config.pb.cc ducttape.cc \
@@ -35,7 +38,7 @@ martin_table_SOURCES = martin-table.cc
 
 
 anfo.scm: anfo.scm.in
-	sed -e "s#__LIBDIR__#$(libdir)#g" > $@ < $<
+	sed -e "s#__LIBDIR__#$(libdir)#g" < $(srcdir)/anfo.scm.in > anfo.scm
 
 config.pb.cc: config.proto
 	$(PROTOC) -I. -I$(dir $(PROTOC))../include --cpp_out=. config.proto

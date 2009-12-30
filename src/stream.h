@@ -713,6 +713,31 @@ class FastqReader : public Stream
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 } ;
 
+class SffReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		string name_ ;
+		unsigned remaining_ ;
+		unsigned number_of_flows_ ;
+
+		const void* buf_ ;
+		int buf_size_ ;
+
+		uint8_t read_uint8() ;
+		uint16_t read_uint16() ;
+		uint32_t read_uint32() ;
+		void read_string( unsigned, string* ) ;
+		void skip( int ) ;
+
+	public:
+		SffReader( auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name ) : 
+			is_( is ), name_( name ), buf_(0), buf_size_(0) {}
+
+		virtual Header fetch_header() ;
+		virtual Result fetch_result() ;
+} ;
+
 } // namespace streams
 
 class PipeOutputStream : public google::protobuf::io::FileOutputStream 

@@ -44,6 +44,14 @@
 
 #include <glob.h>
 
+// Somewhat silly workaround for linking problems: protobuf needs
+// pthread, but doesn't automtically link it; we don't need it, and Elk
+// won't provide it.  So here's a dependency on libpthread, it gets
+// linked and protobuf is happy again.
+#include <pthread.h>
+pthread_once_t anfo_elk_once_control = PTHREAD_ONCE_INIT;
+extern "C" void anfo_elk_init_routine() {}
+
 using namespace std ;
 using namespace streams ;
 using namespace google::protobuf::io ;
@@ -242,7 +250,7 @@ WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( obje
 WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
 WRAP( p_stats, (), () ) { return wrap_stream( new StatStream( "" ) ) ; }
-WRAP( p_divergence, ( Object p, Object s ), (p,s) ) { return wrap_stream( new DivergenceStream( object_to_string(p), object_to_string(s) ) ) ; }
+WRAP( p_divergence, ( Object p, Object s, Object b ), (p,s,b) ) { return wrap_stream( new DivergenceStream( object_to_string(p), object_to_string(s), Get_Integer(b) ) ) ; }
 WRAP( p_mismatches, (), () ) { return wrap_stream( new MismatchStats() ) ; }
 
 // Filters
@@ -377,7 +385,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;  // wrap?
 	Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
-	Define_Primitive( (P)p_divergence,       "divergence",          2, 2, EVAL ) ;
+	Define_Primitive( (P)p_divergence,       "divergence",          3, 3, EVAL ) ;
 	Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
 
 	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
@@ -407,6 +415,9 @@ void elk_init_libanfo()
 	// not exactly Anfo, but damn practical
 	Define_Primitive( (P)p_glob,             "glob",                1, 1, EVAL ) ;
 	Define_Primitive( (P)p_version,          "anfo-version",        0, 0, EVAL ) ;
+
+	// part of the aforementioned workaround
+	pthread_once( &anfo_elk_once_control, anfo_elk_init_routine ) ;
 }
 
 } // extern C

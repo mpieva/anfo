@@ -442,7 +442,7 @@ void DivergenceStream::put_result( const Result& r )
 {
 	const Hit *pri = hit_to( r, primary_genome_ ) ;
 	const Hit *sec = hit_to( r, secondary_genome_ ) ;
-	if( pri && sec ) 
+	if( pri && sec )
 	{
 		if( !pri->has_aln_ref() || !pri->has_aln_qry() ||
 				!sec->has_aln_ref() || !sec->has_aln_qry() )
@@ -454,6 +454,20 @@ void DivergenceStream::put_result( const Result& r )
 					sec_ref = sec->aln_ref().begin(),
 					sec_qry = sec->aln_qry().begin(),
 					sec_qry_end = sec->aln_qry().end() ;
+
+		for( int skip = 0 ; skip != chop_ && pri_qry != pri_qry_end ; )
+		{
+			if( *pri_qry != '-' ) ++skip ;
+			++pri_qry, ++pri_ref ;
+			++sec_qry, ++sec_ref ;
+		}
+
+		for( int skip = 0 ; skip != chop_ && pri_qry != pri_qry_end ; )
+		{
+			--pri_qry_end ;
+			--sec_qry_end ;
+			if( *pri_qry_end != '-' ) ++skip ;
+		}
 
 		while( pri_qry != pri_qry_end ) {
 			while( pri_qry != pri_qry_end && !good( *pri_qry ) )

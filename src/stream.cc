@@ -49,6 +49,24 @@ using namespace google::protobuf::io ;
 using namespace output ;
 using namespace std ;
 
+#if HAVE_ELK_SCHEME_H
+Object Stream::get_summary() const 
+{
+	return Make_Integer( foot_.exit_code() ) ;
+}
+Object StreamBundle::get_summary() const 
+{
+	GC_Node;
+	Object r = Null ;
+	GC_Link(r);
+
+	for( size_t i = streams_.size() ; i != 0 ; )
+		r = Cons( streams_[--i]->get_summary(), r ) ;
+	GC_Unlink ;
+	return r ;
+}
+#endif
+
 int transfer( Stream& in, Stream& out ) 
 {
 	out.put_header( in.fetch_header() ) ;
@@ -1029,6 +1047,9 @@ namespace {
 		else if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == '1' )
 			return new ChunkedReader( is, name ) ;
 
+		else if( l >= 4 && q[0] == '.' && q[1] == 's' && q[2] == 'f' && q[3] == 'f' )
+			return new SffReader( is, name ) ;
+
 		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
 		{
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
@@ -1065,6 +1086,104 @@ StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInp
 {
 	std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > s( new StreamWithProgress( is, name, total ) ) ;
 	return make_input_stream_( s, name, solexa_scores, origin ) ;
+}
+
+uint8_t SffReader::read_uint8()
+{
+	while( !buf_size_ )
+		if( !is_->Next( &buf_, &buf_size_ ) )
+			throw "SffReader: premature end of file in " + name_ ;
+
+	uint8_t x = *(const char*)buf_ ;
+	buf_ = (const char*)buf_ + 1 ;
+	--buf_size_ ;
+	return x ;
+}
+
+uint16_t SffReader::read_uint16() { return ((uint16_t)read_uint8() << 8) | read_uint8() ; }
+uint32_t SffReader::read_uint32() { return ((uint32_t)read_uint16() << 16) | read_uint16() ; }
+void SffReader::read_string( unsigned l, string* s ) {
+	s->clear() ;
+	while( l ) {
+		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
+			throw "SffReader: premature end of file in " + name_ ;
+
+		while( buf_size_ && l ) 
+		{
+			s->push_back( *(char*)buf_ ) ;
+			--l ;
+			--buf_size_ ;
+			buf_ = (const char*)buf_ + 1 ;
+		}
+	}
+}
+void SffReader::skip( int l ) 
+{
+	while( l ) {
+		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
+			throw "SffReader: premature end of file in " + name_ ;
+		
+		unsigned k = min( l, buf_size_ ) ;
+		l -= k ;
+		buf_size_ -= k ;
+		buf_ = (char*)buf_ + k ;
+	}
+}
+
+Header SffReader::fetch_header()
+{
+	// common header as per section 13.3.8.1 of 454 manual
+	if( read_uint32() != 0x2E736666 || read_uint32() != 1 ) 
+		throw "SffReader: " + name_ + " has wrong magic number or version" ;
+	skip( 12 ) ;										// index offset and length
+	remaining_ = read_uint32() ;						// number of reads
+	unsigned hdr_length = read_uint16() ;				// header length
+	read_uint16() ;										// length of key (ignored, is trimmed)
+	number_of_flows_ = read_uint16() ;
+	if( read_uint8() != 1 )
+		throw "SffReader: " + name_ + " has unknown flow format code" ;
+	// rest is ignored, will lump it into the padding
+	skip( hdr_length - 31 ) ;
+
+	state_ = remaining_ ? have_output : end_of_stream ;
+	hdr_.Clear() ;
+	return hdr_ ;
+}
+
+Result SffReader::fetch_result()
+{
+	res_.Clear() ;
+
+	// read header as per section 13.3.8.2 of 454 manual
+	unsigned hdr_length = read_uint16() ;
+	unsigned name_length = read_uint16() ;
+	unsigned num_bases = read_uint32() ;
+	unsigned clip_qual_left = read_uint16() ;
+	unsigned clip_qual_right = read_uint16() ;
+	unsigned clip_adapter_left = read_uint16() ;
+	unsigned clip_adapter_right = read_uint16() ;
+	read_string( name_length, res_.mutable_read()->mutable_seqid() ) ;		// read name
+	skip( hdr_length - 16 - name_length ) ;									// padding
+
+	// read data as per section 13.3.8.3 of 454 manual
+	skip( number_of_flows_ * 2 ) ;											// flow values
+	skip( num_bases ) ;														// flow indexes
+	read_string( num_bases, res_.mutable_read()->mutable_sequence() ) ;		// bases
+	read_string( num_bases, res_.mutable_read()->mutable_quality() ) ;		// quality
+	skip (7 - ((number_of_flows_ * 2 + num_bases * 3 -1) % 8)) ;			// eight_byte_padding
+
+	if( clip_qual_left || clip_adapter_left ) 
+		res_.mutable_read()->set_trim_left( max( clip_qual_left, clip_adapter_left ) -1 ) ;
+
+	if( clip_qual_right && clip_adapter_right ) 
+		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - min( clip_qual_right, clip_adapter_right ) ) ;
+	else if( clip_qual_right )
+		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - clip_qual_right ) ;
+	else if( clip_adapter_right )
+		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - clip_adapter_right ) ;
+
+	state_ = --remaining_ ? have_output : end_of_stream ;
+	return res_ ;
 }
 
 } ; // namespace
@@ -1111,24 +1230,4 @@ zero_copy_output_buf::int_type zero_copy_output_buf::overflow( zero_copy_output_
 	return traits_type::eq_int_type( c, traits_type::eof() )
 		? traits_type::not_eof( c ) : sputc( c ) ;
 }
-
-#if HAVE_ELK_SCHEME_H
-namespace streams {
-	Object Stream::get_summary() const 
-	{
-		return Make_Integer( foot_.exit_code() ) ;
-	}
-	Object StreamBundle::get_summary() const 
-	{
-		GC_Node;
-		Object r = Null ;
-        GC_Link(r);
-        
-		for( size_t i = streams_.size() ; i != 0 ; )
-			r = Cons( streams_[--i]->get_summary(), r ) ;
-		GC_Unlink ;
-		return r ;
-	}
-}
-#endif
 

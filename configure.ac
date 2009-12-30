@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.60)
-AC_INIT([anfo],[svn],[udo_stenzel@eva.mpg.de])
+AC_INIT([anfo],[esyscmd([svnversion -n])],[udo_stenzel@eva.mpg.de])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_CONFIG_SRCDIR([src/util.cc])
 AC_CONFIG_HEADER([config.h])
@@ -25,10 +25,12 @@ AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([popt], [poptGetContext])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
+AC_CHECK_LIB([protobuf], [main])
 AC_CHECK_LIB([elk], [Elk_Init])
 
 AC_CHECK_HEADER([Judy.h], [], [AC_MSG_ERROR([Judy.h not found.  Need to install libjudy-dev?])])
 AC_CHECK_HEADERS([popt.h], [], [AC_MSG_ERROR([popt.h not found.  Need to install libpopt-dev?])])
+AC_CHECK_HEADERS([google/protobuf/message.h], [], [AC_MSG_ERROR([message.h not found.  Need to install libprotobuf-dev?])])
 AC_CHECK_HEADERS([zlib.h], [], [AC_MSG_WARN([zlib.h not found.  Want to install zlib1g-dev?])])
 AC_CHECK_HEADERS([bzlib.h], [], [AC_MSG_WARN([bzlib.h not found.  Want to install libbz2-dev?])])
 
