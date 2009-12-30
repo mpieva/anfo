@@ -459,24 +459,33 @@ void DivergenceStream::put_result( const Result& r )
 		{
 			if( *pri_qry != '-' ) ++skip ;
 			++pri_qry, ++pri_ref ;
-			++sec_qry, ++sec_ref ;
 		}
 
 		for( int skip = 0 ; skip != chop_ && pri_qry != pri_qry_end ; )
 		{
 			--pri_qry_end ;
-			--sec_qry_end ;
 			if( *pri_qry_end != '-' ) ++skip ;
 		}
 
+		for( int skip = 0 ; skip != chop_ && sec_qry != sec_qry_end ; )
+		{
+			if( *sec_qry != '-' ) ++skip ;
+			++sec_qry, ++sec_ref ;
+		}
+
+		for( int skip = 0 ; skip != chop_ && sec_qry != sec_qry_end ; )
+		{
+			--sec_qry_end ;
+			if( *sec_qry_end != '-' ) ++skip ;
+		}
+
+
 		while( pri_qry != pri_qry_end ) {
-			while( pri_qry != pri_qry_end && !good( *pri_qry ) )
-				++pri_qry, ++pri_ref ;
-			while( sec_qry != sec_qry_end && !good( *sec_qry ) )
-				++sec_qry, ++sec_ref ;
+			while( pri_qry != pri_qry_end && !good( *pri_qry ) ) ++pri_qry, ++pri_ref ;
+			while( sec_qry != sec_qry_end && !good( *sec_qry ) ) ++sec_qry, ++sec_ref ;
 
 			char p = *pri_ref, s = *sec_ref, q = *pri_qry ;
-			if( q != *sec_qry ) throw "disagreement in alignments" ;
+			if( q != *sec_qry ) throw "disagreement in alignments (or ugly bug)" ;
 
 			if( good(p) && good(s) && good(q) ) {
 				if( q == p && q == s ) ++b1 ;

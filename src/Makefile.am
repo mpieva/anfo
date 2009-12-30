@@ -7,7 +7,7 @@ pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 		     sequence.h stream.h trim.h util.h 
 
 schemedir = $(prefix)/share/elk
-dist_scheme_SCRIPTS = anfo.scm
+scheme_SCRIPTS = anfo.scm
 EXTRA_DIST = anfo.scm.in
 
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
@@ -18,7 +18,7 @@ CXXFLAGS += $(protobuf_CFLAGS)
 LDADD = libanfo.la
 
 libanfo_la_LDFLAGS = -version-info 0:0:0
-libanfo_la_LIBADD = $(protobuf_LIBS)
+libanfo_la_LIBADD = $(protobuf_LIBS) -lpthread
 
 libanfo_la_SOURCES = config.pb.h output.pb.h \
 		     align.cc anfo_common.cc config.pb.cc ducttape.cc \

@@ -192,7 +192,7 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 
 		if( r.sequence.size() > 255 )
 			error( 1, 0, "cannot represent long insert at %s:%d (%d)",
-					hsa_chr.c_str(), r.hsa.pos, r.sequence.size() ) ;
+					hsa_chr.c_str(), r.hsa.pos, (int)r.sequence.size() ) ;
 
 		if( type == "deletion" )
 		{

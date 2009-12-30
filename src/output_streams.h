@@ -136,9 +136,10 @@ class FastqWriter : public Stream
 {
 	private:
 		std::auto_ptr< std::ostream > out_ ;
+		bool with_qual_ ;
 
 	public:
-		FastqWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
+		FastqWriter( const pair< ostream*, string > &p, bool q ) : out_( p.first ), with_qual_(q) {}
 		virtual void put_result( const Result& ) ;
 } ;
 

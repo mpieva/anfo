@@ -240,7 +240,7 @@ WRAP( p_write_text,   ( Object f ), (f) ) { return wrap_stream( new TextWriter( 
 WRAP( p_write_sam,    ( Object f ), (f) ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
 WRAP( p_write_glz,    ( Object f ), (f) ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
 WRAP( p_write_3aln,   ( Object f ), (f) ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }
-WRAP( p_write_fastq,  ( Object f ), (f) ) { return wrap_stream( new FastqWriter( open_any_output_std( f ) ) ) ; }
+WRAP( p_write_fastq,  ( Object f ), (f) ) { return wrap_stream( new FastqWriter( open_any_output_std( f ), true ) ) ; }
 WRAP( p_write_table,  ( Object f ), (f) ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_wig,    ( Object f ), (f) ) { return wrap_stream( new WigCoverageWriter( open_any_output_std( f ) ) ) ; }

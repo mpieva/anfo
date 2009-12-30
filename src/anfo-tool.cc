@@ -324,7 +324,7 @@ void desc_output_fasta( ostream& ss, const ParamBlock& p )
 { ss << "write best alignments(!) in FASTA format to " << parse_fn( p.arg ) ; }
 
 Stream* mk_output_fastq( const ParamBlock& p )
-{ return new FastqWriter( make_output_stream_std( p.arg ) ) ; }
+{ return new FastqWriter( make_output_stream_std( p.arg ), true ) ; }
 
 void desc_output_fastq( ostream& ss, const ParamBlock& p )
 { ss << "write sequences(!) in FASTQ format to " << parse_fn( p.arg ) ; }

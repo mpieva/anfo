@@ -383,7 +383,7 @@ ChunkedWriter::~ChunkedWriter()
 
 bool ChunkedReader::get_next_chunk() 
 {
-	if( ais_.get() && ais_->ByteCount() < buf_.size() ) return true ;
+	if( ais_.get() && (unsigned)ais_->ByteCount() < buf_.size() ) return true ;
 	ais_.reset( 0 ) ;
 
 	CodedInputStream cis( is_.get() ) ;
