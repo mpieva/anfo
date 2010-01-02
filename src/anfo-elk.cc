@@ -266,8 +266,6 @@ WRAP( p_sort_by_name, ( Object mem, Object handles ), (mem,handles) )
 { return wrap_stream( new SortingStream<by_seqid>(
 			Get_Integer( mem ) * 1024U * 1024U, Get_Integer( handles ) ) ) ; }
 
-WRAP( p_filter_by_length, ( Object l ), (l) ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
-
 WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
 { return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
 
@@ -283,20 +281,21 @@ WRAP( p_require_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 WRAP( p_ignore_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
-WRAP( p_only_genome, ( Object genomes ), (genomes) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( genomes ) ) ) ; }
-WRAP( p_filter_multi, ( Object m ), (m) ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
-WRAP( p_subsample, ( Object r ), (r) ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
-WRAP( p_sanitize, (), () ) { return wrap_stream( new Sanitizer() ) ; }
-WRAP( p_edit_header, ( Object e ), (e) ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
-WRAP( p_inside_region, ( Object f ), (f) ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
+WRAP( p_only_genome,    ( Object genomes ), (genomes) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( genomes ) ) ) ; }
+WRAP( p_filter_by_len,  ( Object l ), (l) ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
+WRAP( p_filter_multi,   ( Object m ), (m) ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
+WRAP( p_subsample,      ( Object r ), (r) ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
+WRAP( p_edit_header,    ( Object e ), (e) ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
+WRAP( p_inside_region,  ( Object f ), (f) ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
 WRAP( p_outside_region, ( Object f ), (f) ) { return wrap_stream( new OutsideRegion( open_any_input_std( f ) ) ) ; }
+WRAP( p_sanitize, (), () ) { return wrap_stream( new Sanitizer() ) ; }
 
 
 // Mergers  (I'll drop the unholy mega-merge here, that's far better
 // scripted in Scheme)
 
-WRAP( p_merge, (  int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new MergeStream,    argc, argv ) ; }
-WRAP( p_join, (   int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new NearSortedJoin, argc, argv ) ; }
+WRAP( p_merge,  ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new MergeStream,    argc, argv ) ; }
+WRAP( p_join,   ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new NearSortedJoin, argc, argv ) ; }
 WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,   argc, argv ) ; }
 
 // Composition
@@ -321,7 +320,6 @@ WRAP( p_anfo_run, ( int argc, Object *argv ), (argc,argv) )
 	Object in_summary = inp->get_summary() ;
 	GC_Link( in_summary ) ;
 	Object out_summary = out.get_summary() ;
-	GC_Link( out_summary ) ;
 	Object r = Cons( in_summary, out_summary ) ;
 	GC_Unlink ;
 	return r ;
@@ -391,7 +389,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_divergence,       "divergence",          3, 3, EVAL ) ;
 	Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
 
-	Define_Primitive( (P)p_filter_by_length, "filter-length",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_len,    "filter-length",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;  // wrap?
 	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;  // wrap?
 	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;
