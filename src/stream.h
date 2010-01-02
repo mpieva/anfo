@@ -288,7 +288,7 @@ class StreamBundle : public Stream
 		typedef std::deque< StreamHolder >::const_reverse_iterator criter ;
 
 	public:
-		virtual void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
+		void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 #if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
 #endif
@@ -307,9 +307,8 @@ struct ParseError : public Exception {
 
 
 //! \brief presents ANFO files as series of messages
-//! This class will read a possibly compressed result stream and present
-//! it using an iteration interface.  Normally, gzip and bzip2
-//! decompression will transparently be done.
+//! This class will read a stream of results formatted as a continuous
+//! protobuf message.
 class AnfoReader : public Stream
 {
 	private:
@@ -325,6 +324,48 @@ class AnfoReader : public Stream
 		//! \internal
 		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
 } ;
+
+// \brief reader for all supported formats
+// Here we take care not to open files before the header is requested.
+// This is necessary to allow merging thousands of files without
+// directly running into a filedescriptor limit.
+// To this end, the UniversalReader can be initialized with or without a
+// stream object.  If the stream exists, we take care not to read from
+// it until the header is needed, and the name given serves just for
+// informational purposes.  If no stream exists, we create a
+// FileInputStream from the name (which must be a filename, obviously)
+// when the header is requested.  At this point we also inspect the
+// stream to determine its format and create the appropriate filters to
+// decode it.
+class UniversalReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		std::string name_ ;
+		StreamHolder str_ ;
+
+		bool solexa_scores_ ;
+		int origin_ ;
+
+	public: 
+		UniversalReader(
+				const std::string& name,
+				google::protobuf::io::ZeroCopyInputStream* is = 0,
+				bool solexa_scores = false,
+				int origin = 33 
+				)
+			: is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin ) {}
+
+		virtual Header fetch_header() ;
+
+		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
+		virtual Result fetch_result() { return str_->fetch_result() ; }
+		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
+#if HAVE_ELK_SCHEME_H
+		virtual Object get_summary() const { return str_->get_summary() ; }
+#endif
+} ;
+
 
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
@@ -427,6 +468,8 @@ class Filter : public Stream
 } ;
 
 //! \brief filters that drop some alignments
+//! Filtering only applies to hits to the specified genome(s), or to all
+//! hits if no genomes are specified.  Other hits pass through.
 //! \todo Maybe some stats could be gathered into some sort of a result.
 class HitFilter : public Stream
 {
@@ -467,6 +510,8 @@ class IgnoreHit : public HitFilter
 		virtual bool keep( const Hit& h ) { return !ss_.empty() && !contains( ss_, h.sequence() ) ; }
 } ;
 
+//! \brief deletes hits to uninteresting genomes
+//! Hits to the specified genomes pass through, all others are dropped.
 class OnlyGenome : public Filter
 {
 	private:
@@ -686,14 +731,10 @@ class ConcatStream : public StreamBundle
 		std::deque< output::Result > rs_ ;
 
 	public:
-		virtual void add_stream( StreamHolder ) ;
-		virtual Result fetch_result() ;
+		virtual state get_state() ;
+		virtual Header fetch_header() ;
+		virtual Result fetch_result() { return streams_[0]->fetch_result() ; }
 } ;
-
-StreamHolder make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
-StreamHolder make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
-StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
-
 
 class FastqReader : public Stream
 {

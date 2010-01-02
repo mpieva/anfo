@@ -17,6 +17,52 @@ namespace streams {
 using namespace google::protobuf ;
 using namespace google::protobuf::io ;
 
+Header MergeStream::fetch_header()
+{
+	state_ = end_of_stream ;
+	for( size_t i = 0 ; i != streams_.size() ; )
+	{
+		Header h = streams_[i]->fetch_header() ;
+		merge_sensibly( hdr_, h ) ;
+
+		if( h.is_sorted_by_name() ) {
+			if( mode_ == unknown ) mode_ = by_name ;
+			else if( mode_ != by_name ) 
+				throw "MergeStream: inconsistent sorting of input" ;
+		}
+		else if( h.is_sorted_by_all_genomes() ) {
+			if( mode_ == unknown ) {
+				mode_ = by_coordinate ;
+				gs_.clear() ;
+			}
+			else if( mode_ != by_coordinate || !gs_.empty() )
+				throw "MergeStream: inconsistent sorting of input" ;
+		}
+		else if( h.is_sorted_by_coordinate_size() ) {
+			if( mode_ == unknown ) {
+				mode_ = by_coordinate ;
+				gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
+			}
+			else if( mode_ != by_coordinate || (int)gs_.size() != h.is_sorted_by_coordinate_size()
+					|| !equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) )
+				throw "MergeStream: inconsistent sorting of input" ;
+		}
+
+		if( streams_[i]->get_state() == have_output )
+		{
+			rs_.push_back( streams_[i]->fetch_result() ) ;
+			state_ = have_output ;
+			++i ;
+		}
+		else
+		{
+			merge_sensibly( foot_, streams_[i]->fetch_footer() ) ;
+			streams_.erase( streams_.begin() + i ) ;
+		}
+	}
+	return hdr_ ;
+}
+
 Result MergeStream::fetch_result() 
 {
 	assert( state_ == have_output ) ;
@@ -29,40 +75,56 @@ Result MergeStream::fetch_result()
 				|| ( mode_ == by_name && by_seqid()( &rs_[ i ], &rs_[ min_idx ] ) ) )
 			min_idx = i ;
 
-	Result res = rs_[ min_idx ] ;
-	Stream &sm = *streams_[ min_idx ] ;
-	if( sm.get_state() == have_output )
+	string min_name = rs_[ min_idx ].read().seqid() ;
+	Result res ;
+	for( size_t i = 0 ; i != rs_.size() ; )
 	{
-		rs_[ min_idx ] = sm.fetch_result() ; 
-	}
-	else
-	{
-		merge_sensibly( foot_, sm.fetch_footer() ) ;
-		streams_.erase( streams_.begin() + min_idx ) ;
-		rs_.erase( rs_.begin() + min_idx ) ;
-		if( rs_.empty() ) state_ = end_of_stream ;
+		if( rs_[i].read().seqid() == min_name )
+		{
+			if( res.IsInitialized() ) merge_sensibly( res, rs_[i] ) ;
+			else res = rs_[i] ;
+
+			Stream &sm = *streams_[i] ;
+			if( sm.get_state() == have_output ) rs_[i++] = sm.fetch_result() ; 
+			else
+			{
+				merge_sensibly( foot_, sm.fetch_footer() ) ;
+				streams_.erase( streams_.begin() + i ) ;
+				rs_.erase( rs_.begin() + i ) ;
+				if( rs_.empty() ) state_ = end_of_stream ;
+			}
+		}
 	}
 	return res ;
 }
 
-//! Checks if at least as many inputs are known as needed.  It assumes
-//! only one genome index was used and takes the number of slices
-//! declared for it.  (This is mostly useful in MegaMergeStream to clean
-//! up the mess left by a heavily sliced grid job.  Try to avoid using
-//! this 'feature'.)
-bool BestHitStream::enough_inputs() const
+Header NearSortedJoin::fetch_header()
 {
-	if( hdr_.config().policy_size() == 0 ||
-			hdr_.config().policy(0).use_compact_index_size() == 0 ) return false ;
-	if( !hdr_.config().policy(0).use_compact_index(0).has_number_of_slices() ) return true ;
-	return nstreams_ >= hdr_.config().policy(0).use_compact_index(0).number_of_slices() ;
+	state_ = end_of_stream ;
+	for( size_t i = 0 ; i != streams_.size() ; ++i )
+	{
+		merge_sensibly( hdr_, streams_[i]->fetch_header() ) ;
+		++nstreams_ ;
+		if( streams_[i]->get_state() == have_output )
+		{
+			state_ = have_output ;
+			++i ;
+		}
+		else
+		{
+			merge_sensibly( foot_, streams_[i]->fetch_footer() ) ;
+			streams_.erase( streams_.begin() + i ) ;
+		}
+	}
+	cur_input_ = streams_.begin() ;
+	return hdr_ ;
 }
 
 //! Enough information is read until one sequence has been reported on
 //! by each input stream.  Everything else is buffered if necessary.
 //! This works fine as long as the inputs come in in roughly the same
 //! order and are complete.
-Result BestHitStream::fetch_result()
+Result NearSortedJoin::fetch_result()
 {
 	while( !streams_.empty() ) {
 		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
@@ -97,7 +159,7 @@ Result BestHitStream::fetch_result()
 			if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
 			{
 				stringstream s ;
-				s << "BestHitStream: " << nread_ << "in "
+				s << "NearSortedJoin: " << nread_ << "in "
 				<< nwritten_ << "out "
 				<< buffer_.size() << "buf" ;
 				progress_( Console::info, s.str() ) ;
@@ -114,40 +176,6 @@ Result BestHitStream::fetch_result()
 }
 
 unsigned SortingStream__ninstances = 0 ;
-
-void MegaMergeStream::add_stream( StreamHolder s ) 
-{
-	Header h = s->fetch_header() ;
-	if( h.has_sge_slicing_stride() )
-	{
-		Holder< BestHitStream > bhs = stream_per_slice_[ h.sge_slicing_index(0) ] ;
-		if( !bhs ) bhs = new BestHitStream ;
-		bhs->add_stream( s ) ;
-
-		if( bhs->enough_inputs() ) {
-			std::stringstream s ;
-			s << "MegaMergeStream: got everything for slice " << h.sge_slicing_index(0) ;
-			console.output( Console::info, s.str() ) ;
-			stream_per_slice_.erase( h.sge_slicing_index(0) ) ;
-			ConcatStream::add_stream( bhs ) ;
-		}
-	}
-	else ConcatStream::add_stream( s ) ;
-}
-
-Header MegaMergeStream::fetch_header()
-{
-	if( !stream_per_slice_.empty() ) 
-		console.output( Console::warning, "MegaMergeStream: input appears to be incomplete" ) ;
-
-	for( map< int, Holder< BestHitStream > >::iterator
-			l = stream_per_slice_.begin(),
-			r = stream_per_slice_.end() ; l != r ; ++l )
-		ConcatStream::add_stream( l->second ) ;
-
-	return ConcatStream::fetch_header() ;
-}
-
 
 void RepairHeaderStream::put_header( const Header& h ) 
 {

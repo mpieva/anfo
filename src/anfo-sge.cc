@@ -142,7 +142,7 @@ WRAPPED_MAIN
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
 		streams::StreamHolder inp(
-				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
+				new streams::UniversalReader( files.front(), 0, solexa_scale, fastq_origin ) ) ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{

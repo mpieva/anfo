@@ -270,16 +270,10 @@ void desc_merge( ostream& ss, const ParamBlock& )
 { ss << "merge sorted streams" ; }
 
 StreamBundle* mk_join( const ParamBlock& )
-{ return new BestHitStream() ; }
+{ return new NearSortedJoin() ; }
 
 void desc_join( ostream& ss, const ParamBlock& )
 { ss << "join near-sorted streams and retain best hits to each genome" ; }
-
-StreamBundle* mk_mega_merge( const ParamBlock& )
-{ return new MegaMergeStream() ; }
-
-void desc_mega_merge( ostream& ss, const ParamBlock& )
-{ ss << "join fragments from grid jobs and retain best hits" ; }
 
 StreamBundle* mk_concat( const ParamBlock& )
 { return new ConcatStream() ; }
@@ -393,7 +387,7 @@ WRAPPED_MAIN
 		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_subsample,
 		opt_sanitize, opt_filter_multi, opt_regions_only,
 		opt_not_regions, opt_edit_header, opt_add_alns, opt_rmdup,
-		opt_duct_tape, opt_merge, opt_join, opt_mega_merge, opt_concat,
+		opt_duct_tape, opt_merge, opt_join, opt_concat,
 		opt_output, opt_output_text, opt_output_sam, opt_output_glz,
 		opt_output_3aln, opt_output_fasta, opt_output_fastq,
 		opt_output_table, opt_output_wiggle, opt_stats, opt_version,
@@ -421,7 +415,6 @@ WRAPPED_MAIN
 		{ mk_duct_tape,        0, 0,            desc_duct_tape },
 		{ 0, mk_merge,            0,                desc_merge },
 		{ 0, mk_join,             0,                 desc_join },
-		{ 0, mk_mega_merge,       0,           desc_mega_merge },
 		{ 0, mk_concat,           0,               desc_concat },
 		{ 0, 0, mk_output,                         desc_output },
 		{ 0, 0, mk_output_text,               desc_output_text },
@@ -459,7 +452,6 @@ WRAPPED_MAIN
 		{ "concat",        'c', POPT_ARG_NONE,   0, opt_concat,        "concatenate streams", 0 },
 		{ "merge",         'm', POPT_ARG_NONE,   0, opt_merge,         "merge sorted streams", 0 },
 		{ "join",          'j', POPT_ARG_NONE,   0, opt_join,          "join streams and retain best hits", 0 },
-		{ "mega-merge",     0 , POPT_ARG_NONE,   0, opt_mega_merge,    "merge many streams, e.g. from grid jobs", 0 },
 		{ "rmdup",         'd', POPT_ARG_INT,    0, opt_rmdup,         "remove PCR duplicates, clamp Q-scores to Q", "Q" },
 		{ "add-alns",       0 , POPT_ARG_INT,    0, opt_add_alns,      "add alignments with N nt of context", "N" },
 		{ "output",        'o', POPT_ARG_STRING, 0, opt_output,        "write native stream to file FILE", "FILE" },
@@ -629,7 +621,9 @@ WRAPPED_MAIN
 			for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
 			{
 				Holder< Compose > c( new Compose ) ;
-				c->add_stream( make_input_stream( *arg ) ) ;
+				c->add_stream( 
+						strcmp( *arg, "-" ) ? new UniversalReader( *arg )
+						: new UniversalReader( "<stdin>", new FileInputStream(0) ) ) ;
 				for( FilterStack::const_iterator i = filters_initial.begin() ; i != filters_initial.end() ; ++i )
 					c->add_stream( (i->maker)( *i ) ) ;
 				cs.push_back( c ) ;
@@ -637,7 +631,7 @@ WRAPPED_MAIN
 			for( vector< Holder< Compose > >::const_iterator i = cs.begin(), ie = cs.end() ; i != ie ; ++i )
 				merging_stream->add_stream( *i ) ;
 		}
-		else merging_stream->add_stream( make_input_stream( dup( 0 ), "<stdin>" ) ) ;
+		else merging_stream->add_stream( new UniversalReader( "<stdin>", new FileInputStream(0) ) ) ;
 
 		FanOut out ;
 		for( FilterStacks::const_iterator i = filters_terminal.begin() ; i != filters_terminal.end() ; ++i )

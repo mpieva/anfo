@@ -961,31 +961,22 @@ void RmdupStream::call_consensus()
 	}
 }
 
-void ConcatStream::add_stream( StreamHolder s )
+Stream::state ConcatStream::get_state()
 {
-	merge_sensibly( hdr_, s->fetch_header() ) ;
-	if( s->get_state() == have_output )
+	for(;;)
 	{
-		streams_.push_back( s ) ;
-		state_ = have_output ;
-	}
-	else
-	{
-		if( state_ == invalid ) state_ = end_of_stream ;
-		merge_sensibly( foot_, s->fetch_footer() ) ;
-	}
-}
-
-Result ConcatStream::fetch_result()
-{
-	Result r = streams_[0]->fetch_result() ;
-	if( streams_[0]->get_state() != have_output )
-	{
+		if( streams_.empty() ) return end_of_stream ;
+		if( streams_[0]->get_state() == have_output ) return have_output ;
 		merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
 		streams_.pop_front() ;
 	}
-	if( streams_.empty() ) state_ = end_of_stream ;
-	return r ;
+}
+
+Header ConcatStream::fetch_header()
+{
+	for( size_t i = 0 ; i != streams_.size() ; ++i )
+		merge_sensibly( hdr_, streams_[i]->fetch_header() ) ;
+	return hdr_ ;
 }
 
 bool QualFilter::xform( Result& r )
@@ -1021,7 +1012,7 @@ namespace {
 			}
 
 		public:
-			StreamWithProgress( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name, int64_t total )
+			StreamWithProgress( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, int64_t total )
 				: is_( is ), name_( basename( name ) ), total_( total ), read_( 0 ) {}
 
 			virtual bool Next( const void **data, int *size ) { return check( is_->Next( data, size ) ) ; }
@@ -1032,7 +1023,7 @@ namespace {
 
 	} ;
 
-	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name, bool solexa_scores, char origin )
+	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin )
 	{
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
@@ -1064,28 +1055,20 @@ namespace {
 	}
 } ;
 
-
-StreamHolder make_input_stream( const char *name, bool solexa_scores, char origin )
+Header UniversalReader::fetch_header() 
 {
-	return name && *name && strcmp( name, "-" ) 
-		? make_input_stream( throw_errno_if_minus1(
-				open( name, O_RDONLY ), "opening ", name ), name, solexa_scores, origin ) 
-		: make_input_stream( dup( 0 ), "<stdin>", solexa_scores, origin ) ;
-}
+	if( !is_.get() ) {
+		int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening ", name_.c_str() ) ;
+		std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
+		s->SetCloseOnDelete( true ) ;
+		struct stat st ;
+		if( fstat( fd, &st ) ) is_ = s ;
+		else is_.reset( new StreamWithProgress( 
+					std::auto_ptr<google::protobuf::io::ZeroCopyInputStream>(s), name_, st.st_size ) ) ;
+	}
 
-StreamHolder make_input_stream( int fd, const char *name, bool solexa_scores, char origin )
-{
-	struct stat st ;
-	std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
-	s->SetCloseOnDelete( true ) ;
-	return make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream >(s), name, fstat( fd, &st ) ? -1 : st.st_size, solexa_scores, origin ) ;
-}
-
-StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char *name,
-		int64_t total, bool solexa_scores, char origin )
-{
-	std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > s( new StreamWithProgress( is, name, total ) ) ;
-	return make_input_stream_( s, name, solexa_scores, origin ) ;
+	str_ = make_input_stream_( is_, name_, solexa_scores_, origin_ ) ;
+	return str_->fetch_header() ;
 }
 
 uint8_t SffReader::read_uint8()

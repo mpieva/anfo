@@ -72,7 +72,7 @@ WRAPPED_MAIN
 		else 
 		{
 			config::Config conf ;
-			Holder< streams::Stream > af( streams::make_input_stream( argv[argi] ) ) ;
+			Holder< streams::Stream > af( new streams::UniversalReader( argv[argi] ) ) ;
 			try {
 				conf = af->fetch_header().config() ;
 				if( conf.has_aligner() )

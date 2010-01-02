@@ -157,13 +157,16 @@ StreamHolder obj_to_stream( Object o, bool sol = false , int ori = 33 )
 
 		case T_Symbol:
 		case T_String:
-			return make_input_stream( object_to_string(o).c_str(), sol, ori ) ;
+			return new UniversalReader( object_to_string(o), 0, sol, ori ) ;
+			// return make_input_stream( object_to_string(o).c_str(), sol, ori ) ;
 
 		case T_Fixnum:
-			return make_input_stream( Get_Integer(o), "<pipe>", sol, ori ) ;
+			return new UniversalReader( "<pipe>", new FileInputStream( Get_Integer(o) ), sol, ori ) ;
+			// return make_input_stream( Get_Integer(o), "<pipe>", sol, ori ) ;
 
 		case T_Boolean:
-			if( !Truep(o) ) return make_input_stream( 0, "<stdin>", sol, ori ) ;
+			// if( !Truep(o) ) return make_input_stream( 0, "<stdin>", sol, ori ) ;
+			if( !Truep(o) ) return new UniversalReader( "<stdin>", new FileInputStream(0), sol, ori ) ;
 
 		default:
 			throw "can't handle file argument" ;
@@ -292,9 +295,9 @@ WRAP( p_outside_region, ( Object f ), (f) ) { return wrap_stream( new OutsideReg
 // Mergers  (I'll drop the unholy mega-merge here, that's far better
 // scripted in Scheme)
 
-WRAP( p_merge, (  int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new MergeStream,   argc, argv ) ; }
-WRAP( p_join, (   int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new BestHitStream, argc, argv ) ; }
-WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,  argc, argv ) ; }
+WRAP( p_merge, (  int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new MergeStream,    argc, argv ) ; }
+WRAP( p_join, (   int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new NearSortedJoin, argc, argv ) ; }
+WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,   argc, argv ) ; }
 
 // Composition
 

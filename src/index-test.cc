@@ -83,7 +83,7 @@ WRAPPED_MAIN
 	unsigned total_seeded = 0, total_failures = 0 ;
 	while( const char* arg = poptGetArg( pc ) ) 
 	{
-		Holder< streams::Stream > inp( streams::make_input_stream( arg ) ) ;
+		Holder< streams::Stream > inp( new streams::UniversalReader( arg ) ) ;
 		while( inp->get_state() == streams::Stream::have_output )
 		{
 			QSequence ps ;
