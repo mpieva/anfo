@@ -169,7 +169,9 @@ StreamHolder obj_to_stream( Object o, bool sol = false , int ori = 33 )
 			if( !Truep(o) ) return new UniversalReader( "<stdin>", new FileInputStream(0), sol, ori ) ;
 
 		default:
-			throw "can't handle file argument" ;
+            stringstream ss ;
+			ss << "can't handle file(?) argument of type " << TYPE(o) ;
+            throw ss.str() ;
 	}
 }
 
@@ -319,10 +321,9 @@ WRAP( p_anfo_run, ( int argc, Object *argv ), (argc,argv) )
 	GC_Node ;
 	Object in_summary = inp->get_summary() ;
 	GC_Link( in_summary ) ;
-	Object out_summary = out.get_summary() ;
-	Object r = Cons( in_summary, out_summary ) ;
+	in_summary = Cons( in_summary, out.get_summary() ) ;
 	GC_Unlink ;
-	return r ;
+	return in_summary ;
 }
 
 //! \brief stream composition.
@@ -358,7 +359,6 @@ Object p_version() { return Make_String( PACKAGE_VERSION, strlen(PACKAGE_VERSION
 
 // init code
 
-void elk_finit_libanfo() {}
 void elk_init_libanfo() 
 {
 	t_stream = Define_Type( 0, "anfo-stream", 
@@ -419,6 +419,12 @@ void elk_init_libanfo()
 
 	// part of the aforementioned workaround
 	pthread_once( &anfo_elk_once_control, anfo_elk_init_routine ) ;
+}
+
+void elk_finit_libanfo()
+{
+    // must make sure d'tors run, even if the GC refuses to do so.
+    Terminate_Type( t_stream ) ;
 }
 
 } // extern C

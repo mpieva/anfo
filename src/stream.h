@@ -353,13 +353,12 @@ class UniversalReader : public Stream
 				google::protobuf::io::ZeroCopyInputStream* is = 0,
 				bool solexa_scores = false,
 				int origin = 33 
-				)
-			: is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin ) {}
+				) ;
 
 		virtual Header fetch_header() ;
 
 		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
-		virtual Result fetch_result() { return str_->fetch_result() ; }
+		virtual Result fetch_result() { if( get_state() == have_output ) return str_->fetch_result() ; throw "calling sequence violated" ; }
 		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
 #if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return str_->get_summary() ; }
@@ -727,13 +726,9 @@ class RmdupStream : public Stream
 //! redundant information), then the results are simply concatenated.
 class ConcatStream : public StreamBundle
 {
-	private:
-		std::deque< output::Result > rs_ ;
-
 	public:
-		virtual state get_state() ;
 		virtual Header fetch_header() ;
-		virtual Result fetch_result() { return streams_[0]->fetch_result() ; }
+		virtual Result fetch_result() ;
 } ;
 
 class FastqReader : public Stream

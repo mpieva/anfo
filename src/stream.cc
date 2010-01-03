@@ -961,22 +961,46 @@ void RmdupStream::call_consensus()
 	}
 }
 
-Stream::state ConcatStream::get_state()
-{
-	for(;;)
-	{
-		if( streams_.empty() ) return end_of_stream ;
-		if( streams_[0]->get_state() == have_output ) return have_output ;
-		merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
-		streams_.pop_front() ;
-	}
-}
-
+//! \todo Tends to return the header from the first input stream, but
+//! will accumulate further headers (and throw them away).  This is
+//! necessary, because we cannot look ahead to further headers.  Clearly
+//! a better solution would be great, but doesn't readily present
+//! itself.  Could adding arbitrary header information to the footer
+//! work?
 Header ConcatStream::fetch_header()
 {
-	for( size_t i = 0 ; i != streams_.size() ; ++i )
-		merge_sensibly( hdr_, streams_[i]->fetch_header() ) ;
+	for( state_ = invalid ; state_ == invalid ; )
+	{
+		if( streams_.empty() ) state_ = end_of_stream ;
+        else {
+            merge_sensibly( hdr_, streams_[0]->fetch_header() ) ;
+            if( streams_[0]->get_state() == have_output ) state_ = have_output ;
+            else 
+            {
+                merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
+                streams_.pop_front() ;
+            }
+        }
+	}
 	return hdr_ ;
+}
+
+Result ConcatStream::fetch_result()
+{
+    Result r = streams_[0]->fetch_result() ;
+	for( state_ = invalid ; state_ == invalid ; )
+	{
+		if( streams_.empty() ) state_ = end_of_stream ;
+        else if( streams_[0]->get_state() == have_output ) state_ = have_output ;
+        else 
+        {
+            merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
+            streams_.pop_front() ;
+            if( !streams_.empty() ) 
+                merge_sensibly( hdr_, streams_[0]->fetch_header() ) ;
+        }
+	}
+    return r ;
 }
 
 bool QualFilter::xform( Result& r )
@@ -1054,6 +1078,19 @@ namespace {
 		else return new FastqReader( is, solexa_scores, origin ) ;
 	}
 } ;
+
+UniversalReader::UniversalReader(
+				const std::string& name,
+				google::protobuf::io::ZeroCopyInputStream* is,
+				bool solexa_scores,
+				int origin
+				)
+    : is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin )
+{
+    // we cannot open the file just yet, but we can check if it is there
+    if( !is_.get() ) 
+        throw_errno_if_minus1( access( name_.c_str(), R_OK ), "accessing ", name_.c_str() ) ;
+}
 
 Header UniversalReader::fetch_header() 
 {

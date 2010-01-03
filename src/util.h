@@ -248,7 +248,7 @@ class Console
 		void more_verbose() { loglevel = loglevel > debug ? Loglevel(loglevel-1) : debug ; }
 } ;
 
-extern Console console ;
+extern Console &console ;
 extern std::string program_name ;
 
 template <typename T> void perr(const T& e)

@@ -340,6 +340,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 	Chan progress ;
 	int k = 0 ;
 	Holder<Stream> anfo_file( new UniversalReader( fn ) ) ;
+    anfo_file->fetch_header() ;
 
 	vector<SnpRec*>::iterator first_snp = mt.begin() ; // first SNP that hasn't been processed completely
 	while( anfo_file->get_state() == Stream::have_output && first_snp != mt.end() )

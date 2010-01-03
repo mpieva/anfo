@@ -260,6 +260,7 @@ WRAPPED_MAIN
 				files.front() == "-" 
 				? new streams::UniversalReader( "<stdin>", new FileInputStream(0), solexa_scale, fastq_origin )
 				: new streams::UniversalReader( files.front(), 0, solexa_scale, fastq_origin ) ) ;
+        inp->fetch_header() ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 			common_data.input_queue.enqueue( new output::Result( inp->fetch_result() ) ) ;

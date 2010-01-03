@@ -143,6 +143,7 @@ WRAPPED_MAIN
 	{
 		streams::StreamHolder inp(
 				new streams::UniversalReader( files.front(), 0, solexa_scale, fastq_origin ) ) ;
+        inp->fetch_header() ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{

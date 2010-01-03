@@ -101,7 +101,7 @@ Result MergeStream::fetch_result()
 Header NearSortedJoin::fetch_header()
 {
 	state_ = end_of_stream ;
-	for( size_t i = 0 ; i != streams_.size() ; ++i )
+	for( size_t i = 0 ; i != streams_.size() ; )
 	{
 		merge_sensibly( hdr_, streams_[i]->fetch_header() ) ;
 		++nstreams_ ;

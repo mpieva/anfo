@@ -84,6 +84,7 @@ WRAPPED_MAIN
 	while( const char* arg = poptGetArg( pc ) ) 
 	{
 		Holder< streams::Stream > inp( new streams::UniversalReader( arg ) ) ;
+		inp->fetch_header() ;
 		while( inp->get_state() == streams::Stream::have_output )
 		{
 			QSequence ps ;
