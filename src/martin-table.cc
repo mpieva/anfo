@@ -162,7 +162,9 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 		stringstream ss( line ) ;
 		ss >> hsa_base >> hsa_chr >> hsa_strand_code >> r.hsa.pos
 		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr.pos
-		   >> r.out_base >> flags ;
+		   >> r.out_base ;
+		if( !ss ) throw "parse error in line " + line ;
+		if( !( ss >> flags ) ) flags.clear() ;
 
 		r.hsa.chr = lookup_sym( hsa_chr ) ;
 		r.ptr.chr = lookup_sym( ptr_chr ) ;
@@ -210,7 +212,9 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 		stringstream ss( line ) ;
 		ss >> type >> hsa_chr >> hsa_strand_code >> r.hsa.pos >> hsa_end
 		   >> ptr_chr >> ptr_strand_code >> r.ptr.pos >> ptr_end 
-		   >> r.sequence >> flags ;
+		   >> r.sequence ;
+		if( !ss ) throw "parse error in line " + line ;
+		if( !( ss >> flags ) ) flags.clear() ;
 
 		r.hsa.chr = lookup_sym( hsa_chr ) ;
 		r.ptr.chr = lookup_sym( ptr_chr ) ;
