@@ -77,35 +77,63 @@ struct SnpRec {
 
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
 
+vector<string> split( char c, const string& s )
+{
+	vector<string> r ;
+	string cur ;
+	for( size_t i = 0 ; i != s.size() ; ++i )
+	{
+		if( s[i] == c ) 
+		{
+			r.push_back(cur) ;
+			cur.clear() ;
+		}
+		else
+			cur.push_back( s[i] ) ;
+	}
+	if( r.size() || cur.size() ) r.push_back(cur) ;
+	return r ;
+}
+
+string join( char c, const vector<string>& v )
+{
+	string r ;
+	if( !v.empty() ) {
+		r.append( v[0] ) ;
+		for( size_t i = 1 ; i != v.size() ; ++i )
+		{
+			r.push_back(c) ;
+			r.append( v[i] ) ;
+		}
+	}
+	return r ;
+}
+
 void decode_flags( const string& f, SnpRec& r )
 {
-	r.more_flags.clear() ;
 	r.hsa.gap_near_flag = 0 ;
 	r.ptr.gap_near_flag = 0 ;
 	r.hsa.edge_near_flag = 0 ;
 	r.ptr.edge_near_flag = 0 ;
 
-	for( size_t i = 0 ; i != f.size() ; )
+	vector<string> v = split(':', f ) ;
+	for( size_t i = 0 ; i != v.size() ; )
 	{
-		if( i+1 != f.size() && f[i] == 'G' && f[i+1] == 'C' )
+		if( v[i] == "GC" )
 		{
 			r.hsa.gap_near_flag = 1 ;
 			r.ptr.gap_near_flag = 1 ;
-			i+=2 ;
-			if( i != f.size() && f[i] == ':' ) ++i ;
+			v.erase( v.begin() + i ) ;
 		}
-		else if( i+1 != f.size() && f[i] == 'E' && f[i+1] == 'C' )
+		else if( v[i] == "EC" ) 
 		{
 			r.hsa.edge_near_flag = 1 ;
 			r.ptr.edge_near_flag = 1 ;
-			i+=2 ;
-			if( i != f.size() && f[i] == ':' ) ++i ;
+			v.erase( v.begin() + i ) ;
 		}
-		else {
-			r.more_flags.push_back( f[i] ) ;
-			++i ;
-		}
+		else ++i ;
 	}
+	r.more_flags = join( ':', v ) ;
 }
 
 template< typename C > istream& read_martin_table_snp( istream& s, C& d, const char* fn )
@@ -249,10 +277,10 @@ inline string encode_flags( const SnpRec& r )
 {
 	bool g = r.hsa.gap_near_flag || r.ptr.gap_near_flag ;
 	bool e = r.hsa.edge_near_flag || r.ptr.edge_near_flag ;
-	string f = r.more_flags ;
-	if( g ) f.append( f.empty() ? "GC" : ":GC" ) ;
-	if( e ) f.append( f.empty() ? "EC" : ":EC" ) ;
-	return f ;
+	vector<string> v = split( ':', r.more_flags ) ;
+	if( g ) v.push_back( "GC" ) ;
+	if( e ) v.push_back( "EC" ) ;
+	return join( ':', v ) ;
 }
 
 template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
