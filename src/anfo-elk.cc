@@ -323,6 +323,7 @@ WRAP( p_anfo_run, ( int argc, Object *argv ), (argc,argv) )
 	GC_Link( in_summary ) ;
 	in_summary = Cons( in_summary, out.get_summary() ) ;
 	GC_Unlink ;
+	console.cleanup() ;
 	return in_summary ;
 }
 

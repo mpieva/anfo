@@ -509,9 +509,12 @@ void DivergenceStream::put_result( const Result& r )
 		}
 
 
-		while( pri_qry != pri_qry_end ) {
-			while( pri_qry != pri_qry_end && !good( *pri_qry ) ) ++pri_qry, ++pri_ref ;
-			while( sec_qry != sec_qry_end && !good( *sec_qry ) ) ++sec_qry, ++sec_ref ;
+		for(;;)
+		{
+			while( pri_qry != pri_qry_end && *pri_qry == '-' ) ++pri_qry, ++pri_ref ;
+			while( sec_qry != sec_qry_end && *sec_qry == '-' ) ++sec_qry, ++sec_ref ;
+			if( pri_qry == pri_qry_end ) break ;
+			if( sec_qry == sec_qry_end ) break ;
 
 			char p = *pri_ref, s = *sec_ref, q = *pri_qry ;
 			if( q != *sec_qry ) throw "disagreement in alignments (or ugly bug)" ;
@@ -525,8 +528,8 @@ void DivergenceStream::put_result( const Result& r )
 			}
 
 			++pri_ref ;
-			++sec_ref ;
 			++pri_qry ;
+			++sec_ref ;
 			++sec_qry ;
 		}
 	}
