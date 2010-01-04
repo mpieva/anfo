@@ -588,6 +588,7 @@ void sanitize( Read& rd )
 	if( rd.has_quality() && rd.quality().length() != l ) rd.clear_quality() ;
 	if( rd.has_trim_right() && rd.trim_right() > l ) rd.clear_trim_right() ;
 	if( rd.trim_left() > l ) rd.clear_trim_left() ;
+    if( rd.has_description() && rd.description().empty() ) rd.clear_description() ;
 }
 
 //! \brief merges two hits by keeping the better one
@@ -1088,14 +1089,13 @@ UniversalReader::UniversalReader(
     : is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin )
 {
     // we cannot open the file just yet, but we can check if it is there
-    if( !is_.get() ) 
-        throw_errno_if_minus1( access( name_.c_str(), R_OK ), "accessing ", name_.c_str() ) ;
+    if( !is_.get() ) throw_errno_if_minus1( access( name_.c_str(), R_OK ), "accessing ", name_.c_str() ) ;
 }
 
 Header UniversalReader::fetch_header() 
 {
 	if( !is_.get() ) {
-		int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening ", name_.c_str() ) ;
+		int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening (UniversalReader) ", name_.c_str() ) ;
 		std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
 		s->SetCloseOnDelete( true ) ;
 		struct stat st ;

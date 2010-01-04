@@ -280,7 +280,6 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 		transfer( sa, out ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
-	// enqueue_stream( make_input_stream( fd, tempname ), 1 ) ;
 	google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
 	is->SetCloseOnDelete( true ) ;
 	enqueue_stream( new UniversalReader( tempname, is ), 1 ) ;
@@ -292,8 +291,6 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 
 template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::StreamHolder s, int level ) 
 {
-	Header h = s->fetch_header() ;
-	assert( comp_.is_sorted( h ) ) ;
 	mergeable_queues_[ level ].push_back( s ) ;
 
 	if( AnfoReader::num_open_files() > max_que_size_ ) {
@@ -329,7 +326,6 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 				transfer( ms, out ) ;
 			}
 			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
-			// enqueue_stream( make_input_stream( fd, fname.c_str() ), max_bin + 1 ) ;
 			google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
 			is->SetCloseOnDelete( true ) ;
 			enqueue_stream( new UniversalReader( fname, is ), max_bin + 1 ) ;

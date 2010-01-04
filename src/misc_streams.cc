@@ -94,6 +94,7 @@ Result MergeStream::fetch_result()
 				if( rs_.empty() ) state_ = end_of_stream ;
 			}
 		}
+        else ++i ;
 	}
 	return res ;
 }

@@ -355,9 +355,8 @@ class UniversalReader : public Stream
 				int origin = 33 
 				) ;
 
-		virtual Header fetch_header() ;
-
 		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
+		virtual Header fetch_header() ;
 		virtual Result fetch_result() { if( get_state() == have_output ) return str_->fetch_result() ; throw "calling sequence violated" ; }
 		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
 #if HAVE_ELK_SCHEME_H
