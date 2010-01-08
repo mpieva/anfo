@@ -29,6 +29,7 @@ extern "C" {
 #include <google/protobuf/repeated_field.h>
 
 #include <algorithm>
+#include <numeric>
 #include <set>
 
 #if HAVE_FCNTL_H
@@ -752,7 +753,19 @@ bool ScoreFilter::keep( const Hit& h )
 bool MapqFilter::keep( const Hit& h )
 { return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
 
-bool LengthFilter::xform( Result& r ) {
+bool QualFilter::xform( Result& h )
+{
+	const Read& r = h.read() ;
+	return r.has_quality() && accumulate(
+			r.quality().begin(),
+			r.quality().end(),
+			static_cast<int>( 0 ),
+			plus<int>() ) 
+		>= r.quality().size() * minqual_ ;
+}
+
+bool LengthFilter::xform( Result& r )
+{
 	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
 	if( r.hit_size() && len < minlength_ ) r.clear_hit() ;
 	return true ;
@@ -1004,7 +1017,7 @@ Result ConcatStream::fetch_result()
     return r ;
 }
 
-bool QualFilter::xform( Result& r )
+bool QualMasker::xform( Result& r )
 {
 	if( r.read().has_quality() ) 
 		for( size_t i = 0 ; i != r.read().sequence().size() && i != r.read().quality().size() ; ++i )

@@ -558,8 +558,9 @@ Object DivergenceStream::get_summary() const
 	bb = Cons( bb, Null ) ;
 	bb = Cons( Cons( Make_StringL( "raw-div" ), Make_Flonum( 2.0*b4 / (b2+b4) )), bb ) ;
 	
+	double e = 0 ;
 	if( int64_t d1 = 3*b1 - b2 + 3*b3 - b4 - b5 ) {
-		double e = ( 3 * b3 - 3 * b4 ) / (double)d1 ;
+		e = ( 3 * b3 - 3 * b4 ) / (double)d1 ;
 		double d = 4*e - 3 ;
 
 		double a2, a4 ;
@@ -578,6 +579,7 @@ Object DivergenceStream::get_summary() const
 	aa = Cons( Make_StringL( "corrected-counts" ), aa ) ;
 	aa = Cons( aa, bb ) ;
 	aa = Cons( Cons( Make_StringL( "corrected-div" ), cd ), aa ) ;
+	aa = Cons( Cons( Make_StringL( "error-rate" ), Make_Flonum( e ) ), aa ) ;
 
 	GC_Unlink ;
 	return aa ;

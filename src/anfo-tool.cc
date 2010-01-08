@@ -212,9 +212,15 @@ void desc_require_hit( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_filter_qual( const ParamBlock& p )
-{ return new QualFilter( parse_int( p.arg ) ) ; }
+{ return new QualFilter( parse_float( p.arg ) ) ; }
 
 void desc_filter_qual( ostream& ss, const ParamBlock& p )
+{ ss << "remove reads with avg. quality below " << parse_float( p.arg ) ; }
+
+Stream* mk_mask_qual( const ParamBlock& p )
+{ return new QualMasker( parse_int( p.arg ) ) ; }
+
+void desc_mask_qual( ostream& ss, const ParamBlock& p )
 { ss << "mask bases with quality below " << parse_int( p.arg ) ; }
 
 Stream* mk_filter_multi( const ParamBlock& p )
@@ -384,8 +390,8 @@ WRAPPED_MAIN
 	enum {
 		opt_none, opt_sort_pos, opt_sort_name, opt_filter_length,
 		opt_filter_score, opt_filter_mapq, opt_filter_hit,
-		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_subsample,
-		opt_sanitize, opt_filter_multi, opt_regions_only,
+		opt_delete_hit, opt_require_hit, opt_filter_qual, opt_mask_qual,
+		opt_subsample, opt_sanitize, opt_filter_multi, opt_regions_only,
 		opt_not_regions, opt_edit_header, opt_add_alns, opt_rmdup,
 		opt_duct_tape, opt_merge, opt_join, opt_concat,
 		opt_output, opt_output_text, opt_output_sam, opt_output_glz,
@@ -404,6 +410,7 @@ WRAPPED_MAIN
 		{ mk_delete_hit,       0, 0,           desc_delete_hit },
 		{ mk_require_hit,      0, 0,          desc_require_hit },
 		{ mk_filter_qual,      0, 0,          desc_filter_qual },
+		{ mk_mask_qual,        0, 0,            desc_mask_qual },
 		{ mk_subsample,        0, 0,            desc_subsample },
 		{ mk_sanitize,         0, 0,             desc_sanitize },
 		{ mk_filter_multi,     0, 0,         desc_filter_multi },
@@ -442,7 +449,8 @@ WRAPPED_MAIN
 		{ "only-genome",    0 , POPT_ARG_NONE,   0, opt_filter_hit,    "keep only hits (in G/anywhere) to SEQ/anything", "SEQ" },
 		{ "delete-hit",     0 , POPT_ARG_STRING, 0, opt_delete_hit,    "delete hits (in G/anywhere) to SEQ/anything", "SEQ" },
 		{ "require-hit",    0 , POPT_ARG_STRING, 0, opt_require_hit,   "delete records without a hit (in G/anywhere) to SEQ/anything", "SEQ" },
-		{ "filter-qual",    0 , POPT_ARG_INT,    0, opt_filter_qual,   "delete bases with quality below Q", "Q" },
+		{ "filter-qual",    0 , POPT_ARG_FLOAT,  0, opt_filter_qual,   "delete reads with avg. quality below Q", "Q" },
+		{ "mask-qual",      0 , POPT_ARG_INT,    0, opt_mask_qual,     "delete bases with quality below Q", "Q" },
 		{ "subsample",      0,  POPT_ARG_FLOAT,  0, opt_subsample,     "subsample a fraction F of the results", "F" },
 		{ "sanitize",       0 , POPT_ARG_NONE,   0, opt_sanitize,      "remove debugging information", 0 },
 		{ "multiplicity",   0 , POPT_ARG_INT,    0, opt_filter_multi,  "keep reads with multiplicity above N", "N" },

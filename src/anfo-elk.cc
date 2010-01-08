@@ -271,6 +271,12 @@ WRAP( p_sort_by_name, ( Object mem, Object handles ), (mem,handles) )
 WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
 { return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
 
+WRAP( p_filter_by_qual, ( Object qual ), (qual) )
+{ return wrap_stream( new QualFilter( Get_Double( qual ) ) ) ; }
+
+WRAP( p_mask_by_qual, ( Object qual ), (qual) )
+{ return wrap_stream( new QualMasker( Get_Integer( qual ) ) ) ; }
+
 WRAP( p_filter_by_mapq, ( Object mapq, Object genomes ), (mapq,genomes) )
 { return wrap_stream( new MapqFilter( obj_to_genomes( genomes ), Get_Integer( mapq ) ) ) ; }
 
@@ -393,6 +399,8 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_filter_by_len,    "filter-length",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;  // wrap?
 	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_filter_by_qual, 	 "filter-qual",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_mask_by_qual,     "mask-qual",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;
 	Define_Primitive( (P)p_subsample,        "subsample",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_sanitize,         "sanitize",            0, 0, EVAL ) ;

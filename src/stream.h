@@ -555,6 +555,17 @@ class MapqFilter : public HitFilter
 		virtual bool keep( const Hit& ) ;
 } ;
 
+//! \brief filter for some average quality
+class QualFilter : public Filter
+{
+	private:
+		double minqual_ ; ;
+
+	public:
+		QualFilter( double q ) : minqual_(q) {}
+		virtual bool xform( Result& ) ;
+} ;
+
 //! \brief stream that filters for minimum sequence length
 //! All alignments of sequences that are too short are deleted, relying
 //! on down stream filters to completely get rid of the sequences
@@ -623,14 +634,15 @@ class MultiFilter : public Filter
 //! (Originally I used gap symbols, which doesn't make sense and
 //! actually confused the legacy tool downstream.  Ns should be fine and
 //! are actually the correct symbol in a certain sense.)
-//! suppress the counting of low quality bases.
-class QualFilter : public Filter
+//! This suppresses the counting of low quality bases in whatever
+//! follows downstream.
+class QualMasker : public Filter
 {
 	private:
 		int q_ ;
 
 	public:
-		QualFilter( int q ) : q_(q) {}
+		QualMasker( int q ) : q_(q) {}
 		virtual bool xform( Result& ) ;
 } ;
 
