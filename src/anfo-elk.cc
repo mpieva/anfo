@@ -309,28 +309,32 @@ WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams(
 // Composition
 
 //! \brief top-level ELK call.
-//! Gets one input stream and many output streams, copies between them.
-//! Might one day extract a tree of results and return it, but for now
-//! returns the final exit code (just like anfo-tool).
-WRAP( p_anfo_run, ( int argc, Object *argv ), (argc,argv) )
+//! Gets exactly one input stream and one output stream, transfers
+//! between them.  Returns results extracted from them.
+WRAP( p_anfo_run, ( Object inpo, Object outo ), (inpo,outo) )
 {
-	StreamHolder inp = obj_to_stream( argv[0] ) ;
-	FanOut out ;
-	for( Object *o = argv+1 ; o != argv+argc ; ++o )
-		out.add_stream( obj_to_stream( *o ) ) ;
+	StreamHolder inp = obj_to_stream( inpo ) ;
+	StreamHolder out = obj_to_stream( outo ) ;
 
-	out.put_header( inp->fetch_header() ) ;
-	while( inp->get_state() == Stream::have_output && out.get_state() == Stream::need_input )
-		out.put_result( inp->fetch_result() ) ;
-	out.put_footer( inp->fetch_footer() ) ;
+	out->put_header( inp->fetch_header() ) ;
+	while( inp->get_state() == Stream::have_output && out->get_state() == Stream::need_input )
+		out->put_result( inp->fetch_result() ) ;
+	out->put_footer( inp->fetch_footer() ) ;
 
-	GC_Node ;
-	Object in_summary = inp->get_summary() ;
-	GC_Link( in_summary ) ;
-	in_summary = Cons( in_summary, out.get_summary() ) ;
-	GC_Unlink ;
+	Object summary = Cons( inp->get_summary() , out->get_summary() ) ;
 	console.cleanup() ;
-	return in_summary ;
+	return summary ;
+}
+
+//! \brief output stream replication
+//! Gets many streams as argument, bundles them up so they all receive
+//! the same input.
+WRAP( p_tee, ( int argc, Object *argv ), (argc,argv) )
+{
+	Holder< FanOut > f( new FanOut ) ;
+	for( Object *o = argv ; o != argv+argc ; ++o )
+		f->add_stream( obj_to_stream( *o ) ) ;
+	return wrap_stream( f ) ;
 }
 
 //! \brief stream composition.
@@ -419,7 +423,8 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_join,             "join",                1, MANY, VARARGS ) ; 
 	Define_Primitive( (P)p_concat,           "concat",              1, MANY, VARARGS ) ; 
 
-	Define_Primitive( (P)p_anfo_run,         "anfo-run",            2, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_anfo_run,         "anfo-run",            2, 2, EVAL ) ;
+	Define_Primitive( (P)p_tee,              "tee",                 1, MANY, VARARGS ) ;
 	Define_Primitive( (P)p_chain,            "chain", 	            1, MANY, VARARGS ) ;
 
 	// not exactly Anfo, but damn practical
