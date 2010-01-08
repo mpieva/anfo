@@ -76,7 +76,9 @@ struct SnpRec {
 } ;
 
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
+inline char compl_ascii( char x ) { return from_ambicode( complement( to_ambicode( x ) ) ) ; }
 
+/*
 vector<string> split( char c, const string& s )
 {
 	vector<string> r ;
@@ -108,6 +110,7 @@ string join( char c, const vector<string>& v )
 	}
 	return r ;
 }
+*/
 
 void decode_flags( const string& f, SnpRec& r )
 {
@@ -115,25 +118,7 @@ void decode_flags( const string& f, SnpRec& r )
 	r.ptr.gap_near_flag = 0 ;
 	r.hsa.edge_near_flag = 0 ;
 	r.ptr.edge_near_flag = 0 ;
-
-	vector<string> v = split(':', f ) ;
-	for( size_t i = 0 ; i != v.size() ; )
-	{
-		if( v[i] == "GC" )
-		{
-			r.hsa.gap_near_flag = 1 ;
-			r.ptr.gap_near_flag = 1 ;
-			v.erase( v.begin() + i ) ;
-		}
-		else if( v[i] == "EC" ) 
-		{
-			r.hsa.edge_near_flag = 1 ;
-			r.ptr.edge_near_flag = 1 ;
-			v.erase( v.begin() + i ) ;
-		}
-		else ++i ;
-	}
-	r.more_flags = join( ':', v ) ;
+	r.more_flags = f ; 
 }
 
 template< typename C > istream& read_martin_table_snp( istream& s, C& d, const char* fn )
@@ -273,18 +258,26 @@ inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
 }
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
 {
-	return r.seen == 1
-		? s << '\t' << '"' << r.nt_bases << '"' << '\t' << r.nt_qual
-	    : s << "\tn/a\tn/a" ;
+	if( r.seen == 1 ) 
+	{
+		s << '\t' << '"' ;
+		if( r.strand ) s << r.nt_bases ;
+		else transform( r.nt_bases.rbegin(), r.nt_bases.rend(), ostream_iterator<char>( s ), compl_ascii ) ;
+		s << '"' << '\t' ;
+		if( r.strand ) s << r.nt_qual ;
+		else copy( r.nt_qual.rbegin(), r.nt_qual.rend(), ostream_iterator<char>( s ) ) ;
+	}
+	else s << "\tn/a\tn/a" ;
+	return s ;
 }
 inline string encode_flags( const SnpRec& r )
 {
 	bool g = r.hsa.gap_near_flag || r.ptr.gap_near_flag ;
 	bool e = r.hsa.edge_near_flag || r.ptr.edge_near_flag ;
-	vector<string> v = split( ':', r.more_flags ) ;
-	if( g ) v.push_back( "GC" ) ;
-	if( e ) v.push_back( "EC" ) ;
-	return join( ':', v ) ;
+	string s = r.more_flags ;
+	if( g ) { if( !s.empty() ) s.push_back( ':' ) ; s.append( "GN" ) ; }
+	if( e ) { if( !s.empty() ) s.push_back( ':' ) ; s.append( "EC" ) ; }
+	return s ;
 }
 
 template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
