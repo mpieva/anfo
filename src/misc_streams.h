@@ -441,6 +441,7 @@ class DivergenceStream : public Stream
 	private:
 		string primary_genome_, secondary_genome_ ;
 		int chop_ ;
+        bool ancient_ ;
 		int64_t b1, b2, b3, b4, b5 ;
 
 	public:
@@ -448,6 +449,7 @@ class DivergenceStream : public Stream
 			: primary_genome_( primary ), secondary_genome_( secondary ), chop_( chop )
 			, b1(0), b2(0), b3(0), b4(0), b5(0) {}
 
+		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 #if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;

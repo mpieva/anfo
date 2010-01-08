@@ -467,6 +467,25 @@ bool Sanitizer::xform( Result& r )
 
 inline static bool good( char x ) { return x == 'A' || x == 'C' || x == 'G' || x == 'T' ; }
 
+// Excludes transitions that may have been confounded by deamination.
+// Idea is the same as in contamination checker: "If you see a C you can
+// trust that you see a C."  (Excluding all transitions doesn't change
+// the results.)
+inline static bool fine( char x, char y, char z )
+{
+    if( x == 'C' && y == 'T' && z == 'T' ) return false ;
+    if( x == 'T' && y == 'T' && z == 'C' ) return false ;
+    if( x == 'G' && y == 'A' && z == 'A' ) return false ;
+    if( x == 'A' && y == 'A' && z == 'G' ) return false ;
+    return true ;
+}
+
+void DivergenceStream::put_header( const Header& h )
+{
+    Stream::put_header( h ) ;
+    ancient_ = h.config().has_aligner() && h.config().aligner().has_mean_overhang_length() ;
+}
+
 void DivergenceStream::put_result( const Result& r ) 
 {
 	const Hit *pri = hit_to( r, primary_genome_ ) ;
@@ -519,7 +538,7 @@ void DivergenceStream::put_result( const Result& r )
 			char p = *pri_ref, s = *sec_ref, q = *pri_qry ;
 			if( q != *sec_qry ) throw "disagreement in alignments (or ugly bug)" ;
 
-			if( good(p) && good(s) && good(q) ) {
+			if( good(p) && good(s) && good(q) && (!ancient_ || fine(p,q,s)) ) {
 				if( q == p && q == s ) ++b1 ;
 				else if( q == p && q != s ) ++b2 ;
 				else if( q != s && p == s ) ++b3 ;
