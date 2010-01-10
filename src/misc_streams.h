@@ -394,7 +394,7 @@ class Compose : public StreamBundle
 		virtual state get_state() ;
 
 		virtual void put_header( const Header&   ) ;
-		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; }
+		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; get_state() ; }
 		virtual void put_footer( const Footer& f ) { streams_.front()->put_footer( f ) ; get_state() ; }
 
 		virtual Header fetch_header() ;
