@@ -605,5 +605,62 @@ Object DivergenceStream::get_summary() const
 }
 #endif
 
+
+AgreesWithChain::AgreesWithChain( const string& l, const string& r, istream* s ) 
+	: left_genome_( l ), right_genome_( r ), map_()
+{
+	string line, key, tName, qName, tStrand, qStrand ;
+	int score, tSize, tStart, tEnd, qSize, qStart, qEnd ;
+	while( getline( *s, line ) ) 
+	{
+		stringstream ss( line ) ;
+		// read a line, assuming (and then checking) that it is a chain
+		// header
+		if( ss >> key >> score >> tName >> tSize >> tStrand >> tStart
+				>> tEnd >> qName >> qSize >> qStrand >> qStart >> qEnd 
+				&& key == "chain" )
+		{
+			Entry& e = map_[ tName ][ tStart+1 ] ;
+			e.left_length = tEnd - tStart ;
+			e.right_start = qStart + 1 ;
+			e.right_length = qEnd - qStart ;
+			e.strand = (qStrand == "+") != (tStrand == "+") ;
+			e.right_chr = qName ;
+		}
+	}
+	delete s ;
+}
+
+bool AgreesWithChain::xform( Result& r ) 
+{
+	const Hit* left_hit = hit_to( r, left_genome_ ) ;
+	const Hit* right_hit = hit_to( r, right_genome_ ) ;
+	if( !left_hit || !right_hit ) return false ;
+
+	// find map entry that spans left_hit...
+	Map1::const_iterator i1 = map_.find( left_hit->sequence() ) ;
+	if( i1 == map_.end() ) return false ;
+
+	// left_hit inside any interval on left genome?
+	const Map2& map2 = i1->second ;
+	Map2::const_iterator i2 = map2.upper_bound( left_hit->start_pos() ) ;
+	if( i2 == map2.begin() ) return false ;
+	const Entry& e = (--i2)->second ;
+	if( left_hit->start_pos() + abs(left_hit->aln_length())
+			> i2->first + e.left_length )
+		return false ;
+
+	// right hit inside same interval?
+	// (note: currently, anywhere in the interval is fine; this should
+	// be made somewhat more precise)
+	if( right_hit->start_pos() < e.right_start ) return false ;
+	if( right_hit->start_pos() + abs( right_hit->aln_length() )
+			> e.right_start + e.right_length ) return false ;
+	if( ((right_hit->aln_length() < 0) != (left_hit->aln_length() < 0))
+			!= e.strand ) return false ;
+	return true ;
+}
+
+
 } ; // namespace
 

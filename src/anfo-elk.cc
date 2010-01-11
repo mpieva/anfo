@@ -274,6 +274,9 @@ WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,le
 WRAP( p_filter_by_qual, ( Object qual ), (qual) )
 { return wrap_stream( new QualFilter( Get_Double( qual ) ) ) ; }
 
+WRAP( p_filter_chain, ( Object left, Object right, Object file ), (left,right,file) )
+{ return wrap_stream( new AgreesWithChain( object_to_string(left), object_to_string(right), open_any_input_std( file ).first ) ) ; }
+
 WRAP( p_mask_by_qual, ( Object qual ), (qual) )
 { return wrap_stream( new QualMasker( Get_Integer( qual ) ) ) ; }
 
@@ -406,6 +409,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_filter_by_qual, 	 "filter-qual",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_mask_by_qual,     "mask-qual",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_chain, 	 "filter-chain",        3, 3, EVAL ) ;	// wrap?
 	Define_Primitive( (P)p_subsample,        "subsample",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_sanitize,         "sanitize",            0, 0, EVAL ) ;
 	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;

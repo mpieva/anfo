@@ -469,6 +469,38 @@ class MismatchStats : public Stream
 #endif
 } ;
 
+//! \brief checks for hits to homologous regions
+//! This filter reads a UCSC Chain file and stores the "homologous"
+//! ranges.  A record passes the filter iff it has hits to both genomes
+//! that make up the chain and both hits are inside the two regions of
+//! the same chain.  This should be equivalent to the "traditional"
+//! sequence of two liftovers and check for agreement.
+//!
+//! \todo I swear, one of those days I'll implement a symbol table for
+//!       those repeated chromosome names.
+class AgreesWithChain : public Filter
+{
+	private:
+		string left_genome_, right_genome_ ;
+
+		struct Entry {
+			unsigned left_length ;
+			unsigned right_start ;
+			unsigned right_length : 31 ;
+			unsigned strand : 1 ;
+			string right_chr ;
+		} ;
+
+		typedef map< int, Entry > Map2 ;	// right_start
+		typedef map< string, Map2 > Map1 ;	// right_chr
+
+		Map1 map_ ;
+
+	public:
+		AgreesWithChain( const string& l, const string& r, istream* s ) ;
+		virtual bool xform( Result& ) ;
+} ;
+
 class RegionFilter : public HitFilter
 {
 	private:
