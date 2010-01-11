@@ -78,40 +78,6 @@ struct SnpRec {
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
 inline char compl_ascii( char x ) { return from_ambicode( complement( to_ambicode( x ) ) ) ; }
 
-/*
-vector<string> split( char c, const string& s )
-{
-	vector<string> r ;
-	string cur ;
-	for( size_t i = 0 ; i != s.size() ; ++i )
-	{
-		if( s[i] == c ) 
-		{
-			r.push_back(cur) ;
-			cur.clear() ;
-		}
-		else
-			cur.push_back( s[i] ) ;
-	}
-	if( r.size() || cur.size() ) r.push_back(cur) ;
-	return r ;
-}
-
-string join( char c, const vector<string>& v )
-{
-	string r ;
-	if( !v.empty() ) {
-		r.append( v[0] ) ;
-		for( size_t i = 1 ; i != v.size() ; ++i )
-		{
-			r.push_back(c) ;
-			r.append( v[i] ) ;
-		}
-	}
-	return r ;
-}
-*/
-
 void decode_flags( const string& f, SnpRec& r )
 {
 	r.hsa.gap_near_flag = 0 ;
@@ -461,9 +427,10 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 						default:
 							break ;
 					}
-					else switch( op )
+					// no direct hit, but might be close by.  Set gap flag?
+					else if( snp.pos + gap_buffer <= ref_pos &&
+							ref_pos <= snp.pos + snp.length + gap_buffer ) switch( op )
 					{
-						// no direct hit, but close by.  Set gap flag?
 						case Hit::Delete:
 						case Hit::Insert:
 							snp.gap_near_flag = 1 ;
