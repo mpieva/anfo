@@ -609,8 +609,8 @@ Object DivergenceStream::get_summary() const
 AgreesWithChain::AgreesWithChain( const string& l, const string& r, istream* s ) 
 	: left_genome_( l ), right_genome_( r ), map_()
 {
-	string line, key, tName, qName, tStrand, qStrand ;
-	int score, tSize, tStart, tEnd, qSize, qStart, qEnd ;
+	string line, score, key, tName, qName, tStrand, qStrand ;
+	unsigned tSize, tStart, tEnd, qSize, qStart, qEnd ;
 	while( getline( *s, line ) ) 
 	{
 		stringstream ss( line ) ;
@@ -620,10 +620,16 @@ AgreesWithChain::AgreesWithChain( const string& l, const string& r, istream* s )
 				>> tEnd >> qName >> qSize >> qStrand >> qStart >> qEnd 
 				&& key == "chain" )
 		{
-			Entry& e = map_[ tName ][ tStart+1 ] ;
-			e.left_length = tEnd - tStart ;
+			Chains& chains = map_[ tName ] ;
+			Chains::iterator i = find_any_most_specific_overlap( tStart, tEnd, &chains ) ;
+
+			// got an overlapping chain?  it better be enclosing!
+			assert( i == chains.end() || ( i->first <= tStart && i->second.left_end >= tEnd ) ) ;
+			Entry &e = ( i == chains.end() ? chains : i->second.nested )[ tStart ] ;
+
+			e.left_end = tEnd ;
 			e.right_start = qStart + 1 ;
-			e.right_length = qEnd - qStart ;
+			e.right_end = qEnd ;
 			e.strand = (qStrand == "+") != (tStrand == "+") ;
 			e.right_chr = qName ;
 		}
@@ -631,33 +637,62 @@ AgreesWithChain::AgreesWithChain( const string& l, const string& r, istream* s )
 	delete s ;
 }
 
+
+AgreesWithChain::Chains::iterator AgreesWithChain::find_any_most_specific_overlap( 
+		unsigned start, unsigned end, Chains *chains )
+{
+	Chains::iterator best = chains->end() ;
+	for(;;)
+	{
+		// first chain that starts at or to the right of end (this one
+		// doesn't overlap, but the one _before_ it might)
+		Chains::iterator i = chains->lower_bound( end ) ;
+		if( i == chains->begin() ) return best ;
+
+		Entry* e = &(--i)->second ;
+		// no overlap? return parent.
+		if( start < e->left_end && i->first < end ) return best ;
+
+		// continue with nested chains, making current entry the best
+		best = i ;
+		chains = &e->nested ;
+	}
+}
+
+// Idea is to find the most specific chain that overlaps a read, then
+// make sure the read is contained in it.
 bool AgreesWithChain::xform( Result& r ) 
 {
-	const Hit* left_hit = hit_to( r, left_genome_ ) ;
-	const Hit* right_hit = hit_to( r, right_genome_ ) ;
-	if( !left_hit || !right_hit ) return false ;
+	const Hit* lh = hit_to( r, left_genome_ ) ;
+	const Hit* rh = hit_to( r, right_genome_ ) ;
+	if( !lh || !rh ) return false ;
 
-	// find map entry that spans left_hit...
-	Map1::const_iterator i1 = map_.find( left_hit->sequence() ) ;
+	// find chain hierarchy for correct chromosome
+	Map1::iterator i1 = map_.find( lh->sequence() ) ;
 	if( i1 == map_.end() ) return false ;
 
-	// left_hit inside any interval on left genome?
-	const Map2& map2 = i1->second ;
-	Map2::const_iterator i2 = map2.upper_bound( left_hit->start_pos() ) ;
-	if( i2 == map2.begin() ) return false ;
-	const Entry& e = (--i2)->second ;
-	if( left_hit->start_pos() + abs(left_hit->aln_length())
-			> i2->first + e.left_length )
-		return false ;
+	// find most specific chain that overlaps left hit
+	Chains::iterator i2 = find_any_most_specific_overlap( 
+			lh->start_pos(),
+			lh->start_pos() + abs(lh->aln_length()),
+			&i1->second ) ;
+	if( i2 == i1->second.end() ) return false ;
+	
+	// check if found chain contains both hits
+	if(
+			lh->start_pos() < i2->second.left_start ||
+			lh->start_pos() + abs( lh->aln_length() ) > i2->second.left_end ||
+			rh->start_pos() < i2->second.right_start ||
+			rh->start_pos() + abs( rh->aln_length() ) > i2->second.right_end ||
+			rh->sequence() != i2->second.right_chr 
+	  ) return false ;
 
-	// right hit inside same interval?
-	// (note: currently, anywhere in the interval is fine; this should
-	// be made somewhat more precise)
-	if( right_hit->start_pos() < e.right_start ) return false ;
-	if( right_hit->start_pos() + abs( right_hit->aln_length() )
-			> e.right_start + e.right_length ) return false ;
-	if( ((right_hit->aln_length() < 0) != (left_hit->aln_length() < 0))
-			!= e.strand ) return false ;
+	// check strand
+	if( ((rh->aln_length() < 0) != (lh->aln_length() < 0)) != i2->second.strand ) return false ;
+
+	// Now both hits are covered by a single, most specific chain.
+	// (Note: currently, hitting anywhere in the chain is fine; this
+	// should probably be made somewhat more precise)
 	return true ;
 }
 

@@ -4,6 +4,7 @@
 #include "stream.h"
 
 #include <deque>
+#include <map>
 
 namespace streams {
 
@@ -483,19 +484,27 @@ class AgreesWithChain : public Filter
 	private:
 		string left_genome_, right_genome_ ;
 
+		struct Entry ;
+		typedef map< unsigned, Entry > Chains ;	// =^= left_start
+		typedef map< string, Chains > Map1 ;	// =^= left_chr
+
+		// Chains have a hierarchical structure: below any chain, there
+		// can be a collection of more.  We have one such top-level
+		// collection per chromosome.
 		struct Entry {
-			unsigned left_length ;
+			unsigned left_start ;
+			unsigned left_end ;
 			unsigned right_start ;
-			unsigned right_length : 31 ;
+			unsigned right_end : 31 ;
 			unsigned strand : 1 ;
 			string right_chr ;
+			Chains nested ;
 		} ;
-
-		typedef map< int, Entry > Map2 ;	// right_start
-		typedef map< string, Map2 > Map1 ;	// right_chr
 
 		Map1 map_ ;
 
+		static Chains::iterator find_any_most_specific_overlap( 
+				unsigned start, unsigned end, Chains *chains ) ;
 	public:
 		AgreesWithChain( const string& l, const string& r, istream* s ) ;
 		virtual bool xform( Result& ) ;
