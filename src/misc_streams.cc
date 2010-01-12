@@ -606,12 +606,13 @@ Object DivergenceStream::get_summary() const
 #endif
 
 
-AgreesWithChain::AgreesWithChain( const string& l, const string& r, istream* s ) 
+AgreesWithChain::AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& p ) 
 	: left_genome_( l ), right_genome_( r ), map_()
 {
+    console.output( Console::notice, "reading " + p.second ) ;
 	string line, score, key, tName, qName, tStrand, qStrand ;
-	unsigned tSize, tStart, tEnd, qSize, qStart, qEnd ;
-	while( getline( *s, line ) ) 
+	unsigned tSize, tStart, tEnd, qSize, qStart, qEnd, sum = 0 ;
+	while( getline( *p.first, line ) ) 
 	{
 		stringstream ss( line ) ;
 		// read a line, assuming (and then checking) that it is a chain
@@ -624,17 +625,29 @@ AgreesWithChain::AgreesWithChain( const string& l, const string& r, istream* s )
 			Chains::iterator i = find_any_most_specific_overlap( tStart, tEnd, &chains ) ;
 
 			// got an overlapping chain?  it better be enclosing!
-			assert( i == chains.end() || ( i->first <= tStart && i->second.left_end >= tEnd ) ) ;
+			if( i != chains.end() && ( i->first > tStart || i->second.left_end < tEnd ) )
+            {
+                stringstream ss ;
+                ss << "Chain on " << tName << " doesn't nest properly.  Parent: "
+                    << i->first << ".." << i->second.left_end
+                    << ", nest:" << tStart << ".." << tEnd ;
+                console.output( Console::warning, ss.str() ) ;
+            }
+                
 			Entry &e = ( i == chains.end() ? chains : i->second.nested )[ tStart ] ;
 
 			e.left_end = tEnd ;
-			e.right_start = qStart + 1 ;
+			e.right_start = qStart ;
 			e.right_end = qEnd ;
-			e.strand = (qStrand == "+") != (tStrand == "+") ;
 			e.right_chr = qName ;
+			e.strand = (qStrand == "+") != (tStrand == "+") ;
+            ++sum ;
 		}
 	}
-	delete s ;
+	delete p.first ;
+    stringstream ss ;
+    ss << sum << " chains" ;
+    console.output( Console::notice, ss.str() ) ;
 }
 
 
@@ -651,7 +664,7 @@ AgreesWithChain::Chains::iterator AgreesWithChain::find_any_most_specific_overla
 
 		Entry* e = &(--i)->second ;
 		// no overlap? return parent.
-		if( start < e->left_end && i->first < end ) return best ;
+		if( start >= e->left_end || i->first >= end ) return best ;
 
 		// continue with nested chains, making current entry the best
 		best = i ;
@@ -669,7 +682,10 @@ bool AgreesWithChain::xform( Result& r )
 
 	// find chain hierarchy for correct chromosome
 	Map1::iterator i1 = map_.find( lh->sequence() ) ;
-	if( i1 == map_.end() ) return false ;
+	if( i1 == map_.end() ) {
+        cerr << "chromosome not found" << endl ;
+        return false ;
+    }
 
 	// find most specific chain that overlaps left hit
 	Chains::iterator i2 = find_any_most_specific_overlap( 
@@ -680,7 +696,7 @@ bool AgreesWithChain::xform( Result& r )
 	
 	// check if found chain contains both hits
 	if(
-			lh->start_pos() < i2->second.left_start ||
+			lh->start_pos() < i2->first ||
 			lh->start_pos() + abs( lh->aln_length() ) > i2->second.left_end ||
 			rh->start_pos() < i2->second.right_start ||
 			rh->start_pos() + abs( rh->aln_length() ) > i2->second.right_end ||

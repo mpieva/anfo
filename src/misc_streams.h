@@ -492,7 +492,6 @@ class AgreesWithChain : public Filter
 		// can be a collection of more.  We have one such top-level
 		// collection per chromosome.
 		struct Entry {
-			unsigned left_start ;
 			unsigned left_end ;
 			unsigned right_start ;
 			unsigned right_end : 31 ;
@@ -506,7 +505,7 @@ class AgreesWithChain : public Filter
 		static Chains::iterator find_any_most_specific_overlap( 
 				unsigned start, unsigned end, Chains *chains ) ;
 	public:
-		AgreesWithChain( const string& l, const string& r, istream* s ) ;
+		AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& s ) ;
 		virtual bool xform( Result& ) ;
 } ;
 

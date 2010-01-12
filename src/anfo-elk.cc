@@ -275,7 +275,7 @@ WRAP( p_filter_by_qual, ( Object qual ), (qual) )
 { return wrap_stream( new QualFilter( Get_Double( qual ) ) ) ; }
 
 WRAP( p_filter_chain, ( Object left, Object right, Object file ), (left,right,file) )
-{ return wrap_stream( new AgreesWithChain( object_to_string(left), object_to_string(right), open_any_input_std( file ).first ) ) ; }
+{ return wrap_stream( new AgreesWithChain( object_to_string(left), object_to_string(right), open_any_input_std( file ) ) ) ; }
 
 WRAP( p_mask_by_qual, ( Object qual ), (qual) )
 { return wrap_stream( new QualMasker( Get_Integer( qual ) ) ) ; }
