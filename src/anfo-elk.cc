@@ -43,6 +43,7 @@
 #include <iostream>
 
 #include <glob.h>
+#include <sys/resource.h>
 
 // Somewhat silly workaround for linking problems: protobuf needs
 // pthread, but doesn't automtically link it; we don't need it, and Elk
@@ -71,7 +72,20 @@ struct StreamWrapper {
 
 extern "C" Object terminate_stream( Object o )
 {
-	((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
+	StreamWrapper* s = (StreamWrapper*)POINTER(o) ;
+	if( s->h_ ) {
+		Printf( Curr_Output_Port, "BUG: stream freed by GC\n" ) ;
+		((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
+	}
+	Deregister_Object( o ) ;
+	return Void ;
+}
+
+extern "C" Object p_delete_stream( Object o ) 
+{
+	StreamWrapper* s = (StreamWrapper*)POINTER(o) ;
+	if( !s->h_ ) Primitive_Error( "BUG: double deletion of stream" ) ;
+	StreamHolder().swap( s->h_ ) ;
 	Deregister_Object( o ) ;
 	return Void ;
 }
@@ -370,6 +384,13 @@ WRAP( p_glob, ( Object path ), (path) )
 }
 
 Object p_version() { return Make_String( PACKAGE_VERSION, strlen(PACKAGE_VERSION) ) ; }
+Object p_limit_core( Object amt ) { 
+	struct rlimit lim ;
+	getrlimit( RLIMIT_AS, &lim ) ;
+	lim.rlim_cur = 1024*1024 * Get_Integer( amt ) ;
+	setrlimit( RLIMIT_AS, &lim ) ;
+	return Void ;
+}
 
 // init code
 
@@ -383,53 +404,56 @@ void elk_init_libanfo()
 
 	Define_Primitive( (P)p_is_stream,        "anfo-stream?",        1, 1, EVAL ) ;
 	Define_Primitive( (P)p_set_verbosity,    "set-verbosity!",      1, 1, EVAL ) ;
-	Define_Primitive( (P)p_use_mmap,         "use-mmap",            1, 1, EVAL ) ;
+	Define_Primitive( (P)p_use_mmap,         "use-mmap!",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_limit_core,       "limit-core!",         1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_read_file,        "read-file",           3, 3, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_write_native,     "write-native",        2, 2, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_write_text,       "write-text",          1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_sam,        "write-sam",           1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_glz,        "write-glz",           1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_3aln,       "write-three-aln",     1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_fastq,      "write-fastq",         1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_table,      "write-table",         1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_fasta,      "write-fasta",         1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_wig,        "write-wiggle",        1, 1, EVAL ) ;
+	Define_Primitive( (P)p_read_file,        "prim-read-file",      3, 3, EVAL ) ;
+	Define_Primitive( (P)p_write_native,     "prim-write-native",   2, 2, EVAL ) ;
+	Define_Primitive( (P)p_write_text,       "prim-write-text",     1, 1, EVAL ) ; 
+	Define_Primitive( (P)p_write_sam,        "prim-write-sam",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_glz,        "prim-write-glz",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_3aln,       "prim-write-threealn", 1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_fastq,      "prim-write-fastq",    1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_table,      "prim-write-table",    1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_fasta,      "prim-write-fasta",    1, 1, EVAL ) ;
+	Define_Primitive( (P)p_write_wig,        "prim-write-wiggle",   1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_rmdup,            "rmdup",               3, 3, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
-	Define_Primitive( (P)p_divergence,       "divergence",          3, 3, EVAL ) ;
-	Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
+	Define_Primitive( (P)p_rmdup,            "prim-rmdup",          3, 3, EVAL ) ;
 
-	Define_Primitive( (P)p_filter_by_len,    "filter-length",       1, 1, EVAL ) ;
-	Define_Primitive( (P)p_filter_by_score,  "filter-score",        3, 3, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_filter_by_mapq,   "filter-mapq",         2, 2, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_filter_by_qual, 	 "filter-qual",         1, 1, EVAL ) ;
-	Define_Primitive( (P)p_mask_by_qual,     "mask-qual",           1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_len,    "prim-filter-length",  1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_qual, 	 "prim-filter-qual",    1, 1, EVAL ) ;
+	Define_Primitive( (P)p_mask_by_qual,     "prim-mask-qual",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;
-	Define_Primitive( (P)p_filter_chain, 	 "filter-chain",        3, 3, EVAL ) ;	// wrap?
-	Define_Primitive( (P)p_subsample,        "subsample",           1, 1, EVAL ) ;
-	Define_Primitive( (P)p_sanitize,         "sanitize",            0, 0, EVAL ) ;
+	Define_Primitive( (P)p_subsample,        "prim-subsample",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_sanitize,         "prim-sanitize",       0, 0, EVAL ) ;
 	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;
-	Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;  // redesign?
-	Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;  // redesign?
+	Define_Primitive( (P)p_filter_by_score,  "prim-filter-score",   3, 3, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_mapq,   "prim-filter-mapq",    2, 2, EVAL ) ;
+	// Define_Primitive( (P)p_filter_chain, 	 "filter-chain",        3, 3, EVAL ) ;	// wrap?
+	// Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;  // redesign?
+	// Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_require_best_hit, "prim-require-bht",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_require_hit,      "prim-require-hit",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_ignore_hit,       "prim-ignore-hit",     2, 2, EVAL ) ;
-	Define_Primitive( (P)p_only_genome,		 "only-genome",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_only_genome,		 "prim-only-genomes",   1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_sort_by_pos,      "sort-pos",            3, 3, EVAL ) ;  // wrap?
-	Define_Primitive( (P)p_sort_by_name,     "sort-name",           3, 3, EVAL ) ;  // wrap?
+	Define_Primitive( (P)p_sort_by_pos,      "prim-sort-pos",       3, 3, EVAL ) ;
+	Define_Primitive( (P)p_sort_by_name,     "prim-sort-name",      3, 3, EVAL ) ;
 
-	Define_Primitive( (P)p_merge,            "merge",               1, MANY, VARARGS ) ; 
-	Define_Primitive( (P)p_join,             "join",                1, MANY, VARARGS ) ; 
-	Define_Primitive( (P)p_concat,           "concat",              1, MANY, VARARGS ) ; 
+	// Define_Primitive( (P)p_merge,            "merge",               1, MANY, VARARGS ) ; 
+	// Define_Primitive( (P)p_join,             "join",                1, MANY, VARARGS ) ; 
+	// Define_Primitive( (P)p_concat,           "concat",              1, MANY, VARARGS ) ; 
 
-	Define_Primitive( (P)p_anfo_run,         "anfo-run",            2, 2, EVAL ) ;
-	Define_Primitive( (P)p_tee,              "tee",                 1, MANY, VARARGS ) ;
-	Define_Primitive( (P)p_chain,            "chain", 	            1, MANY, VARARGS ) ;
+	// Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
+	// Define_Primitive( (P)p_divergence,       "divergence",          3, 3, EVAL ) ;
+	// Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
+
+	Define_Primitive( (P)p_delete_stream,    "prim-delete-stream",  1, 1, EVAL ) ;
+	Define_Primitive( (P)p_anfo_run,         "prim-anfo-run",       2, 2, EVAL ) ;
+	Define_Primitive( (P)p_tee,              "prim-tee",            1, MANY, VARARGS ) ;
+	Define_Primitive( (P)p_chain,            "prim-chain", 	        1, MANY, VARARGS ) ;
 
 	// not exactly Anfo, but damn practical
 	Define_Primitive( (P)p_glob,             "glob",                1, 1, EVAL ) ;
@@ -441,7 +465,7 @@ void elk_init_libanfo()
 
 void elk_finit_libanfo()
 {
-    // must make sure d'tors run, even if the GC refuses to do so.
+    // force GC to run d'tors, makes sure nothing was forgotten
     Terminate_Type( t_stream ) ;
 }
 

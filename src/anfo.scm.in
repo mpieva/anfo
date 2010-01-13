@@ -3,45 +3,179 @@
 ; Loads the Anfo library and provides a few wrappers/ convenience
 ; functions.
 
+(require 'srfi-89)
+
 (load "__LIBDIR__/libanfo.la")
+
+(define *default-compression* 99)
+(define *default-origin* 33)
+(define *default-solexa-scale* #f)
+(define *default-mem-limit* 512)
+(define *default-handles-limit* 128)
 
 ; sets sensible verbosity, but also makes sure that libanfo was actually loaded
 (set-verbosity! 'warning)
 
-(define (require-hit . args)
- (cond
-  ((null? args) (prim-require-hit '() '()))
-  ((null? (cdr args)) (prim-require-hit (car args) '()))
-  (else (apply prim-require-hit args))))
+; invokes continuation on stream, extracts a result, frees the stream
+; The stream is always freed, even on non-local exit.  The result is
+; only extracted in the normal control flow.
+(define (bracket-stream stream)
+  (lambda (cont)
+    (dynamic-wind
+      (lambda () #f)
+      (lambda () (cont stream))
+      (lambda () (prim-delete-stream stream)))))
 
-(define (require-bht . args)
- (cond
-  ((null? args) (prim-require-bht '() '()))
-  ((null? (cdr args)) (prim-require-bht (car args) '()))
-  (else (apply prim-require-bht args))))
+(define solexa: 'solexa:)
+(define origin: 'origin:)
+(define compress: 'compress:)
+(define label: 'label:)
+(define context: 'context:)
+(define score: 'score:)
+(define intercept: 'intercept:)
+(define genomes: 'genomes:)
+(define sequences: 'sequences:)
+(define num: 'num:)
+(define editor: 'editor:)
+(define compress: 'compress:)
 
-(define (ignore-hit . args)
- (cond
-  ((null? (cdr args)) (prim-ignore-hit (car args) '()))
-  (else (apply prim-ignore-hit args))))
+(define (write-text     file) (bracket-stream (prim-write-text     file)))
+(define (write-sam      file) (bracket-stream (prim-write-sam      file)))
+(define (write-glz      file) (bracket-stream (prim-write-glz      file)))
+(define (write-threealn file) (bracket-stream (prim-write-threealn file)))
+(define (write-fastq    file) (bracket-stream (prim-write-fastq    file)))
+(define (write-fasta    file) (bracket-stream (prim-write-fasta    file)))
+(define (write-table    file) (bracket-stream (prim-write-table    file)))
+(define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
 
-(define (filter-multiplicity . args)
- (cond
-  ((null? args) (prim-filter-multi 2))
-  (else (apply prim-filter-multi args))))
+(define*
+  (duct-tape (label: lbl "contig"))
+  (bracket-stream (prim-duct-tape lbl)))
 
-(define (edit-header . args)
- (cond
-  ((not (null? args)) (prim-edit-header . args))
-  (else (prim-edit-header #f))))
+(define* 
+  (add-alns (context: ctx 0))
+  (bracket-stream (prim-add-alns ctx)))
 
-(define (duct-tape . args)
- (cond
-  ((null? args) (prim-duct-tape #f))
-  (else (apply prim-duct-tape args))))
+(define*
+  (read-file in 
+	     (solexa: sol *default-solexa-scale*)
+	     (origin: ori *default-origin*))
+  (bracket-stream (prim-read-file in sol ori)))
 
-(define (add-alns . args)
- (cond
-  ((null? args) (prim-add-alns 0))
-  (else (apply prim-add-alns args))))
+(define (filter-length len) (bracket-stream (prim-filter-length len)))
+(define (filter-qual qual) (bracket-stream (prim-filter-qual qual)))
+(define (mask-qual qual) (bracket-stream (prim-mask-qual qual)))
+(define (subsample rate) (bracket-stream (prim-subsample rate)))
+(define (sanitize) (bracket-stream (prim-sanitize)))
 
+(define*
+  (filter-multi (num: num 2)) 
+  (bracket-stream (prim-filter-multi num)))
+
+(define*
+  (edit-header (editor: editor #f))
+  (bracket-stream (prim-edit-header editor)))
+
+(define*
+  (filter-score (slope: slope 7.5)
+		(intercept: intercept 20)
+		(genomes: genomes '()))
+  (bracket-stream (prim-filter-score slope intercept genomes)))
+
+(define*
+  (filter-mapq mapq (genomes '()))
+  (bracket-stream (prim-filter-mapq mapq genomes)))
+
+(define*
+  (require-best-hit (genomes: g '()) (sequences: s '()))
+  (bracket-stream (prim-require-bht g s)))
+
+(define*
+  (require-hit (genomes: g '()) (sequences: s '()))
+  (bracket-stream (prim-require-hit g s)))
+
+(define*
+  (ignore-hit (genomes: g '()) (sequences: s '()))
+  (bracket-stream (prim-ignore-hit g s)))
+
+(define*
+  (only-genomes (genomes '()))
+  (bracket-stream (prim-only-genomes g)))
+
+(define*
+  (sort-pos genomes 
+	    (mem: m *default-mem-limit*) 
+	    (handles: h *default-handles-limit*))
+  (bracket-stream (prim-sort-pos m h genomes)))
+
+(define*
+  (sort-name (mem: m *default-mem-limit*) 
+	     (handles: h *default-handles-limit*))
+  (bracket-stream (prim-sort-name m h)))
+
+(define*
+  (rmdup (slope: slope 7.5)
+	 (intercept: inter 20)
+	 (quality: qual 40))
+  (bracket-stream (prim-rmdup slope intercept qual)))
+
+
+
+(define*
+  (write-file out
+	      (compress: comp *default-compression*))
+  (bracket-stream (prim-write-native out comp)))
+
+; Run a continuation with a stream described by 'in'.  Ensures cleanup
+; and sensible extraction of a result.
+(define (anfo-with-input in)
+  (cond
+    ((procedure? in) in)
+    (else (bracket-stream (prim-read-file in *default-solexa-scale* *default-origin*)))))
+
+(define (anfo-with-output out)
+  (display out)
+  (cond
+    ((procedure? out) out)
+    ((string? out) (bracket-stream (prim-write-native out *default-compression*)))
+    (else (error 'anfo-with-output "object does not denote an output stream: ~s" out))))
+
+(define (anfo-with-many-inputs args cont)
+  (cond
+    ((null? args) cont)
+    (else (anfo-with-input
+	    (car args) 
+	    (lambda (in)
+	      (anfo-with-many-inputs
+		(cdr args)
+		(lambda (ins)
+		  cont (cons in ins))))))))
+
+(define (anfo-with-many-outputs args cont)
+  (cond ((null? args) cont)
+	(else ((anfo-with-output (car args))
+	       (lambda (out)
+		 (anfo-with-many-outputs (cdr args)
+		   (lambda (outs)
+		     cont (cons out outs))))))))
+
+(define (tee . args)
+  (anfo-with-many-outputs 
+    args
+    (lambda (outs)
+      (bracket-stream (apply prim-tee outs)))))
+
+(define (chain . args)
+  (lambda (cont)
+    (anfo-with-many-outputs args
+      (lambda (outs)
+	((bracket-stream (apply prim-chain outs)) cont)))))
+
+(define (anfo-run in out)
+  ((anfo-with-input in)
+    (lambda (in-stream)
+      ((anfo-with-output out)
+	(lambda (out-stream)
+	  (prim-anfo-run in-stream out-stream))))))
+
+(provide 'anfo)

@@ -29,8 +29,7 @@
 volatile int exit_with = 0 ;
 std::string program_name ;
 
-// never freed; Elk unfortunately calls destructors in the wrong order.
-Console &console = *new Console ;
+Console console ;
 
 int wrap_main( int argc, const char * argv[], int (*main_)( int, const char *[] ) )
 {
