@@ -1,17 +1,19 @@
 ; ELK extension for Anfo
 ;
-; Loads the Anfo library and provides a few wrappers/ convenience
-; functions.
+; Loads the Anfo library and provides a wrappers/ convenience functions.
+; TODO:  decide whether output streams should return anything.
+;        bind missing "calculating" streams.
+;        take the returning of results out of the C code (mostly...)
 
 (require 'srfi-89)
 
 (load "__LIBDIR__/libanfo.la")
 
-(define *default-compression* 99)
-(define *default-origin* 33)
-(define *default-solexa-scale* #f)
-(define *default-mem-limit* 512)
+(define *default-compression*    99)
 (define *default-handles-limit* 128)
+(define *default-mem-limit*     512)
+(define *default-origin*         33)
+(define *default-solexa-scale*   #f)
 
 ; sets sensible verbosity, but also makes sure that libanfo was actually loaded
 (set-verbosity! 'warning)
@@ -26,26 +28,28 @@
       (lambda () (cont stream))
       (lambda () (prim-delete-stream stream)))))
 
-(define solexa: 'solexa:)
-(define origin: 'origin:)
-(define compress: 'compress:)
-(define label: 'label:)
-(define context: 'context:)
-(define score: 'score:)
+(define compress:  'compress:)
+(define context:   'context:)
+(define editor:    'editor:)
+(define genomes:   'genomes:)
+(define handles:   'handles:)
 (define intercept: 'intercept:)
-(define genomes: 'genomes:)
+(define label:     'label:)
+(define mem:       'mem:)
+(define num:       'num:)
+(define origin:    'origin:)
+(define quality:   'quality:)
+(define score:     'score:)
 (define sequences: 'sequences:)
-(define num: 'num:)
-(define editor: 'editor:)
-(define compress: 'compress:)
+(define solexa:    'solexa:)
 
-(define (write-text     file) (bracket-stream (prim-write-text     file)))
-(define (write-sam      file) (bracket-stream (prim-write-sam      file)))
-(define (write-glz      file) (bracket-stream (prim-write-glz      file)))
-(define (write-threealn file) (bracket-stream (prim-write-threealn file)))
-(define (write-fastq    file) (bracket-stream (prim-write-fastq    file)))
 (define (write-fasta    file) (bracket-stream (prim-write-fasta    file)))
+(define (write-fastq    file) (bracket-stream (prim-write-fastq    file)))
+(define (write-glz      file) (bracket-stream (prim-write-glz      file)))
+(define (write-sam      file) (bracket-stream (prim-write-sam      file)))
 (define (write-table    file) (bracket-stream (prim-write-table    file)))
+(define (write-text     file) (bracket-stream (prim-write-text     file)))
+(define (write-threealn file) (bracket-stream (prim-write-threealn file)))
 (define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
 
 (define*
@@ -62,11 +66,14 @@
 	     (origin: ori *default-origin*))
   (bracket-stream (prim-read-file in sol ori)))
 
+(define (filter-chain left right file) (bracket-stream (prim-filter-chain left right file)))
 (define (filter-length len) (bracket-stream (prim-filter-length len)))
 (define (filter-qual qual) (bracket-stream (prim-filter-qual qual)))
+(define (inside-region file) (bracket-stream (prim-inside-region file)))
 (define (mask-qual qual) (bracket-stream (prim-mask-qual qual)))
-(define (subsample rate) (bracket-stream (prim-subsample rate)))
+(define (outside-region file) (bracket-stream (prim-outside-region file)))
 (define (sanitize) (bracket-stream (prim-sanitize)))
+(define (subsample rate) (bracket-stream (prim-subsample rate)))
 
 (define*
   (filter-multi (num: num 2)) 
@@ -188,3 +195,4 @@
 	  (prim-anfo-run in-stream out-stream))))))
 
 (provide 'anfo)
+

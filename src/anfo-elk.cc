@@ -431,9 +431,9 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "prim-filter-score",   3, 3, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_mapq,   "prim-filter-mapq",    2, 2, EVAL ) ;
-	// Define_Primitive( (P)p_filter_chain, 	 "filter-chain",        3, 3, EVAL ) ;	// wrap?
-	// Define_Primitive( (P)p_inside_region,    "inside-region",       1, 1, EVAL ) ;  // redesign?
-	// Define_Primitive( (P)p_outside_region,   "outside-region",      1, 1, EVAL ) ;  // redesign?
+	Define_Primitive( (P)p_filter_chain, 	 "prim-filter-chain",   3, 3, EVAL ) ;
+	Define_Primitive( (P)p_inside_region,    "prim-inside-region",  1, 1, EVAL ) ;  // redesign?
+	Define_Primitive( (P)p_outside_region,   "prim-outside-region", 1, 1, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_require_best_hit, "prim-require-bht",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_require_hit,      "prim-require-hit",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_ignore_hit,       "prim-ignore-hit",     2, 2, EVAL ) ;
@@ -442,9 +442,9 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_sort_by_pos,      "prim-sort-pos",       3, 3, EVAL ) ;
 	Define_Primitive( (P)p_sort_by_name,     "prim-sort-name",      3, 3, EVAL ) ;
 
-	Define_Primitive( (P)p_merge,            "prim-merge",               1, MANY, VARARGS ) ; 
-	Define_Primitive( (P)p_join,             "prim-join",                1, MANY, VARARGS ) ; 
-	Define_Primitive( (P)p_concat,           "prim-concat",              1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_merge,            "prim-merge",          1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_join,             "prim-join",           1, MANY, VARARGS ) ; 
+	Define_Primitive( (P)p_concat,           "prim-concat",         1, MANY, VARARGS ) ; 
 
 	// Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
 	// Define_Primitive( (P)p_divergence,       "divergence",          3, 3, EVAL ) ;
