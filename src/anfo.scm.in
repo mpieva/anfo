@@ -134,30 +134,21 @@
     (else (bracket-stream (prim-read-file in *default-solexa-scale* *default-origin*)))))
 
 (define (anfo-with-output out)
-  (display out)
   (cond
     ((procedure? out) out)
     ((string? out) (bracket-stream (prim-write-native out *default-compression*)))
     (else (error 'anfo-with-output "object does not denote an output stream: ~s" out))))
 
-(define (anfo-with-many-inputs args cont)
-  (cond
-    ((null? args) cont)
-    (else (anfo-with-input
-	    (car args) 
-	    (lambda (in)
-	      (anfo-with-many-inputs
-		(cdr args)
-		(lambda (ins)
-		  cont (cons in ins))))))))
+(define (anfo-with-many-inputs args cont) (anfo-with-many anfo-with-input args cont))
+(define (anfo-with-many-outputs args cont) (anfo-with-many anfo-with-output args cont))
+(define (anfo-with-many-filters args cont) (anfo-with-many (lambda (x) x) args cont))
 
-(define (anfo-with-many-outputs args cont)
-  (cond ((null? args) cont)
-	(else ((anfo-with-output (car args))
-	       (lambda (out)
-		 (anfo-with-many-outputs (cdr args)
-		   (lambda (outs)
-		     cont (cons out outs))))))))
+(define (anfo-with-many fun args cont)
+  (cond ((null? args) (cont '()))
+	(else ((fun (car args))
+	       (lambda (s)
+		 (anfo-with-many fun (cdr args)
+		   (lambda (ss) (cont (cons s ss)))))))))
 
 (define (tee . args)
   (anfo-with-many-outputs 
@@ -166,10 +157,28 @@
       (bracket-stream (apply prim-tee outs)))))
 
 (define (chain . args)
-  (lambda (cont)
-    (anfo-with-many-outputs args
-      (lambda (outs)
-	((bracket-stream (apply prim-chain outs)) cont)))))
+  (anfo-with-many-filters
+    args
+    (lambda (outs)
+      (bracket-stream (apply prim-chain outs)))))
+
+(define (merge . args)
+  (anfo-with-many-inputs
+    args
+    (lambda (outs)
+      (bracket-stream (apply prim-merge outs)))))
+
+(define (join . args)
+  (anfo-with-many-inputs
+    args
+    (lambda (outs)
+      (bracket-stream (apply prim-join outs)))))
+
+(define (concat . args)
+  (anfo-with-many-inputs
+    args
+    (lambda (outs)
+      (bracket-stream (apply prim-concat outs)))))
 
 (define (anfo-run in out)
   ((anfo-with-input in)
