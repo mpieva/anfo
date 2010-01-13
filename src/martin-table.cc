@@ -428,8 +428,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 							break ;
 					}
 					// no direct hit, but might be close by.  Set gap flag?
-					else if( snp.pos + gap_buffer <= ref_pos &&
-							ref_pos <= snp.pos + snp.length + gap_buffer ) switch( op )
+					else if( snp.pos + snp.length + gap_buffer > ref_pos ) switch( op )
 					{
 						case Hit::Delete:
 						case Hit::Insert:
