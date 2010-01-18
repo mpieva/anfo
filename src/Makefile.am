@@ -8,6 +8,7 @@ pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 
 schemedir = $(prefix)/share/elk
 scheme_SCRIPTS = anfo.scm
+dist_scheme_SCRIPTS = srfi-88.scm srfi-89.scm
 EXTRA_DIST = anfo.scm.in
 
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc

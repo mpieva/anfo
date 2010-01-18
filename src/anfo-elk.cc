@@ -74,7 +74,7 @@ extern "C" Object terminate_stream( Object o )
 {
 	StreamWrapper* s = (StreamWrapper*)POINTER(o) ;
 	if( s->h_ ) {
-		Printf( Curr_Output_Port, "BUG: stream freed by GC\n" ) ;
+		Printf( Curr_Output_Port, "NOTE: stream freed by GC\n" ) ;
 		((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
 	}
 	Deregister_Object( o ) ;
@@ -160,33 +160,12 @@ pair< std::istream*, string > open_any_input_std( Object o )
 	throw "can't handle file argument" ;
 }
 
-StreamHolder obj_to_stream( Object o, bool sol = false , int ori = 33 )
+inline StreamHolder obj_to_stream( Object o ) // , bool sol = false , int ori = 33 )
 {
-	if( TYPE(o) == t_stream ) return ((StreamWrapper*)POINTER(o))->h_ ;
-	switch( TYPE(o) )
-	{
-		case T_Primitive:
-		case T_Compound:
-			return obj_to_stream( Funcall( o, Null, 0 ), sol, ori ) ;
-
-		case T_Symbol:
-		case T_String:
-			return new UniversalReader( object_to_string(o), 0, sol, ori ) ;
-			// return make_input_stream( object_to_string(o).c_str(), sol, ori ) ;
-
-		case T_Fixnum:
-			return new UniversalReader( "<pipe>", new FileInputStream( Get_Integer(o) ), sol, ori ) ;
-			// return make_input_stream( Get_Integer(o), "<pipe>", sol, ori ) ;
-
-		case T_Boolean:
-			// if( !Truep(o) ) return make_input_stream( 0, "<stdin>", sol, ori ) ;
-			if( !Truep(o) ) return new UniversalReader( "<stdin>", new FileInputStream(0), sol, ori ) ;
-
-		default:
-            stringstream ss ;
-			ss << "can't handle file(?) argument of type " << TYPE(o) ;
-            throw ss.str() ;
-	}
+	Check_Type( o, t_stream ) ;
+	StreamHolder& h = ((StreamWrapper*)POINTER(o))->h_ ;
+	if( !h ) Primitive_Error( "BUG: use of deleted stream" ) ;
+	return h ;
 }
 
 vector<string> obj_to_genomes( Object o )
@@ -227,8 +206,14 @@ extern "C" {
 Object p_is_stream( Object d ) { return TYPE(d) == t_stream ? True : False; }
 int compare_stream_wrappers( Object a, Object b ) { return obj_to_stream(a) == obj_to_stream(b) ; }
 
-int print_stream_wrapper( Object p, Object o, int, int, int )
-{ Printf( p, "#[anfo-stream %p]", (const void*)((StreamWrapper*)POINTER(o))->h_ ) ; return 0 ; }
+int print_stream_wrapper( Object o, Object p, int, int, int )
+{
+	StreamWrapper *w = (StreamWrapper*)POINTER(o) ;
+	Printf( p, "#[anfo-stream %s %p]",
+			w && w->h_ ? w->h_->type_name().c_str() : "Null",
+			w ? (const void*)(w->h_) : 0 ) ;
+	return 0 ; 
+}
 
 // misc. ANFO primitves
 SYMDESCR verbosity_syms[] = {
@@ -306,14 +291,16 @@ WRAP( p_require_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 WRAP( p_ignore_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
-WRAP( p_only_genome,    ( Object genomes ), (genomes) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( genomes ) ) ) ; }
+WRAP( p_only_genome,    ( Object g ), (g) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( g ) ) ) ; }
 WRAP( p_filter_by_len,  ( Object l ), (l) ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
 WRAP( p_filter_multi,   ( Object m ), (m) ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
 WRAP( p_subsample,      ( Object r ), (r) ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
 WRAP( p_edit_header,    ( Object e ), (e) ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
 WRAP( p_inside_region,  ( Object f ), (f) ) { return wrap_stream( new InsideRegion( open_any_input_std( f ) ) ) ; }
 WRAP( p_outside_region, ( Object f ), (f) ) { return wrap_stream( new OutsideRegion( open_any_input_std( f ) ) ) ; }
-WRAP( p_sanitize, (), () ) { return wrap_stream( new Sanitizer() ) ; }
+WRAP( p_sanitize,       (),           ( ) ) { return wrap_stream( new Sanitizer() ) ; }
+
+WRAP( p_get_summary,    ( Object o ), (o) ) { return obj_to_stream( o )->get_summary() ; }
 
 
 // Mergers  (I'll drop the unholy mega-merge here, that's far better
@@ -322,6 +309,31 @@ WRAP( p_sanitize, (), () ) { return wrap_stream( new Sanitizer() ) ; }
 WRAP( p_merge,  ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new MergeStream,    argc, argv ) ; }
 WRAP( p_join,   ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new NearSortedJoin, argc, argv ) ; }
 WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,   argc, argv ) ; }
+
+WRAP( p_read_file, ( Object fn, Object sol_scores, Object origin ), (fn,sol_scores,origin) )
+{
+	bool sol = Truep( sol_scores ) ;
+	int ori = Get_Integer( origin ) ;
+	switch( TYPE(fn) )
+	{
+		// case T_Primitive:
+		// case T_Compound:
+			// return obj_to_stream( Funcall( o, Null, 0 ), sol, ori ) ;
+
+		case T_Symbol:
+		case T_String:
+			return wrap_stream( new UniversalReader( object_to_string(fn), 0, sol, ori ) ) ;
+
+		case T_Fixnum:
+			return wrap_stream( new UniversalReader( "<pipe>", new FileInputStream( Get_Integer(fn) ), sol, ori ) ) ;
+
+		case T_Boolean:
+			if( !Truep(fn) ) return wrap_stream( new UniversalReader( "<stdin>", new FileInputStream(0), sol, ori ) ) ;
+
+		default:
+			Primitive_Error( "can't handle file argument ~s", fn ) ;
+	}
+}
 
 // Composition
 
@@ -337,10 +349,7 @@ WRAP( p_anfo_run, ( Object inpo, Object outo ), (inpo,outo) )
 	while( inp->get_state() == Stream::have_output && out->get_state() == Stream::need_input )
 		out->put_result( inp->fetch_result() ) ;
 	out->put_footer( inp->fetch_footer() ) ;
-
-	Object summary = Cons( inp->get_summary() , out->get_summary() ) ;
-	console.cleanup() ;
-	return summary ;
+	return Null ;
 }
 
 //! \brief output stream replication
@@ -364,9 +373,6 @@ WRAP( p_chain, ( int argc, Object *argv ), (argc,argv) )
 		c->add_stream( obj_to_stream( *o ) ) ;
 	return wrap_stream( c ) ;
 }
-
-WRAP( p_read_file, ( Object fn, Object sol_scores, Object ori ), (fn,sol_scores,ori) )
-{ return wrap_stream( obj_to_stream( fn, Truep( sol_scores ), Get_Integer( ori ) ) ) ; }
 
 WRAP( p_glob, ( Object path ), (path) )
 {
@@ -406,6 +412,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_set_verbosity,    "set-verbosity!",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_use_mmap,         "use-mmap!",           1, 1, EVAL ) ;
 	Define_Primitive( (P)p_limit_core,       "limit-core!",         1, 1, EVAL ) ;
+	Define_Primitive( (P)p_get_summary,      "get-summary",         1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_read_file,        "prim-read-file",      3, 3, EVAL ) ;
 	Define_Primitive( (P)p_write_native,     "prim-write-native",   2, 2, EVAL ) ;
@@ -431,7 +438,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "prim-filter-score",   3, 3, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_mapq,   "prim-filter-mapq",    2, 2, EVAL ) ;
-	Define_Primitive( (P)p_filter_chain, 	 "prim-filter-chain",   3, 3, EVAL ) ;
+	Define_Primitive( (P)p_filter_chain, 	 "prim-filter-chain",   3, 3, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_inside_region,    "prim-inside-region",  1, 1, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_outside_region,   "prim-outside-region", 1, 1, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_require_best_hit, "prim-require-bht",    2, 2, EVAL ) ;
@@ -472,3 +479,15 @@ void elk_finit_libanfo()
 } // extern C
 
 #endif
+
+#if 0
+// Including Elk defines some macros that collide with protobuf.  We
+// undefine them (and hope they aren't needed...).
+
+#if HAVE_ELK_SCHEME_H
+#include <elk/scheme.h>
+#undef Print
+#undef MAX_TYPE
+#endif
+#endif
+

@@ -267,8 +267,9 @@ class Stream
 		//! stream, the result is simply an Elk object.  The default is
 		//! to return the exit code contained in the footer.
 #if HAVE_ELK_SCHEME_H
-		virtual Object get_summary() const ;
+		virtual Object get_summary() const { return False ; }
 #endif
+		virtual string type_name() const { return "Stream" ; }
 
 	protected:
 		// doesn't belong here, but it's convenient
@@ -289,9 +290,6 @@ class StreamBundle : public Stream
 
 	public:
 		void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
-#if HAVE_ELK_SCHEME_H
-		virtual Object get_summary() const ;
-#endif
 } ;
 
 //! \internal
@@ -323,6 +321,7 @@ class AnfoReader : public Stream
 
 		//! \internal
 		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
+		virtual string type_name() const { return "AnfoReader(" + name_ + ")" ; }
 } ;
 
 // \brief reader for all supported formats
@@ -359,9 +358,7 @@ class UniversalReader : public Stream
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() { if( get_state() == have_output ) return str_->fetch_result() ; throw "calling sequence violated" ; }
 		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
-#if HAVE_ELK_SCHEME_H
-		virtual Object get_summary() const { return str_->get_summary() ; }
-#endif
+		virtual string type_name() const { return "UniversalReader(" + name_ + ")" ; }
 } ;
 
 
@@ -432,6 +429,7 @@ class ChunkedWriter : public Stream
 		virtual void put_header( const Header& h ) ;
 		virtual void put_result( const Result& r ) ;
 		virtual void put_footer( const Footer& f ) ;
+		virtual string type_name() const { return "ChunkedWriter(" + name_ + ")" ; }
 } ;
 
 class ChunkedReader : public Stream
@@ -452,6 +450,7 @@ class ChunkedReader : public Stream
 
 		//! \internal
 		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
+		virtual string type_name() const { return "ChunkedReader(" + name_ + ")" ; }
 } ;
 
 //! \brief filters that drop or modify isolated records
@@ -758,6 +757,7 @@ class FastqReader : public Stream
 	public: 
 		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) ;
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
+		virtual string type_name() const { return "FastqReader" ; }
 } ;
 
 class SffReader : public Stream
@@ -783,6 +783,7 @@ class SffReader : public Stream
 
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() ;
+		virtual string type_name() const { return "SffReader(" + name_ + ")" ; }
 } ;
 
 } // namespace streams

@@ -559,11 +559,11 @@ static inline Object Make_StringL( const char* c ) { return Make_String( c, strl
 
 Object DivergenceStream::get_summary() const
 {
-	GC_Node ;
-	Object aa = Make_Vector( 5, False ) ;
-	GC_Link( aa ) ;
-	Object bb = Make_Vector( 5, False ) ;
-	GC_Link( bb ) ;
+	GC_Node2 ;
+	Object aa = Void, bb = Void ;
+	GC_Link2( aa, bb ) ;
+	aa = Make_Vector( 5, False ) ;
+	bb = Make_Vector( 5, False ) ;
 	Object cd = False ;
 
 	Object* b = VECTOR(bb)->data ;

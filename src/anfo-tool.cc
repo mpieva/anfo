@@ -187,8 +187,8 @@ Stream* mk_filter_by_hit( const ParamBlock& p )
 
 void desc_filter_by_hit( ostream& ss, const ParamBlock& p )
 {
-	ss << "remove sequences without hit" ;
-	if( p.genome && *p.genome ) ss << " in genome " << p.genome ; 
+	ss << "remove hits" ;
+	if( p.genome && *p.genome ) ss << " to genomes other than " << p.genome ; 
 }
 
 Stream* mk_delete_hit( const ParamBlock& p )

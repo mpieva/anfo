@@ -50,24 +50,6 @@ using namespace google::protobuf::io ;
 using namespace output ;
 using namespace std ;
 
-#if HAVE_ELK_SCHEME_H
-Object Stream::get_summary() const 
-{
-	return Make_Integer( foot_.exit_code() ) ;
-}
-Object StreamBundle::get_summary() const 
-{
-	GC_Node;
-	Object r = Null ;
-	GC_Link(r);
-
-	for( size_t i = streams_.size() ; i != 0 ; )
-		r = Cons( streams_[--i]->get_summary(), r ) ;
-	GC_Unlink ;
-	return r ;
-}
-#endif
-
 int transfer( Stream& in, Stream& out ) 
 {
 	out.put_header( in.fetch_header() ) ;
@@ -1066,7 +1048,7 @@ namespace {
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
 		const void* p ; int l ;
-		if( !is->Next( &p, &l ) ) return new Stream ;
+		if( !is->Next( &p, &l ) ) return StreamHolder() ; // XXX new Stream ;
 		is->BackUp( l ) ;
 
 		const uint8_t* q = (const uint8_t*)p ;

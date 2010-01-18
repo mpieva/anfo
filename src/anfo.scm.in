@@ -25,7 +25,9 @@
   (lambda (cont)
     (dynamic-wind
       (lambda () #f)
-      (lambda () (cont stream))
+      (lambda () (let ((rs (cont stream))
+		       (r0 (get-summary stream)))
+		   (if r0 (cons r0 rs) rs)))
       (lambda () (prim-delete-stream stream)))))
 
 (define compress:  'compress:)
@@ -41,6 +43,7 @@
 (define quality:   'quality:)
 (define score:     'score:)
 (define sequences: 'sequences:)
+(define slope:     'slope:)
 (define solexa:    'solexa:)
 
 (define (write-fasta    file) (bracket-stream (prim-write-fasta    file)))
@@ -126,15 +129,11 @@
 	 (quality: qual 40))
   (bracket-stream (prim-rmdup slope intercept qual)))
 
-
-
 (define*
   (write-file out
 	      (compress: comp *default-compression*))
   (bracket-stream (prim-write-native out comp)))
 
-; Run a continuation with a stream described by 'in'.  Ensures cleanup
-; and sensible extraction of a result.
 (define (anfo-with-input in)
   (cond
     ((procedure? in) in)
@@ -151,48 +150,66 @@
 (define (anfo-with-many-filters args cont) (anfo-with-many (lambda (x) x) args cont))
 
 (define (anfo-with-many fun args cont)
-  (cond ((null? args) (cont '()))
-	(else ((fun (car args))
-	       (lambda (s)
-		 (anfo-with-many fun (cdr args)
-		   (lambda (ss) (cont (cons s ss)))))))))
+  (if (null? args)
+    (cont '())
+    ((fun (car args))
+     (lambda (s)
+       (anfo-with-many
+	 fun
+	 (cdr args)
+	 (lambda (ss) (cont (cons s ss))))))))
 
 (define (tee . args)
-  (anfo-with-many-outputs 
-    args
-    (lambda (outs)
-      (bracket-stream (apply prim-tee outs)))))
+  (lambda (cont)
+    (anfo-with-many-outputs 
+      args
+      (lambda (outs)
+	((bracket-stream 
+	   (apply prim-tee outs))
+	 cont)))))
 
 (define (chain . args)
-  (anfo-with-many-filters
-    args
-    (lambda (outs)
-      (bracket-stream (apply prim-chain outs)))))
+  (lambda (cont)
+    (anfo-with-many-filters
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-chain outs))
+	 cont)))))
 
 (define (merge . args)
-  (anfo-with-many-inputs
-    args
-    (lambda (outs)
-      (bracket-stream (apply prim-merge outs)))))
+  (lambda (cont)
+    (anfo-with-many-inputs
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-merge outs))
+	 cont)))))
 
 (define (join . args)
-  (anfo-with-many-inputs
-    args
-    (lambda (outs)
-      (bracket-stream (apply prim-join outs)))))
+  (lambda (cont)
+    (anfo-with-many-inputs
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-join outs))
+	 cont)))))
 
 (define (concat . args)
-  (anfo-with-many-inputs
-    args
-    (lambda (outs)
-      (bracket-stream (apply prim-concat outs)))))
+  (lambda (cont)
+    (anfo-with-many-inputs
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-concat outs))
+	 cont)))))
 
 (define (anfo-run in out)
   ((anfo-with-input in)
-    (lambda (in-stream)
-      ((anfo-with-output out)
-	(lambda (out-stream)
-	  (prim-anfo-run in-stream out-stream))))))
+   (lambda (in-stream)
+     ((anfo-with-output out)
+      (lambda (out-stream)
+	(prim-anfo-run in-stream out-stream))))))
 
 (provide 'anfo)
 

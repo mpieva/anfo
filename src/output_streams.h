@@ -52,6 +52,7 @@ class TextWriter : public Stream
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
+		virtual string type_name() const { return "TextWriter" ; }
 } ;
 
 //! \brief writes in SAM format

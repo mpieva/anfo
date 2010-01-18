@@ -121,6 +121,7 @@ class MergeStream : public StreamBundle
 		//!       necessary information.
 #if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return False ; }
+		virtual string type_name() const { return "MergeStream" ; }
 #endif
 } ;
 
@@ -184,6 +185,7 @@ template< typename I > class ContainerStream : public Stream
 			if( cur_ == end_ ) state_ = end_of_stream ;
 			return r ;
 		}
+		virtual string type_name() const { return "ContainerStream" ; }
 } ;
 
 extern unsigned SortingStream__ninstances ;
@@ -401,6 +403,7 @@ class Compose : public StreamBundle
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() { return streams_.back()->fetch_result() ; }
 		virtual Footer fetch_footer() { return streams_.back()->fetch_footer() ; }
+		virtual string type_name() const { return "Compose" ; }
 } ;
 
 class StatStream : public Stream
