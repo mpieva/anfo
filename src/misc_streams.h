@@ -406,29 +406,22 @@ class Compose : public StreamBundle
 		virtual string type_name() const { return "Compose" ; }
 } ;
 
+#if HAVE_ELK_SCHEME_H
 class StatStream : public Stream
 {
 	private:
-		string fn_ ;
-		string name_ ;
-
 		unsigned total_, mapped_, mapped_u_, different_ ;
 		uint64_t bases_, bases_gc_, bases_m_, bases_gc_m_ ;
 		uint64_t bases_squared_, bases_m_squared_ ; 
 
-		void printout( ostream&, bool ) ;
-
 	public:
-		StatStream( const string& fn )
-			: fn_(fn), total_(0), mapped_(0), mapped_u_(0), different_(0)
+		StatStream()
+			: total_(0), mapped_(0), mapped_u_(0), different_(0)
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
 		    , bases_squared_(0), bases_m_squared_(0) {}
 
 		virtual void put_result( const Result& ) ;
-		virtual void put_footer( const Footer& ) ;
-#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
-#endif
 } ;
 
 //! \brief calculates divergence
@@ -455,9 +448,7 @@ class DivergenceStream : public Stream
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
-#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
-#endif
 } ;
 
 class MismatchStats : public Stream
@@ -468,10 +459,9 @@ class MismatchStats : public Stream
 	public:
 		MismatchStats() { memset( mat_, 0, sizeof( mat_ ) ) ; }
 		virtual void put_result( const Result& ) ;
-#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const ;
-#endif
 } ;
+#endif
 
 //! \brief checks for hits to homologous regions
 //! This filter reads a UCSC Chain file and stores the "homologous"

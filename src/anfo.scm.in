@@ -30,6 +30,7 @@
 		   (if r0 (cons r0 rs) rs)))
       (lambda () (prim-delete-stream stream)))))
 
+(define chop:      'chop:)
 (define compress:  'compress:)
 (define context:   'context:)
 (define editor:    'editor:)
@@ -40,8 +41,10 @@
 (define mem:       'mem:)
 (define num:       'num:)
 (define origin:    'origin:)
+(define primary:   'primary:)
 (define quality:   'quality:)
 (define score:     'score:)
+(define secondary: 'secondary:)
 (define sequences: 'sequences:)
 (define slope:     'slope:)
 (define solexa:    'solexa:)
@@ -110,24 +113,53 @@
 
 (define*
   (only-genomes (genomes '()))
-  (bracket-stream (prim-only-genomes g)))
+  (bracket-stream (prim-only-genomes genomes)))
 
 (define*
   (sort-pos genomes 
-	    (mem: m *default-mem-limit*) 
-	    (handles: h *default-handles-limit*))
+			(mem: m *default-mem-limit*) 
+			(handles: h *default-handles-limit*))
   (bracket-stream (prim-sort-pos m h genomes)))
 
 (define*
   (sort-name (mem: m *default-mem-limit*) 
-	     (handles: h *default-handles-limit*))
+			 (handles: h *default-handles-limit*))
   (bracket-stream (prim-sort-name m h)))
 
 (define*
   (rmdup (slope: slope 7.5)
-	 (intercept: inter 20)
-	 (quality: qual 40))
+		 (intercept: inter 20)
+		 (quality: qual 40))
   (bracket-stream (prim-rmdup slope intercept qual)))
+
+(define (stats)
+  (let* ((p (lambda (lo hi) (+ lo (* hi 65536 32768))))
+	 (fun (lambda (total mapped mapped_u different 
+			     bases_gc_lo bases_gc_hi 
+			     bases_gc_m_lo bases_gc_m_hi 
+			     bases_lo bases_hi 
+			     bases_2_lo bases_2_hi
+			     bases_m_lo bases_m_hi
+			     bases_m2_lo bases_m2_hi)
+		`(( total . ,total )
+		  ( mapped . ,mapped )
+		  ( mapuniq . ,mapped_u )
+		  ( distict . ,different )
+		  ( gc-raw . ,(* 100 (/ (p bases_gc_lo bases_gc_hi) (p bases_lo bases_hi))))
+		  ( gc-mapped . ,(* 100 (/ (p bases_gc_m_lo bases_gc_m_hi) (p bases_m_lo bases_m_hi))))
+		  ( bases . ,(p bases_lo bases_hi))
+		  ( bases-m2 . ,(p bases_2_lo bases_2_hi))
+		  ( mapbases . ,(p bases_m_lo bases_m_hi))
+		  ( mapbases-m2 . ,(p bases_m2_lo bases_m2_hi))))))
+    (fmap (lambda (args) (apply fun args)) 
+	  (bracket-stream (prim-stats)))))
+
+(define (mismatches) (bracket-stream (prim-mismatches)))
+(define*
+  (divergence (primary: p)
+			  (secondary: s)
+			  (chop: c))
+  (bracket-stream (prim-divergence p s c)))
 
 (define*
   (write-file out
@@ -210,6 +242,11 @@
      ((anfo-with-output out)
       (lambda (out-stream)
 	(prim-anfo-run in-stream out-stream))))))
+
+(define (fmap fun stream)
+ (lambda (cont)
+  (let ((rs (stream cont)))
+    (cons (fun (car rs)) (cdr rs)))))
 
 (provide 'anfo)
 

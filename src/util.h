@@ -231,17 +231,15 @@ class Console
 		int next_ ;
 		typedef std::deque< std::pair< int, std::string > > Chans ;
 		Chans chans_ ;
-		bool wrote_anything_ ;
 
 	public:
-		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0), wrote_anything_(0) {}
-		~Console() { if( fd_ >= 0 ) { cleanup() ; close( fd_ ) ; } }
+		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
+		~Console() { if( fd_ >= 0 ) { chans_.clear() ; update() ; close( fd_ ) ; } }
 
 		int alloc_chan() { return ++next_ ; }
 		void free_chan( int c ) ;
 		void progress( int c, Loglevel l, const std::string& s ) ;
 		void update() ; 
-		void cleanup() { if( fd_ >= 0 && wrote_anything_ ) { mywrite( fd_, "\n", 1 ) ; wrote_anything_ = 0 ; } }
 
 		void output( Loglevel, const std::string& ) ;
 

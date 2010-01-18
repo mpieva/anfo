@@ -253,9 +253,11 @@ WRAP( p_write_wig,    ( Object f ), (f) ) { return wrap_stream( new WigCoverageW
 WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
 WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
-WRAP( p_stats, (), () ) { return wrap_stream( new StatStream( "" ) ) ; }
-WRAP( p_divergence, ( Object p, Object s, Object b ), (p,s,b) ) { return wrap_stream( new DivergenceStream( object_to_string(p), object_to_string(s), Get_Integer(b) ) ) ; }
+
+// Evaluators
+WRAP( p_stats, (), () ) { return wrap_stream( new StatStream() ) ; }
 WRAP( p_mismatches, (), () ) { return wrap_stream( new MismatchStats() ) ; }
+WRAP( p_divergence, ( Object p, Object s, Object b ), (p,s,b) ) { return wrap_stream( new DivergenceStream( object_to_string(p), object_to_string(s), Get_Integer(b) ) ) ; }
 
 // Filters
 WRAP( p_sort_by_pos, ( Object mem, Object handles, Object genomes ), (mem,handles,genomes) )
@@ -453,9 +455,9 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_join,             "prim-join",           1, MANY, VARARGS ) ; 
 	Define_Primitive( (P)p_concat,           "prim-concat",         1, MANY, VARARGS ) ; 
 
-	// Define_Primitive( (P)p_stats,            "stats",               0, 0, EVAL ) ;
-	// Define_Primitive( (P)p_divergence,       "divergence",          3, 3, EVAL ) ;
-	// Define_Primitive( (P)p_mismatches,       "mismatches",          0, 0, EVAL ) ;
+	Define_Primitive( (P)p_stats,            "prim-stats",          0, 0, EVAL ) ;
+	Define_Primitive( (P)p_divergence,       "prim-divergence",     3, 3, EVAL ) ;
+	Define_Primitive( (P)p_mismatches,       "prim-mismatches",     0, 0, EVAL ) ;
 
 	Define_Primitive( (P)p_delete_stream,    "prim-delete-stream",  1, 1, EVAL ) ;
 	Define_Primitive( (P)p_anfo_run,         "prim-anfo-run",       2, 2, EVAL ) ;
@@ -479,15 +481,3 @@ void elk_finit_libanfo()
 } // extern C
 
 #endif
-
-#if 0
-// Including Elk defines some macros that collide with protobuf.  We
-// undefine them (and hope they aren't needed...).
-
-#if HAVE_ELK_SCHEME_H
-#include <elk/scheme.h>
-#undef Print
-#undef MAX_TYPE
-#endif
-#endif
-

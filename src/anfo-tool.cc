@@ -351,17 +351,6 @@ void desc_duct_tape( ostream& ss, const ParamBlock& p )
 	ss << ", name contigs '" << (p.arg ? p.arg : "contig" ) << '\'' ;
 }
 
-Stream* mk_stats( const ParamBlock& p )
-{ return new StatStream( p.arg ) ; }
-
-void desc_stats( ostream& ss, const ParamBlock& p )
-{ 
-	if( p.arg && *p.arg == '+' )
-		ss << "append statistics to " << parse_fn( p.arg+1 ) ;
-	else
-		ss << "write statistics to " << parse_fn( p.arg ) ;
-}
-
 Stream* mk_sanitize( const ParamBlock& )
 { return new Sanitizer() ; }
 
@@ -396,7 +385,7 @@ WRAPPED_MAIN
 		opt_duct_tape, opt_merge, opt_join, opt_concat,
 		opt_output, opt_output_text, opt_output_sam, opt_output_glz,
 		opt_output_3aln, opt_output_fasta, opt_output_fastq,
-		opt_output_table, opt_output_wiggle, opt_stats, opt_version,
+		opt_output_table, opt_output_wiggle, opt_version,
 	} ;
 
 	struct optdef optdefs[] = {
@@ -432,7 +421,6 @@ WRAPPED_MAIN
 		{ 0, 0, mk_output_fastq,             desc_output_fastq },
 		{ 0, 0, mk_output_table,             desc_output_table },
 		{ 0, 0, mk_output_wiggle,           desc_output_wiggle },
-		{ 0, 0, mk_stats,                           desc_stats },
 		{ 0, 0, 0, 0 }
 	} ;
 
@@ -472,7 +460,6 @@ WRAPPED_MAIN
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },
 		{ "output-wiggle",  0 , POPT_ARG_STRING, 0, opt_output_wiggle, "write depth-of-coverage in WIG format to FILE", "FILE" }, 
 		{ "duct-tape",      0 , POPT_ARG_STRING, 0, opt_duct_tape,     "mock-assemble into contigs named NAME", "NAME" },
-		{ "stats",          0 , POPT_ARG_STRING, 0, opt_stats,         "write simple statistics to FILE", "FILE" },
 
 		{ "set-slope",      0 , POPT_ARG_DFLT,   &param.slope,      0, "set slope parameter to S", "S" },
 		{ "set-intercept",  0 , POPT_ARG_DFLT,   &param.intercept,  0, "set length discount parameter to L", "L" },

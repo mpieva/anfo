@@ -121,7 +121,6 @@ void Console::update()
 		width -= ch->second.size()+3 ;
 	}
 	mywrite( fd_, line.data(), line.size() - (line[line.size()-1] == ' ') ) ;
-	wrote_anything_ = !!line.size() ;
 }
 
 void Console::free_chan( int c )

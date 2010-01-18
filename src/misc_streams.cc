@@ -286,44 +286,7 @@ Stream::state Compose::get_state()
 	}
 }
 
-//! \brief prints statistics
-//! The fields are:
-//! -# some read name (as an audit trail)
-//! -# total number of reads
-//! -# number of mapped reads
-//! -# number of uniquely mapped reads
-//! -# number of unique sequences mapped uniquely
-//! -# GC content in raw data
-//! -# GC content in mapped data
-//! -# total number of bases (== first moment of length dist.)
-//! -# sum of squared lengths (== second moment of length dist.)
-//! -# number of mapped bases (== first moment of mapped length dist.)
-//! -# sum of squared lengths of mapped reads (== second moment of
-//!    mapped length dist.)
-//! 
-//! Note that given first (m1) and second moment (m2) of a sample of size
-//! n, the average is simply
-//! \f[ m1 / n \f] 
-//! and the variance is
-//! \f[ (m2 - m1^2 / n) / (n-1) \f]
-//! Also, the mean of the weighted contig length (the median of this
-//! value would be the N50) is 
-//! \f[ m2 / m1 \f]
-
-void StatStream::printout( ostream& s, bool h )
-{
-	s << (h?"name\t#total\t#mapped\t#mapuniq\t#distinct\t"
-		    "GCraw\tGCmapped\trawbases\trawbases^2\t"
-			"mapbases\tmapbases^2\n":"")
-	  << name_ << '\t' << total_ << '\t' 							// arbitrary name, reads
-	  << mapped_ << '\t' << mapped_u_ << '\t' 						// mapped reads, uniquely mapped reads
-	  << different_ << '\t'
-      << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
-	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
-	  << bases_  << '\t' << bases_squared_ << '\t'					// number of bases & 2nd moment
-	  << bases_m_ << '\t' << bases_m_squared_ << endl ;             // number of mapped bases & 2nd moment
-} 
-
+#if HAVE_ELK_SCHEME_H
 void StatStream::put_result( const Result& r )
 {
 	unsigned bases = r.read().sequence().size() ;
@@ -346,50 +309,29 @@ void StatStream::put_result( const Result& r )
 			++different_ ;
 		}
 	}
-	if( name_.empty() ) name_ = r.read().seqid() ;
 }
 
-void StatStream::put_footer( const Footer& f )
-{
-	Stream::put_footer( f ) ;
-	if( fn_.empty() ) {}
-	else if( fn_ == "-" ) printout( cout, true ) ;
-	else if( fn_ == "+-" ) printout( cout, false ) ;
-	else if( fn_[0] == '+' ) 
-	{
-		ofstream s( fn_.substr(1).c_str(), ios_base::app ) ;
-		printout( s, false ) ;
-	}
-	else 
-	{
-		ofstream s( fn_.c_str(), ios_base::trunc ) ;
-		printout( s, true ) ;
-	}
-}
+static inline Object Cons2U( uint64_t x, Object l )
+{ return Cons( Make_Unsigned( x & ((1<<31) -1) ), Cons( Make_Unsigned( x >> 31 ), l ) ) ; }
 
-#if HAVE_ELK_SCHEME_H
+static inline Object ConsU( unsigned x, Object l )
+{ return Cons( Make_Unsigned( x ), l ) ; }
+
 Object StatStream::get_summary() const
 {
-	GC_Node ;
-
-	Object n0 = Make_String( name_.data(), name_.size() ) ;		GC_Link( n0 ) ;
-	Object n = Cons( Intern( "name" ), n0 ) ;					GC_Link( n ) ;
-	Object t = Cons( Intern( "total" ), Make_Integer( total_ ) ) ; GC_Link( t ) ;
-	Object m = Cons( Intern( "mapped" ), Make_Integer( mapped_ ) ) ; GC_Link( m ) ;
-	Object mu = Cons( Intern( "mapuniq" ), Make_Integer( mapped_u_ ) ) ; GC_Link( mu ) ;
-	Object d = Cons( Intern( "distinct" ), Make_Integer( different_ ) ) ; GC_Link( d ) ;
-	Object gc = Cons( Intern( "gc-raw" ), Make_Flonum( 100*(float)bases_gc_ / (float)bases_ ) ) ; GC_Link( gc ) ;
-	Object gcm = Cons( Intern( "gc-mapped" ), Make_Flonum( 100*(float)bases_gc_m_ / (float)bases_m_ ) ) ; GC_Link( gcm ) ;
-	Object b = Cons( Intern( "bases" ), Make_Integer( bases_ ) ) ; GC_Link( b ) ;
-	Object b2 = Cons( Intern( "bases-m2" ), Make_Integer( bases_squared_ ) ) ; GC_Link( b2 ) ;
-	Object bm = Cons( Intern( "mapbases" ), Make_Integer( bases_m_ ) ) ; GC_Link( b ) ;
-	Object bm2 = Cons( Intern( "mapbases-m2" ), Make_Integer( bases_m_squared_ ) ) ; GC_Link( b2 ) ;
-
-	Object r = Cons( n, Cons( t, Cons( m, Cons( mu, Cons( d, Cons( gc, Cons( gcm, Cons( b, Cons( b2, Cons( bm, Cons( bm2, Null ))))))))))) ;
-	GC_Unlink ;
+	Object r = Null ;
+	r = Cons2U( bases_m_squared_, r ) ;
+	r = Cons2U( bases_m_, r ) ;
+	r = Cons2U( bases_squared_, r ) ;
+	r = Cons2U( bases_, r ) ;
+	r = Cons2U( bases_gc_m_, r ) ;
+	r = Cons2U( bases_gc_, r ) ;
+	r = ConsU( different_, r ) ;
+	r = ConsU( mapped_u_, r ) ;
+	r = ConsU( mapped_, r ) ;
+	r = ConsU( total_, r ) ;
 	return r ;
 }
-#endif
 
 void MismatchStats::put_result( const Result& r )
 {
@@ -407,7 +349,6 @@ void MismatchStats::put_result( const Result& r )
 	}
 }
 
-#if HAVE_ELK_SCHEME_H
 Object MismatchStats::get_summary() const
 {
 	GC_Node ;
@@ -423,48 +364,14 @@ Object MismatchStats::get_summary() const
 	GC_Unlink ;
 	return r ;
 }
-#endif
 
-RegionFilter::Regions3 RegionFilter::all_regions ;
-
-RegionFilter::RegionFilter( const pair< istream*, string >& p )
+void DivergenceStream::put_header( const Header& h )
 {
-	auto_ptr< istream > deffile( p.first ) ;
-	const string &fn = p.second ;
-
-	Regions3::iterator i = all_regions.find( fn ) ;
-	if( i != all_regions.end() ) my_regions = &i->second ;
-	else
-	{
-		my_regions = &all_regions[ fn ] ;
-
-		console.output( Console::notice, "Loading annotation from " + fn ) ;
-		std::string junk, chrom ;
-		unsigned start, end ;
-
-		std::getline( *deffile, junk ) ;
-		while( std::getline( *deffile >> junk >> chrom >> start >> end, junk ) )
-			(*my_regions)[ chrom ][ end ] = start ;
-	}
+    Stream::put_header( h ) ;
+    ancient_ = h.config().has_aligner() && h.config().aligner().has_mean_overhang_length() ;
 }
 
-void Sanitizer::put_header( const Header& h )
-{
-	Filter::put_header( h ) ;
-	hdr_.clear_sge_slicing_index() ;
-	hdr_.clear_sge_slicing_stride() ;
-	hdr_.clear_command_line() ;
-	hdr_.clear_sge_job_id() ;
-	hdr_.clear_sge_task_id() ;
-	hdr_.mutable_config()->clear_genome_path() ;
-}
-
-bool Sanitizer::xform( Result& r )
-{
-	r.clear_aln_stats() ;
-	return true ;
-}
-
+// Excludes gaps, Ns, and nonsensical symbols
 inline static bool good( char x ) { return x == 'A' || x == 'C' || x == 'G' || x == 'T' ; }
 
 // Excludes transitions that may have been confounded by deamination.
@@ -480,11 +387,8 @@ inline static bool fine( char x, char y, char z )
     return true ;
 }
 
-void DivergenceStream::put_header( const Header& h )
-{
-    Stream::put_header( h ) ;
-    ancient_ = h.config().has_aligner() && h.config().aligner().has_mean_overhang_length() ;
-}
+
+
 
 void DivergenceStream::put_result( const Result& r ) 
 {
@@ -554,9 +458,6 @@ void DivergenceStream::put_result( const Result& r )
 	}
 }
 
-#if HAVE_ELK_SCHEME_H
-static inline Object Make_StringL( const char* c ) { return Make_String( c, strlen(c) ) ; }
-
 Object DivergenceStream::get_summary() const
 {
 	GC_Node2 ;
@@ -573,9 +474,9 @@ Object DivergenceStream::get_summary() const
 	b[3] = Make_Flonum( b4 ) ;
 	b[4] = Make_Flonum( b5 ) ;
 
-	bb = Cons( Make_StringL( "raw-counts" ), bb ) ;
+	bb = Cons( Intern( "raw-counts" ), bb ) ;
 	bb = Cons( bb, Null ) ;
-	bb = Cons( Cons( Make_StringL( "raw-div" ), Make_Flonum( 2.0*b4 / (b2+b4) )), bb ) ;
+	bb = Cons( Cons( Intern( "raw-div" ), Make_Flonum( 2.0*b4 / (b2+b4) )), bb ) ;
 	
 	double e = 0 ;
 	if( int64_t d1 = 3*b1 - b2 + 3*b3 - b4 - b5 ) {
@@ -595,16 +496,55 @@ Object DivergenceStream::get_summary() const
 	}
 	else aa = False ;
 
-	aa = Cons( Make_StringL( "corrected-counts" ), aa ) ;
+	aa = Cons( Intern( "corrected-counts" ), aa ) ;
 	aa = Cons( aa, bb ) ;
-	aa = Cons( Cons( Make_StringL( "corrected-div" ), cd ), aa ) ;
-	aa = Cons( Cons( Make_StringL( "error-rate" ), Make_Flonum( e ) ), aa ) ;
+	aa = Cons( Cons( Intern( "corrected-div" ), cd ), aa ) ;
+	aa = Cons( Cons( Intern( "error-rate" ), Make_Flonum( e ) ), aa ) ;
 
 	GC_Unlink ;
 	return aa ;
 }
 #endif
 
+RegionFilter::Regions3 RegionFilter::all_regions ;
+
+RegionFilter::RegionFilter( const pair< istream*, string >& p )
+{
+	auto_ptr< istream > deffile( p.first ) ;
+	const string &fn = p.second ;
+
+	Regions3::iterator i = all_regions.find( fn ) ;
+	if( i != all_regions.end() ) my_regions = &i->second ;
+	else
+	{
+		my_regions = &all_regions[ fn ] ;
+
+		console.output( Console::notice, "Loading annotation from " + fn ) ;
+		std::string junk, chrom ;
+		unsigned start, end ;
+
+		std::getline( *deffile, junk ) ;
+		while( std::getline( *deffile >> junk >> chrom >> start >> end, junk ) )
+			(*my_regions)[ chrom ][ end ] = start ;
+	}
+}
+
+void Sanitizer::put_header( const Header& h )
+{
+	Filter::put_header( h ) ;
+	hdr_.clear_sge_slicing_index() ;
+	hdr_.clear_sge_slicing_stride() ;
+	hdr_.clear_command_line() ;
+	hdr_.clear_sge_job_id() ;
+	hdr_.clear_sge_task_id() ;
+	hdr_.mutable_config()->clear_genome_path() ;
+}
+
+bool Sanitizer::xform( Result& r )
+{
+	r.clear_aln_stats() ;
+	return true ;
+}
 
 AgreesWithChain::AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& p ) 
 	: left_genome_( l ), right_genome_( r ), map_()
