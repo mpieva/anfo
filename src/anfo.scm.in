@@ -128,7 +128,7 @@
 
 (define*
   (rmdup (slope: slope 7.5)
-		 (intercept: inter 20)
+		 (intercept: intercept 20)
 		 (quality: qual 40))
   (bracket-stream (prim-rmdup slope intercept qual)))
 
