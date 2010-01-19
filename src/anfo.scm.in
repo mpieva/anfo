@@ -155,11 +155,48 @@
 	  (bracket-stream (prim-stats)))))
 
 (define (mismatches) (bracket-stream (prim-mismatches)))
+
+(define (vector-dot v w)
+  (let loop ((s 0) (l (vector->list v)) (r (vector->list w)))
+    (if (or (null? l) (null? r))
+      s
+      (loop (+ s (* (car l) (car r)))
+	    (cdr l) (cdr r)))))
+
+(define (vector-mul v x)
+  (apply vector (map (lambda (y) (* y x)) (vector->list v))))
+
+(define (mat-times-vector m v)
+  (apply vector (map (lambda (w) (vector-dot w v)) (vector->list m))))
+
 (define*
   (divergence (primary: p)
-			  (secondary: s)
-			  (chop: c))
-  (bracket-stream (prim-divergence p s c)))
+	      (secondary: s)
+	      (chop: c))
+  (let ((fun 
+	  (lambda (b) 
+	    (let* ((d1 (vector-dot b '#(3 -1 3 -1 -1)))
+		   (e  (/ (* (- (vector-ref b 2)
+				(vector-ref b 3))
+			     3)
+			  d1))
+		   (d  (- (* 4 e)
+			  3))
+		   (a  (vector-mul
+			 (mat-times-vector
+			   `#( #( ,(- e 3)        0             ,e        0              0 )
+			       #(        0 ,(- e 3)              0       ,e             ,e )
+			       #( ,(* 3 e)        0 ,(- (* 3 e) 3)        0              0 )
+			       #(        0       ,e              0 ,(- e 3)             ,e )
+			       #(        0 ,(* 2 e)              0 ,(* 2 e) ,(- (* 2 e) 3) ) )
+			   b)
+			 (/ 1 d))))
+	    `(( error-rate . ,e )
+	      ( corrected-div . ,(/ (* 2 (vector-ref a 3)) (+ (vector-ref a 1) (vector-ref a 3))))
+	      ( corrected-counts . ,a )
+	      ( raw-div . ,(/ (* 2 (vector-ref b 3)) (+ (vector-ref b 1) (vector-ref b 3))))
+	      ( raw-counts . ,b ))))))
+    (fmap fun (bracket-stream (prim-divergence p s c)))))
 
 (define*
   (write-file out

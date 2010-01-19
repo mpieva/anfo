@@ -387,9 +387,6 @@ inline static bool fine( char x, char y, char z )
     return true ;
 }
 
-
-
-
 void DivergenceStream::put_result( const Result& r ) 
 {
 	const Hit *pri = hit_to( r, primary_genome_ ) ;
@@ -460,49 +457,14 @@ void DivergenceStream::put_result( const Result& r )
 
 Object DivergenceStream::get_summary() const
 {
-	GC_Node2 ;
-	Object aa = Void, bb = Void ;
-	GC_Link2( aa, bb ) ;
-	aa = Make_Vector( 5, False ) ;
-	bb = Make_Vector( 5, False ) ;
-	Object cd = False ;
-
+	Object bb = Make_Vector( 5, False ) ;
 	Object* b = VECTOR(bb)->data ;
 	b[0] = Make_Flonum( b1 ) ;
 	b[1] = Make_Flonum( b2 ) ;
 	b[2] = Make_Flonum( b3 ) ;
 	b[3] = Make_Flonum( b4 ) ;
 	b[4] = Make_Flonum( b5 ) ;
-
-	bb = Cons( Intern( "raw-counts" ), bb ) ;
-	bb = Cons( bb, Null ) ;
-	bb = Cons( Cons( Intern( "raw-div" ), Make_Flonum( 2.0*b4 / (b2+b4) )), bb ) ;
-	
-	double e = 0 ;
-	if( int64_t d1 = 3*b1 - b2 + 3*b3 - b4 - b5 ) {
-		e = ( 3 * b3 - 3 * b4 ) / (double)d1 ;
-		double d = 4*e - 3 ;
-
-		double a2, a4 ;
-
-		Object* a = VECTOR(aa)->data ;
-		a[0] = Make_Flonum(      ( -3*b1 + b1*e + b3*e )/d ) ;
-		a[1] = Make_Flonum( a2 = ( -3*b2 + b2*e + b4*e + b5*e )/d ) ;
-		a[2] = Make_Flonum(      ( -3*b3 + 3*b1*e + 3*b3*e )/d ) ;
-		a[3] = Make_Flonum( a4 = ( -3*b4 + b2*e + b4*e + b5*e )/d ) ;
-		a[4] = Make_Flonum(      ( -3*b5 + 2*b2*e + 2*b4*e + 2*b5*e )/d ) ;
-
-		cd = Make_Flonum( 2*a4 / (a2+a4) ) ;
-	}
-	else aa = False ;
-
-	aa = Cons( Intern( "corrected-counts" ), aa ) ;
-	aa = Cons( aa, bb ) ;
-	aa = Cons( Cons( Intern( "corrected-div" ), cd ), aa ) ;
-	aa = Cons( Cons( Intern( "error-rate" ), Make_Flonum( e ) ), aa ) ;
-
-	GC_Unlink ;
-	return aa ;
+	return bb ;
 }
 #endif
 
