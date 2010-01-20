@@ -446,7 +446,6 @@ class ChunkedReader : public Stream
 	public: 
 		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
 		virtual Result fetch_result() ;
-		virtual Footer fetch_footer() ;
 
 		//! \internal
 		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
@@ -749,9 +748,13 @@ class FastqReader : public Stream
 		char origin_ ;
 
 		void read_next_message() {
-			state_ = read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ )
-				? have_output : end_of_stream ;
-			sanitize( *res_.mutable_read() ) ;
+            if( read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ ) ) {
+                state_ = have_output ;
+                sanitize( *res_.mutable_read() ) ;
+            } else {
+                state_ = end_of_stream ;
+				is_.reset( 0 ) ;
+            }
 		}
 
 	public: 

@@ -73,10 +73,7 @@ struct StreamWrapper {
 extern "C" Object terminate_stream( Object o )
 {
 	StreamWrapper* s = (StreamWrapper*)POINTER(o) ;
-	if( s->h_ ) {
-		Printf( Curr_Output_Port, "NOTE: stream freed by GC\n" ) ;
-		((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
-	}
+    ((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
 	Deregister_Object( o ) ;
 	return Void ;
 }

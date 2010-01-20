@@ -88,6 +88,7 @@ AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream
 				cis.PopLimit( lim ) ;
 				++anfo_reader__num_files_ ;
 				read_next_message( cis, name_ ) ;
+                if( state_ == end_of_stream ) is_.reset( 0 ) ;
 				return ;
 			}
 		}
@@ -464,16 +465,16 @@ Result ChunkedReader::fetch_result()
 	{
 		CodedInputStream cis( ais_.get() ) ;
 		read_next_message( cis, name_ ) ;
+        if( state_ == end_of_stream ) 
+        {
+            // skip backwards link (just because...)
+            is_->Skip( 8 ) ;
+            // delete and close(!) input(-file)
+            is_.reset( 0 ) ;
+        }
 	}
 	else state_ = end_of_stream ;
 	return r ;
-}
-
-Footer ChunkedReader::fetch_footer()
-{
-	// skip backwards link
-	is_->Skip( 8 ) ;
-	return Stream::fetch_footer() ;
 }
 
 template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
@@ -1197,7 +1198,11 @@ Result SffReader::fetch_result()
 	else if( clip_adapter_right )
 		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - clip_adapter_right ) ;
 
-	state_ = --remaining_ ? have_output : end_of_stream ;
+	if( !--remaining_ )
+    {
+        state_ = end_of_stream ;
+        is_.reset(0) ;
+    }
 	return res_ ;
 }
 
