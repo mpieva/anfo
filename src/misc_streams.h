@@ -219,9 +219,10 @@ template <class Comp> class SortingStream : public Stream
 		MergeableQueues mergeable_queues_ ;
 		Holder< MergeStream > final_stream_ ;
 
-		int64_t total_scratch_size_ ;
+		uint64_t total_scratch_size_ ;
 
-		unsigned max_que_size_, max_arr_size_ ;
+		unsigned max_que_size_ ;
+		uint64_t max_arr_size_ ;
 		Comp comp_ ;
 
 		//! \brief quicksort the scratch area
@@ -246,7 +247,7 @@ template <class Comp> class SortingStream : public Stream
 		}
 
 	public:
-		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
+		SortingStream( uint64_t as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
 			: final_stream_( new MergeStream ), total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ), comp_( comp )
 		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
 
