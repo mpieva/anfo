@@ -312,7 +312,7 @@ void StatStream::put_result( const Result& r )
 }
 
 static inline Object Cons2U( uint64_t x, Object l )
-{ return Cons( Make_Unsigned( x & ((1<<31) -1) ), Cons( Make_Unsigned( x >> 31 ), l ) ) ; }
+{ return Cons( Make_Unsigned( x & (~0LL << 31) ), Cons( Make_Unsigned( x >> 31 ), l ) ) ; }
 
 static inline Object ConsU( unsigned x, Object l )
 { return Cons( Make_Unsigned( x ), l ) ; }

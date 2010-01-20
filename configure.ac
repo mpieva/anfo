@@ -25,16 +25,15 @@ AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([popt], [poptGetContext])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
-AC_CHECK_LIB([protobuf], [main])
 AC_CHECK_LIB([elk], [Elk_Init])
 
 AC_CHECK_HEADER([Judy.h], [], [AC_MSG_ERROR([Judy.h not found.  Need to install libjudy-dev?])])
 AC_CHECK_HEADERS([popt.h], [], [AC_MSG_ERROR([popt.h not found.  Need to install libpopt-dev?])])
-AC_CHECK_HEADERS([google/protobuf/message.h], [], [AC_MSG_ERROR([message.h not found.  Need to install libprotobuf-dev?])])
 AC_CHECK_HEADERS([zlib.h], [], [AC_MSG_WARN([zlib.h not found.  Want to install zlib1g-dev?])])
 AC_CHECK_HEADERS([bzlib.h], [], [AC_MSG_WARN([bzlib.h not found.  Want to install libbz2-dev?])])
 
 PKG_CHECK_MODULES([protobuf], [protobuf >= 2.1.0])
+AC_CHECK_HEADERS([google/protobuf/message.h], [], [AC_MSG_ERROR([message.h not found.  Need to install libprotobuf-dev?])])
 
 AC_ARG_ENABLE( [elk], 
       AS_HELP_STRING([--disable-elk], [do not build Elk bindings]),
@@ -45,8 +44,7 @@ AS_IF( [test "x$enable_elk" = check],
 	  	          [AC_MSG_WARN( [elk/scheme.h not found.  Want to install libelk0-dev?] )] )],
        [test "x$enable_elk" != xno],
        [AC_CHECK_HEADERS( [elk/scheme.h], [],
-			  [AC_MSG_ERROR( [elk/scheme.h not found, but Elk was requested.] )] )],
-       [] )
+			  [AC_MSG_ERROR( [elk/scheme.h not found, but Elk was requested.] )] )])
 
 # Checks for header files.
 AC_HEADER_STDC
