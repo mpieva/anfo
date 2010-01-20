@@ -234,7 +234,15 @@ class Console
 
 	public:
 		Console() : loglevel(warning), fd_( open( "/dev/tty", O_WRONLY ) ), next_(0) {}
-		~Console() { if( fd_ >= 0 ) { chans_.clear() ; update() ; close( fd_ ) ; } }
+		~Console() {
+            if( fd_ >= 0 ) {
+                if( !chans_.empty() ) {
+                    chans_.clear() ;
+                    update() ; 
+                }
+                close( fd_ ) ;
+            }
+        }
 
 		int alloc_chan() { return ++next_ ; }
 		void free_chan( int c ) ;

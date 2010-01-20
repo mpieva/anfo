@@ -145,7 +145,6 @@ void Console::progress( int c, Loglevel l, const std::string& s )
 		if( i->first == c )
 		{
 			i->second = s ;
-			// if( i != chans_.begin() ) std::swap( i[0], i[-1] ) ;
 			update() ;
 			return ;
 		}
