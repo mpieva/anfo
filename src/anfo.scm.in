@@ -144,7 +144,7 @@
 		`(( total . ,total )
 		  ( mapped . ,mapped )
 		  ( mapuniq . ,mapped_u )
-		  ( distict . ,different )
+		  ( distinct . ,different )
 		  ( gc-raw . ,(* 100 (/ (p bases_gc_lo bases_gc_hi) (p bases_lo bases_hi))))
 		  ( gc-mapped . ,(* 100 (/ (p bases_gc_m_lo bases_gc_m_hi) (p bases_m_lo bases_m_hi))))
 		  ( bases . ,(p bases_lo bases_hi))
