@@ -446,7 +446,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_only_genome,		 "prim-only-genomes",   1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_sort_by_pos,      "prim-sort-pos",       3, 3, EVAL ) ;
-	Define_Primitive( (P)p_sort_by_name,     "prim-sort-name",      3, 3, EVAL ) ;
+	Define_Primitive( (P)p_sort_by_name,     "prim-sort-name",      2, 2, EVAL ) ;
 
 	Define_Primitive( (P)p_merge,            "prim-merge",          1, MANY, VARARGS ) ; 
 	Define_Primitive( (P)p_join,             "prim-join",           1, MANY, VARARGS ) ; 

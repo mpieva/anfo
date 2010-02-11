@@ -138,12 +138,12 @@ pair< istream*, string > make_input_stream_std( const char* a )
 
 Stream* mk_sort_by_pos( const ParamBlock& p )
 { return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ) * 1024 * 1024, 256,
-		by_genome_coordinate( split_string( p.genome ? p.genome : "" ) ) ) ; }
+		by_genome_coordinate( split_string( p.genome ) ) ) ; }
 
 void desc_sort_by_pos( ostream& ss, const ParamBlock& p )
 { 
 	ss << "sort by position on genomes [" ;
-	vector<string> gs = split_string( p.genome ? p.genome : "" ) ;
+	vector<string> gs = split_string( p.genome ) ;
 	if( !gs.empty() ) { 
 		copy( gs.begin(), gs.end()-1, ostream_iterator<string>( ss, ", " ) ) ;
 		ss << gs.back() ;
