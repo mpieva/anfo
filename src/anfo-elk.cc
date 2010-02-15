@@ -259,12 +259,10 @@ WRAP( p_divergence, ( Object p, Object s, Object b ), (p,s,b) ) { return wrap_st
 // Filters
 WRAP( p_sort_by_pos, ( Object mem, Object handles, Object genomes ), (mem,handles,genomes) )
 { return wrap_stream( new SortingStream<by_genome_coordinate>(
-			(uint64_t)Get_Integer( mem ) * 1024 * 1024, Get_Integer( handles ),
-			by_genome_coordinate( obj_to_genomes( genomes ) ) ) ) ; }
+			Get_Integer( mem ), Get_Integer( handles ), by_genome_coordinate( obj_to_genomes( genomes ) ) ) ) ; }
 
 WRAP( p_sort_by_name, ( Object mem, Object handles ), (mem,handles) )
-{ return wrap_stream( new SortingStream<by_seqid>(
-			(uint64_t)Get_Integer( mem ) * 1024 * 1024, Get_Integer( handles ) ) ) ; }
+{ return wrap_stream( new SortingStream<by_seqid>( Get_Integer( mem ), Get_Integer( handles ) ) ) ; }
 
 WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
 { return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }

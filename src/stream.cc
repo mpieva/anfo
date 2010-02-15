@@ -471,6 +471,7 @@ Result ChunkedReader::fetch_result()
             is_->Skip( 8 ) ;
             // delete and close(!) input(-file)
             is_.reset( 0 ) ;
+            --anfo_reader__num_files_ ;
         }
 	}
 	else state_ = end_of_stream ;

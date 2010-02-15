@@ -137,7 +137,7 @@ pair< istream*, string > make_input_stream_std( const char* a )
 }
 
 Stream* mk_sort_by_pos( const ParamBlock& p )
-{ return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ) * 1024 * 1024, 256,
+{ return new SortingStream<by_genome_coordinate>( parse_int( p.arg, 1024 ), 256,
 		by_genome_coordinate( split_string( p.genome ) ) ) ; }
 
 void desc_sort_by_pos( ostream& ss, const ParamBlock& p )
@@ -152,7 +152,7 @@ void desc_sort_by_pos( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_sort_by_name( const ParamBlock& p )
-{ return new SortingStream<by_seqid>( parse_int( p.arg, 1024 ) * 1024 * 1024 ) ; }
+{ return new SortingStream<by_seqid>( parse_int( p.arg, 1024 ) ) ; }
 
 void desc_sort_by_name( ostream& ss, const ParamBlock& p )
 { ss << "sort by sequence id, using " << parse_int( p.arg, 1024 ) << " MB" ; }

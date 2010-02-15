@@ -217,12 +217,13 @@ template <class Comp> class SortingStream : public Stream
 		//! times a file has already been merged with others, the value
 		//! is just a set of streams.
 		MergeableQueues mergeable_queues_ ;
-		Holder< MergeStream > final_stream_ ;
+		Holder< Stream > final_stream_ ;
 
 		uint64_t total_scratch_size_ ;
 
 		unsigned max_que_size_ ;
-		uint64_t max_arr_size_ ;
+        unsigned num_open_files_ ;
+		int max_arr_size_ ;
 		Comp comp_ ;
 
 		//! \brief quicksort the scratch area
@@ -247,8 +248,9 @@ template <class Comp> class SortingStream : public Stream
 		}
 
 	public:
-		SortingStream( uint64_t as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
-			: final_stream_( new MergeStream ), total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ), comp_( comp )
+		SortingStream( int as = 256, unsigned qs = 256, Comp comp = Comp() ) :
+            final_stream_(), total_scratch_size_(0), max_que_size_(qs),
+            num_open_files_(0), max_arr_size_( as), comp_( comp )
 		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
 
 		virtual void put_header( const Header& h ) { Stream::put_header( h ) ; comp_.tag_header( hdr_ ) ; }
@@ -256,7 +258,7 @@ template <class Comp> class SortingStream : public Stream
 		virtual void put_result( const Result& r ) {
 			scratch_space_.push_back( new Result( r ) ) ;
 			total_scratch_size_ += scratch_space_.back()->SpaceUsed() ;
-			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
+			if( (total_scratch_size_ >> 20) >= max_arr_size_ ) flush_scratch() ;
 		}
 
 		virtual Result fetch_result()
@@ -297,7 +299,7 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 {
 	mergeable_queues_[ level ].push_back( s ) ;
 
-	if( AnfoReader::num_open_files() > max_que_size_ ) {
+	if( ++num_open_files_ > max_que_size_ ) {
 		// get the biggest bin, we'll merge everything below that
 		unsigned max_bin = 0 ;
 		for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ;
@@ -322,6 +324,7 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 				streams::MergeStream ms ;
 				for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
 				{
+                    num_open_files_ -= i->second.size() ;
 					for( size_t j = 0 ; j != i->second.size() ; ++j )
 						ms.add_stream( i->second[j] ) ;
 					i->second.clear() ;
@@ -351,25 +354,47 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 	// temporary storage.  (Also, if the temporay space is empty, we
 	// *always* add the ContainerStream, otherwise we get strange
 	// effects if the output turns out to be empty.)
-
+    Holder< MergeStream > m( new MergeStream ) ;
 	if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
 		flush_scratch() ; 
 	else {
 		console.output( Console::notice, "SortingStream: final sort" ) ;
 		sort_scratch() ;
-		final_stream_->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
+		m->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
 					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
 	}
 
 	// add any streams that have piled up
 	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
 		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
-			final_stream_->add_stream( *j ) ;
+			m->add_stream( *j ) ;
 	mergeable_queues_.clear() ;
-	console.output( Console::notice, "SortingStream: merging everything to output" ) ;
-	
-	final_stream_->fetch_header() ;
-	state_ = final_stream_->get_state() ;
+	m->fetch_header() ;
+
+    if( SortingStream__ninstances == 1 )
+    {
+        // we're alone.  delegate directly to MergeStream
+        console.output( Console::notice, "SortingStream: merging everything to output" ) ;
+        state_ = m->get_state() ;
+        final_stream_ = m ;
+    }
+    else
+    {
+        // not alone.  We'll conserve file handles by merging everything
+        // into a temporary file and opening that.
+        string fname ;
+        int fd = mktempfile( &fname ) ;
+        std::stringstream s ;
+        s << "SortingStream: Merging everything to tempfile " << fname ;
+        console.output( Console::notice, s.str() ) ;
+        AnfoWriter out( fd, fname.c_str() ) ;
+        transfer( *m, out ) ;
+        num_open_files_ = 1 ;
+        throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
+        google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
+        is->SetCloseOnDelete( true ) ;
+        final_stream_ = new UniversalReader( fname, is ) ; 
+    }
 }
 
 

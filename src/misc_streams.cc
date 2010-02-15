@@ -141,6 +141,17 @@ Result NearSortedJoin::fetch_result()
 		}
 		else ++cur_input_ ;
 
+        if( buffer_.size() >= 1000000 ) throw "input must be complete and nearly sorted the same way for join to work" ;
+
+        if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
+        {
+            stringstream s ;
+            s << "NearSortedJoin: " << nread_ << "in "
+                << nwritten_ << "out "
+                << buffer_.size() << "buf" ;
+            progress_( Console::info, s.str() ) ;
+        }
+
 		pair< size_t, Result > &p = buffer_[ r.read().seqid() ] ;
 		++nread_ ;
 		++p.first ;
@@ -156,15 +167,6 @@ Result NearSortedJoin::fetch_result()
 
 			if( buffer_.empty() && streams_.empty() )
 				state_ = end_of_stream ;
-
-			if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
-			{
-				stringstream s ;
-				s << "NearSortedJoin: " << nread_ << "in "
-				<< nwritten_ << "out "
-				<< buffer_.size() << "buf" ;
-				progress_( Console::info, s.str() ) ;
-			}
 			return r1 ;
 		}
 	}

@@ -292,11 +292,6 @@ class StreamBundle : public Stream
 		void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 } ;
 
-//! \internal
-//! Tracked to avoid bumping into the file descriptor limit
-//! (mostly important for merge sorting and mega-merge).
-extern int anfo_reader__num_files_ ;
-
 struct ParseError : public Exception {
 	std::string msg_ ;
 	ParseError( const std::string& m ) : msg_(m) {}
@@ -313,14 +308,11 @@ class AnfoReader : public Stream
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
 
-		virtual ~AnfoReader() { --anfo_reader__num_files_ ; }
-
 	public: 
 		AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
 		virtual Result fetch_result() ;
 
 		//! \internal
-		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
 		virtual string type_name() const { return "AnfoReader(" + name_ + ")" ; }
 } ;
 
@@ -440,7 +432,6 @@ class ChunkedReader : public Stream
 		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
 		std::string name_ ;
 
-		virtual ~ChunkedReader() { --anfo_reader__num_files_ ; }
 		bool get_next_chunk() ;
 
 	public: 
@@ -448,7 +439,6 @@ class ChunkedReader : public Stream
 		virtual Result fetch_result() ;
 
 		//! \internal
-		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
 		virtual string type_name() const { return "ChunkedReader(" + name_ + ")" ; }
 } ;
 
