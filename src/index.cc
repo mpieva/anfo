@@ -43,10 +43,7 @@ CompactGenome::CompactGenome( const std::string &name )
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		file_size_ = the_stat.st_size ;
-		// void *p = Metagenome::mmap( 0, file_size_, PROT_READ, MAP_SHARED, fd_, 0 ) ;
-		void *p = throw_errno_if_minus1( 
-				mmap( 0, file_size_, PROT_READ, MAP_SHARED, fd_, 0 ),
-				"mmapping genome", name.c_str() ) ;
+		void *p = Metagenome::mmap( 0, file_size_, PROT_READ, MAP_SHARED, &fd_, 0 ) ;
 		if( Metagenome::nommap ) { close( fd_ ) ; fd_ = -1 ; }
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		base_.assign( (uint8_t*)p ) ;
@@ -109,9 +106,6 @@ FixedIndex::FixedIndex( const std::string& name )
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		length = the_stat.st_size ;
 		p = Metagenome::mmap( 0, length, PROT_READ, MAP_SHARED, &fd_, 0 ) ;
-		// XXX p = throw_errno_if_minus1( 
-				// mmap( 0, length, PROT_READ, MAP_SHARED, fd_, 0 ),
-				// "mmapping index" ) ;
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		p_ = p ;
 
@@ -119,12 +113,16 @@ FixedIndex::FixedIndex( const std::string& name )
 			throw name + " does not have 'IDX3' signature" ;
 
 		uint32_t meta_len = ((const uint32_t*)p)[1] ;
-		if( !ci_.ParseFromArray( (const char*)p + 8, meta_len ) )
+		if( !meta_.ParseFromArray( (const char*)p + 8, meta_len ) )
 			throw "error parsing meta information" ;
 
-		first_level_len = (1 << (2 * ci_.wordsize())) + 1 ;
+		first_level_len = (1 << (2 * meta_.wordsize())) + 1 ;
 		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
+
+		for( int i = 0 ; i != meta_.gap_size() ; ++i )
+			gaps_.set( meta_.gap(i) ) ;
+		meta_.clear_gap() ;
 	}
 	catch(...)
 	{
@@ -153,30 +151,16 @@ FixedIndex::FixedIndex( const std::string& name )
 
 unsigned FixedIndex::lookup1( Oligo o, PreSeeds& v, const FixedIndex::LookupParams& p, int32_t offs, int *num_useless ) const 
 {
-	Oligo o_min =     o   << ( 2*( ci_.wordsize() - p.wordsize ) ) ;
-	Oligo o_max = ( (o+1) << ( 2*( ci_.wordsize() - p.wordsize ) ) ) ;
+	Oligo o_min =     o   << ( 2*( metadata().wordsize() - p.wordsize ) ) ;
+	Oligo o_max = ( (o+1) << ( 2*( metadata().wordsize() - p.wordsize ) ) ) ;
 	if( o >= first_level_len )
 		throw "oligo number out of index' range" ;
-
-	/* XXX
-	Seed seed ;
-	seed.size = p.wordsize ;
-	seed.offset = offs ;
-	*/
 
 	if( base[o_max] - base[o_min] < p.cutoff )
 	{
 		for( uint32_t i = base[o_min] ; i != base[o_max] ; ++i )
-		{
 			if( 0 == secondary[i] % p.stride )
 				add_seed( v, (int64_t)secondary[i] - (int64_t)offs, offs, p.wordsize ) ;
-			/* XXX
-			 * {
-				seed.diagonal = 
-				v.push_back( seed ) ;
-			}
-			*/
-		}
 	}
 	else if( num_useless ) *num_useless += base[o_max] - base[o_min] ;
 	return base[o_max] - base[o_min] ;
@@ -186,10 +170,6 @@ unsigned FixedIndex::lookup1( Oligo o, PreSeeds& v, const FixedIndex::LookupPara
 //! The oligo itself will first be looked for, then all its
 //! one-substituion variants are generated (by successively xor'ing
 //! every position with 01, 10 and 11) and looked up, too.
-//!
-//! \todo The way this is implemented, the sorting of seeds is
-//!       completely overwhelmed, negating the performance gain from
-//!       seeding at all.  Needs to be fixed by a better data structure.
 //!
 //! \param o oligo to be looked up.
 //! \param v receiver for the resulting seeds
@@ -203,7 +183,7 @@ unsigned FixedIndex::lookup1m( Oligo o, PreSeeds& v, const FixedIndex::LookupPar
 {
 	unsigned total = lookup1( o, v, p, offs, num_useless ) ;
 	Oligo m1 = 1, m2 = 2, m3 = 3 ;
-	for( size_t i = 0 ; i != ci_.wordsize() ; ++i )
+	for( size_t i = 0 ; i != p.wordsize ; ++i )
 	{
 		total += lookup1( o ^ m1, v, p, offs, num_useless ) ;
 		total += lookup1( o ^ m2, v, p, offs, num_useless ) ;
@@ -445,8 +425,8 @@ bool Metagenome::translate_to_genome_coords( DnaP pos, uint32_t &xpos, const con
 
 static int get_zero_device()
 {
-	static int fdz = throw_errno_if_minus1( open( "/dev/zero", O_RDWR ), 
-			"opening", "/dev/zero" ) ;
+	static int fdz = throw_errno_if_minus1(
+			open( "/dev/zero", O_RDWR ), "opening", "/dev/zero" ) ;
 	return fdz ;
 }
 

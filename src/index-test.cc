@@ -95,7 +95,7 @@ WRAPPED_MAIN
 	}
 
 	FixedIndex index( "hg18_chr1_12.idx" ) ;
-	GenomeHolder genome = Metagenome::find_genome( index.ci_.genome_name() ) ;
+	GenomeHolder genome = Metagenome::find_genome( index.metadata().genome_name() ) ;
 
 	vector<Subject> subjects ;
 	while( const char* arg = poptGetArg( pc ) ) 
@@ -123,9 +123,10 @@ WRAPPED_MAIN
 					index.lookupS( subj->seq, seeds, params, &num_useless ) ;
 
 					output::Seeds ss ;
-					total_seeds += params.allow_mismatches 
-						? combine_seeds( seeds, min_seed_len, &ss ) 
-						: select_seeds( seeds, 2 /*p.max_diag_skew()*/, 4 /*p.max_gap()*/, min_seed_len, genome->get_contig_map(), &ss ) ;
+					total_seeds += combine_seeds( seeds, min_seed_len, &ss ) ;
+					// XXX total_seeds += params.allow_mismatches 
+						// XXX ? combine_seeds( seeds, min_seed_len, &ss ) 
+						// XXX : select_seeds( seeds, 2 /*p.max_diag_skew()*/, 4 /*p.max_gap()*/, min_seed_len, index.gaps(), &ss ) ;
 					++total_seqs ;
 
 					unsigned left = genome->find_pos( subj->chrom, subj->start ) - genome->get_base() ;

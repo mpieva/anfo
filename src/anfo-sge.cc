@@ -30,6 +30,7 @@
 #include "anfo_common.h"
 #include "compress_stream.h"
 #include "conffile.h"
+#include "misc_streams.h"
 #include "stream.h"
 #include "util.h"
 
@@ -63,13 +64,16 @@
 using namespace config ;
 using namespace std ;
 using namespace google::protobuf::io ;
+using namespace streams ;
 
 extern "C" void sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum option_tags { opt_none, opt_version } ;
+	enum option_tags { opt_none, opt_version, opt_index, opt_genome } ;
+
+	std::vector< pair< int, string > > more_opts ;
 
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
@@ -83,6 +87,8 @@ WRAPPED_MAIN
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
+		{ "index",       'i', POPT_ARG_STRING, 0,			 opt_index,   "Use FILE as index according to config", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, 0,			 opt_genome,  "Use FILE as genome according to config", "FILE" },
 		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
 		{ "nommap",       0 , POPT_ARG_NONE,&Metagenome::nommap,opt_none, "Don't use mmap(), read() indexes instead", 0 },
 		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
@@ -101,6 +107,11 @@ WRAPPED_MAIN
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 
+		case opt_index:
+		case opt_genome:
+			more_opts.push_back( make_pair( rc, poptGetOptArg( pc ) ) ) ;
+			break ;
+
 		default:
 			std::clog << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
@@ -108,44 +119,66 @@ WRAPPED_MAIN
 	}
 
 	if( !output_file ) throw "no output file" ;
-
     std::string of( expand( output_file, task_id ) ) ;
 
 	// no-op if output exists and overwriting wasn't asked for
     if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
 
-    console.set_quiet() ;
-    of.append( ".#new#" ) ;
-	streams::StreamHolder os = new streams::ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
-
 	Config conf = get_default_config( config_file ) ;
-	Mapper mapper( conf, "" ) ;
-
-	deque<string> files ;
-	while( const char* arg = poptGetArg( pc ) ) files.push_back( expand( arg, task_id ) ) ;
-	poptFreeContext( pc ) ;
-	if( files.empty() ) files.push_back( "-" ) ; 
-
-	output::Header ohdr ;
-	*ohdr.mutable_config() = conf ;
-	ohdr.set_version( PACKAGE_VERSION ) ;
-	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
-	if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
-	os->put_header( ohdr ) ; 
+    console.set_quiet() ;
 
 	signal( SIGUSR1, sig_handler ) ;
 	signal( SIGUSR2, sig_handler ) ;
 	signal( SIGTERM, sig_handler ) ;
 	signal( SIGINT, sig_handler ) ;
 
-	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
+	Holder< StreamBundle > comp = new Compose() ;
 	{
-		streams::StreamHolder inp(
-				new streams::UniversalReader( files.front(), 0, solexa_scale, fastq_origin ) ) ;
+		Holder< StreamBundle > ins = new ConcatStream() ;
+		if( poptPeekArg( pc ) ) 
+		{
+			while( const char* arg = poptGetArg( pc ) )
+				ins->add_stream( new UniversalReader(
+							expand( arg, task_id ), 0, solexa_scale, fastq_origin ) ) ;
+		}
+		else
+		{
+			ins->add_stream( new UniversalReader(
+						"-", 0, solexa_scale, fastq_origin ) ) ;
+		}
+		comp->add_stream( ins ) ;
+	}
+	poptFreeContext( pc ) ;
+
+	// XXX add adapter trimmer here!
+	for( int i = 0 ; i != more_opts.size() ; ++i )
+		comp->add_stream( more_opts[i].first == opt_genome
+				? (Stream*) new Mapper( conf, more_opts[i].second )
+				: (Stream*) new Indexer( conf, more_opts[i].second ) ) ;
+
+    of.append( ".#new#" ) ;
+	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
+
+	{
+		output::Header ohdr ;
+		*ohdr.mutable_config() = conf ;
+		ohdr.set_version( PACKAGE_VERSION ) ;
+		for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
+		if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
+		if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
+		comp->put_header( ohdr ) ; 
+	}
+
+	outs->put_header( comp->fetch_header() ) ;
+	while( !exit_with && comp->get_state() == Stream::have_output && outs->get_state() == Stream::need_input )
+		outs->put_result( comp->fetch_result() ) ;
+
+	/*
+	{
+		StreamHolder inp(
         inp->fetch_header() ;
 
-		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
+		for( ; !exit_with && inp->get_state() == Stream::have_output ; ++total_count )
 		{
 			output::Result r = inp->fetch_result() ;
 			mapper.index_sequence( r ) ;
@@ -157,11 +190,14 @@ WRAPPED_MAIN
 			os->put_result( r ) ;
 		}
 	}
+	*/
 
-	output::Footer ofoot ;
-	ofoot.set_exit_code( exit_with ) ;
-	os->put_footer( ofoot ) ;
-
+	{
+		output::Footer ofoot = comp->fetch_footer() ;
+		exit_with |= ofoot.exit_code() ;
+		ofoot.set_exit_code( exit_with ) ;
+		outs->put_footer( ofoot ) ;
+	}
 	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
 	return 0 ;
 }

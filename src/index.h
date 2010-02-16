@@ -174,9 +174,9 @@ class FixedIndex
 			uint32_t stride ;				// tiling stepsize
 		} ;
 
-		enum { signature     = 0x33584449u } ; // IDX3
+		enum { signature = 0x33584449u } ; // "IDX3"
 
-		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
+		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0) {}
 
 		//! \brief loads an index from a file
 		//! \param name filename
@@ -188,6 +188,8 @@ class FixedIndex
 		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
 
 		operator const void * () const { return base ; }
+		const Judy1 &gaps() const { return gaps_ ; }
+		const config::CompactIndex& metadata() const { return meta_ ; }
 
 		void swap( FixedIndex& i ) {
 			std::swap( p_, i.p_ ) ;
@@ -196,7 +198,6 @@ class FixedIndex
 			std::swap( first_level_len, i.first_level_len ) ;
 			std::swap( length, i.length ) ;
 			std::swap( fd_, i.fd_ ) ;
-			std::swap( ci_, i.ci_ ) ;
 		}
 
 	private:
@@ -205,9 +206,8 @@ class FixedIndex
 		uint32_t first_level_len ;
 		uint64_t length ;
 		int fd_ ;
-
-	public:
-		config::CompactIndex ci_ ;
+		Judy1 gaps_ ;
+		config::CompactIndex meta_ ;
 } ;
 
 template< typename F, typename G > void CompactGenome::scan_words(
@@ -365,7 +365,8 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 //!       its own container might be even better.
 //! \todo This code is way too slow to operate with imperfect seeds, but
 //!       those seem more valuable than clump building.  That needs to
-//!       be fixed, so both features can be combined.
+//!       be fixed, so both features can be combined.  On top of that,
+//!       it might be completely broken, too.
 //! \todo The clump building needs the genome's contig map, which we
 //!       don't actually want to have available here.  A list of gaps
 //!       would work equally well, but we don't have that (yet).
@@ -377,7 +378,7 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 //! \param cm contig map from indexed genome
 //! \return number of good seeds produced
 inline int select_seeds( PreSeeds& v, uint32_t d, int32_t r, uint32_t m,
-		const CompactGenome::ContigMap &cm, output::Seeds *ss )
+		const Judy1 &gaps, output::Seeds *ss )
 {
 	int out = 0 ;
 	if( !v.empty() )
@@ -429,16 +430,10 @@ inline int select_seeds( PreSeeds& v, uint32_t d, int32_t r, uint32_t m,
 							&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
 					{
 						// make sure both parts belong to the same contig
-						CompactGenome::ContigMap::const_iterator left = cm.upper_bound(
-								open_in_clump->offset + open_in_clump->diagonal ) ;
-						CompactGenome::ContigMap::const_iterator right = cm.upper_bound(
-								candidate->offset + candidate->diagonal ) ;
-
-						if( left == right ) {
-							// Include the candidate by swapping it with the
-							// first seed not in our clump and extending the
-							// clump.  Remember that we swapped, we may have
-							// messed up the sorting.
+						Word_t next_gap = open_in_clump->offset + open_in_clump->diagonal ;
+						if( !gaps.first( next_gap ) || next_gap >
+								candidate->offset + candidate->diagonal ) 
+						{
 							std::swap( *clump_end++, *candidate ) ;
 							if( candidate < last_touched ) last_touched = candidate ;
 						}

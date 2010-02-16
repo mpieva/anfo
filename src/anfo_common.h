@@ -21,6 +21,7 @@
 
 #include "align.h"
 #include "index.h"
+#include "stream.h"
 
 #include "config.pb.h"
 #include "output.pb.h"
@@ -42,27 +43,45 @@ struct reference_overlaps {
 		return a.reference >= x && a.reference <= y ; }
 } ;
 
-//! \brief configured mapper
-//! This is what you would think of as an instance of ANFO running.
-//! Wrapping it in a class makes dragging along all the configuration
-//! data somewhat easier.
-class Mapper
+namespace streams {
+
+//! \brief configured Indexer
+//! Knows about one index, will look at each record, check the policy
+//! and if appropriate, will do an index lookup.  Constructed seeds are
+//! stored and passed on.  The policy is taken from a config file and
+//! stored in the header.
+class Indexer : public Stream
 {
 	private:
-		config::Config mi_ ;
+		config::Config conf_ ;
+		std::string index_name_ ;
 		FixedIndex index_ ;
+
 	public:
+		Indexer( const config::Config &config, const std::string& index_name ) ;
+
+		virtual void put_header( const Header& ) ;
+		virtual void put_result( const Result& ) ;
+} ;
+
+//! \brief configured mapper
+//! Knows about one genome and an aligner configuration.  Looks at each
+//! record, takes the seed collection for its genome and aligns.  Seeds
+//! are removed, the result is added and passed on.
+class Mapper : public Stream
+{
+	private:
+		config::Config conf_ ;
 		GenomeHolder genome_ ;
 
-	private:
-		std::string index_name_ ;
-
 	public:
-		Mapper( const config::Config &config, const std::string& index_name ) ;
+		Mapper( const config::Config &config, const std::string& genome_name ) ;
 
-		void index_sequence( output::Result &r ) ; // XXX , QSequence &qs, std::deque< alignment_type >& ol ) ;
-		void process_sequence( /* XXX const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol,*/ output::Result &r ) ;
+		virtual void put_header( const Header& ) ;
+		virtual void put_result( const Result& ) ;
 } ;
+
+} ; // namespace streams
 
 std::string expand( const std::string&, int ) ;
 

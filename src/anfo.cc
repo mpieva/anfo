@@ -93,7 +93,7 @@ struct CommonData
 	Mapper mapper ;
 
 	CommonData( const Config& conf, const char* fn )
-		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf, "" ) {} // XXX
+		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf, "", "" ) {} // XXX
 } ;
 
 void* run_output_thread( void* p )

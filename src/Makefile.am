@@ -1,4 +1,5 @@
-bin_PROGRAMS =  fa2dna  dnaindex  anfo  anfo-sge  anfo-tool
+bin_PROGRAMS =  fa2dna  dnaindex  anfo-sge  anfo-tool
+EXTRA_PROGRAMS =  anfo
 libexec_PROGRAMS =  martin-table  file-info  index-test
 lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 

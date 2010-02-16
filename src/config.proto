@@ -103,6 +103,8 @@ message CompactIndex {
 message CompactIndexSpec {
     required string name = 2 ;
     optional uint32 cutoff = 4 ;
+    optional uint32 wordsize = 3 ;
+    optional uint32 stride = 6 ;
 
     // number of mismatches to allow per seed
     // Only values of 0 or 1 are currently support, and even that
