@@ -221,7 +221,11 @@ template< typename F, typename G > void CompactGenome::scan_words(
 	uint32_t eoffs = 2 * (slice+1) * (int64_t)length_ / slices ;
 	Oligo dna = 0 ;
 
+    // do not start before first contig (that's the header region)
+    assert( g_.sequence_size() && g_.sequence(0).contig_size() ) ;
+    offs = std::max( offs, g_.sequence(0).contig(0).offset()-1 ) ;
 	while( base_[ offs ] != 0 ) ++offs ;	// find first gap
+
 	for( unsigned i = 0 ; i != w ; ++i )	// fill first word
 	{
 		dna <<= 4 ;
