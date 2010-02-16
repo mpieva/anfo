@@ -17,7 +17,14 @@
 package output ;
 
 option optimize_for = SPEED ;
+
 import "config.proto" ;
+import "google/protobuf/descriptor.proto" ;
+
+extend google.protobuf.FieldOptions {
+    // show method for pretty text output
+    optional string show = 31775 ;
+}
 
 message Header {
     // program version string
@@ -48,10 +55,10 @@ message Header {
     // (useful to merge files?)
     optional bool is_sorted_by_name = 15 [default=false] ;
 
-	// indicates whether an output file is sorted by genome coordinate,
-	// and if so, which genomes were used in what order (that is target
-	// sequence name, then earliest matching position, then alignment
-	// length; needed for consensus calling and merging)
+    // indicates whether an output file is sorted by genome coordinate,
+    // and if so, which genomes were used in what order (that is target
+    // sequence name, then earliest matching position, then alignment
+    // length; needed for consensus calling and merging)
     repeated string is_sorted_by_coordinate = 13 ;
 
     // old way to encode sorting, don't use
@@ -165,9 +172,9 @@ message OldResult {
     // index of first base that's not trimmed from 5' end
     optional uint32 trim_left = 11 [ default = 0 ] ;
 
-	// index of first base that is trimmed from 3' end
-	// Note that the part trimmed from the 5' end still counts for this
-	// index.  If absent, nothing was trimmed from the 3' end.
+    // index of first base that is trimmed from 3' end
+    // Note that the part trimmed from the 5' end still counts for this
+    // index.  If absent, nothing was trimmed from the 3' end.
     optional uint32 trim_right = 12 ;
 
     // Reason we arrived at this result
@@ -218,29 +225,29 @@ message Read {
     required string sequence = 2 ;
 
     // quality scores (Phred scale, raw, without silly offsets)
-	// also: min_lk in the sense iof GLF when applicable
-    optional bytes quality = 14 ;
+    // also: min_lk in the sense of GLF when applicable
+    optional bytes quality = 14 [ (show) = "show_quality" ] ;
 
     // likelihoods of consensus sequence
-	// This is intended to resemble the GL format or at least allow
-	// generation of GLF.  For each position in the sequence, we store
-	// either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
-	// as specified for GLF.  Each entry is as long as the sequence, the
-	// order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
-	// Bytes should be sufficient for storage, since we clamp almost
-	// everything at 254 anyway.
+    // This is intended to resemble the GL format or at least allow
+    // generation of GLF.  For each position in the sequence, we store
+    // either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
+    // as specified for GLF.  Each entry is as long as the sequence, the
+    // order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
+    // Bytes should be sufficient for storage, since we clamp almost
+    // everything at 254 anyway.
     repeated bytes likelihoods = 15 ;
 
     // raw counts of what base was seen in a position
     // Not needed or useful for GLF, but useful to retain 'just in
     // case'.  Length must equal 4*(length sequence), treated as 2D
     // array, inner index is [A,C,G,T].
-    repeated uint32 seen_bases = 16 [packed=true] ;
+    repeated uint32 seen_bases = 16 [ packed=true, (show) = "show_seen_bases" ] ;
 
     // total depth at each position
     // Coverage at each position is the sum of bases A,C,G,T and gaps.
     // Length is supposed to equal (length sequence).
-    repeated uint32 depth = 17 [packed=true] ;
+    repeated uint32 depth = 17 [ packed=true, (show) = "show_uint32_array" ] ;
 
     // number of bases trimmed at 5' (at 3') end if trimming was done
     optional uint32 trim_left = 11 ;
@@ -256,7 +263,7 @@ message Result {
     repeated Read member = 2 ;
 
     // alignments, if any
-    repeated Hit hit = 3 ;
+    repeated Hit hit = 3 [ (show) = "show_hit" ] ;
 
     // statistics/debug info, if any
     repeated AlnStats aln_stats = 4 ;
@@ -305,30 +312,35 @@ message Hit {
     optional float evalue = 6 ;
 
     // Alignment as (binary near-equivalent of) a CIGAR line
-	// The low four bits encode the operation as an enum, the rest
-	// encodes the length.  This way, no real length restriction exists.
-	// This encoding happens to be the same as that used by BAM, with
-	// two extensions: A match of length 0 encodes for the seed center
-	// and the Mismatch operation is equivalent to the Match operation,
-	// but signifies that the sequences actually differ.
-	enum Operation {
-		Match = 0 ;
-		Insert = 1 ;
-		Delete = 2 ;
-		Skip = 3 ; 		// unused
-		SoftClip = 4 ; 	// unused
-		HardClip = 5 ; 	// unused
-		Pad = 6 ;   	// unused
-		Mismatch = 15 ; // not yet used
-	} ;
+    // The low four bits encode the operation as an enum, the rest
+    // encodes the length.  This way, no real length restriction exists.
+    // This encoding happens to be the same as that used by BAM, with
+    // two extensions: A match of length 0 encodes for the seed center
+    // and the Mismatch operation is equivalent to the Match operation,
+    // but signifies that the sequences actually differ.
+    enum Operation {
+        Match = 0 ;
+        Insert = 1 ;
+        Delete = 2 ;
+        Skip = 3 ; 		// unused
+        SoftClip = 4 ; 	// unused
+        HardClip = 5 ; 	// unused
+        Pad = 6 ;   	// unused
+        Mismatch = 15 ; // not yet used
+    } ;
 
-    repeated uint32 cigar = 7 [packed=true] ;
+    repeated uint32 cigar = 7 [ packed = true, (show) = "show_cigar" ] ;
 
     // Difference in bit score to next best hit, to next best on
     // different chromosome, to next on different class of chromosomes,
     // if they exist.  Classes for this purpose are sex chromosomes,
     // autosomes and organelles.
+    // This is the same as MAPQ in sam/bam.  If we're looking at a
+    // pseudo-assembly, it is actually the RMS of the MAPQs of the reads
+    // that were included in it.
     optional sint32 diff_to_next = 8 ;
+
+    // following two aren't actually used yet
     optional sint32 diff_to_next_chromosome = 9 ;
     optional sint32 diff_to_next_chromosome_class = 10 ;
 
@@ -338,10 +350,9 @@ message Hit {
     optional int32 taxid_species = 14 ;
     optional int32 taxid_order = 13 ;
 
-	// used only internally when producing textual output
-	optional string aln_ref = 101 ;
-	optional string aln_qry = 102 ;
-	optional string aln_cns = 103 ;
+    // used only internally when producing textual output
+    optional string aln_ref = 101 [ (show) = "show_noop" ] ;
+    optional string aln_qry = 102 [ (show) = "show_noop" ] ;
 }
 
 // statistics about alignment, collected for debugging purposes
@@ -364,3 +375,4 @@ message AlnStats {
     optional string tag = 15 ;
 }
 
+// vim:expandtab

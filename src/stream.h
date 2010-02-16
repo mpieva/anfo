@@ -36,6 +36,15 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+// Including Elk defines some macros that collide with protobuf.  We
+// undefine them (and hope they aren't needed...).
+
+#if HAVE_ELK_SCHEME_H
+#include <elk/scheme.h>
+#undef Print
+#undef MAX_TYPE
+#endif
+
 namespace streams {
 	using namespace output ;
 	using namespace std ;
@@ -252,7 +261,18 @@ class Stream
 		//! flush internal buffers and signal end_of_stream.
 		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
 
-		// doesn't belong here, but is convenient
+		//! \brief get the 'summary' of having processed this stream
+		//! This functionality is dependent on Elk being present:  since
+		//! the meaning of what the 'summary' is differs from stream to
+		//! stream, the result is simply an Elk object.  The default is
+		//! to return the exit code contained in the footer.
+#if HAVE_ELK_SCHEME_H
+		virtual Object get_summary() const { return False ; }
+#endif
+		virtual string type_name() const { return "Stream" ; }
+
+	protected:
+		// doesn't belong here, but it's convenient
 		void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
 } ;
 
@@ -269,13 +289,8 @@ class StreamBundle : public Stream
 		typedef std::deque< StreamHolder >::const_reverse_iterator criter ;
 
 	public:
-		virtual void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
+		void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 } ;
-
-//! \internal
-//! Tracked to avoid bumping into the file descriptor limit
-//! (mostly important for merge sorting and mega-merge).
-extern int anfo_reader__num_files_ ;
 
 struct ParseError : public Exception {
 	std::string msg_ ;
@@ -285,24 +300,59 @@ struct ParseError : public Exception {
 
 
 //! \brief presents ANFO files as series of messages
-//! This class will read a possibly compressed result stream and present
-//! it using an iteration interface.  Normally, gzip and bzip2
-//! decompression will transparently be done.
+//! This class will read a stream of results formatted as a continuous
+//! protobuf message.
 class AnfoReader : public Stream
 {
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		std::string name_ ;
 
-		virtual ~AnfoReader() { --anfo_reader__num_files_ ; }
-
 	public: 
 		AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
 		virtual Result fetch_result() ;
 
 		//! \internal
-		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
+		virtual string type_name() const { return "AnfoReader(" + name_ + ")" ; }
 } ;
+
+// \brief reader for all supported formats
+// Here we take care not to open files before the header is requested.
+// This is necessary to allow merging thousands of files without
+// directly running into a filedescriptor limit.
+// To this end, the UniversalReader can be initialized with or without a
+// stream object.  If the stream exists, we take care not to read from
+// it until the header is needed, and the name given serves just for
+// informational purposes.  If no stream exists, we create a
+// FileInputStream from the name (which must be a filename, obviously)
+// when the header is requested.  At this point we also inspect the
+// stream to determine its format and create the appropriate filters to
+// decode it.
+class UniversalReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		std::string name_ ;
+		StreamHolder str_ ;
+
+		bool solexa_scores_ ;
+		int origin_ ;
+
+	public: 
+		UniversalReader(
+				const std::string& name,
+				google::protobuf::io::ZeroCopyInputStream* is = 0,
+				bool solexa_scores = false,
+				int origin = 33 
+				) ;
+
+		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
+		virtual Header fetch_header() ;
+		virtual Result fetch_result() { if( get_state() == have_output ) return str_->fetch_result() ; throw "calling sequence violated" ; }
+		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
+		virtual string type_name() const { return "UniversalReader(" + name_ + ")" ; }
+} ;
+
 
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
@@ -349,8 +399,12 @@ class ChunkedWriter : public Stream
 
 	public:
 		static uint8_t method_of( int l ) {
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
 			if( l >= 75 ) return bzip ;
+#endif
+#if HAVE_LIBZ && HAVE_ZLIB_H
 			if( l >= 50 ) return gzip ;
+#endif
 			if( l >= 10 ) return fastlz ;
 			return none ;
 		}
@@ -367,6 +421,7 @@ class ChunkedWriter : public Stream
 		virtual void put_header( const Header& h ) ;
 		virtual void put_result( const Result& r ) ;
 		virtual void put_footer( const Footer& f ) ;
+		virtual string type_name() const { return "ChunkedWriter(" + name_ + ")" ; }
 } ;
 
 class ChunkedReader : public Stream
@@ -377,16 +432,14 @@ class ChunkedReader : public Stream
 		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
 		std::string name_ ;
 
-		virtual ~ChunkedReader() { --anfo_reader__num_files_ ; }
 		bool get_next_chunk() ;
 
 	public: 
 		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
 		virtual Result fetch_result() ;
-		virtual Footer fetch_footer() ;
 
 		//! \internal
-		static unsigned num_open_files() { return anfo_reader__num_files_ ; }
+		virtual string type_name() const { return "ChunkedReader(" + name_ + ")" ; }
 } ;
 
 //! \brief filters that drop or modify isolated records
@@ -401,6 +454,8 @@ class Filter : public Stream
 } ;
 
 //! \brief filters that drop some alignments
+//! Filtering only applies to hits to the specified genome(s), or to all
+//! hits if no genomes are specified.  Other hits pass through.
 //! \todo Maybe some stats could be gathered into some sort of a result.
 class HitFilter : public Stream
 {
@@ -441,6 +496,8 @@ class IgnoreHit : public HitFilter
 		virtual bool keep( const Hit& h ) { return !ss_.empty() && !contains( ss_, h.sequence() ) ; }
 } ;
 
+//! \brief deletes hits to uninteresting genomes
+//! Hits to the specified genomes pass through, all others are dropped.
 class OnlyGenome : public Filter
 {
 	private:
@@ -484,6 +541,17 @@ class MapqFilter : public HitFilter
 	public:
 		MapqFilter( const vector<string> &gs, int q ) : HitFilter(gs), minmapq_(q) {}
 		virtual bool keep( const Hit& ) ;
+} ;
+
+//! \brief filter for some average quality
+class QualFilter : public Filter
+{
+	private:
+		double minqual_ ; ;
+
+	public:
+		QualFilter( double q ) : minqual_(q) {}
+		virtual bool xform( Result& ) ;
 } ;
 
 //! \brief stream that filters for minimum sequence length
@@ -554,14 +622,15 @@ class MultiFilter : public Filter
 //! (Originally I used gap symbols, which doesn't make sense and
 //! actually confused the legacy tool downstream.  Ns should be fine and
 //! are actually the correct symbol in a certain sense.)
-//! suppress the counting of low quality bases.
-class QualFilter : public Filter
+//! This suppresses the counting of low quality bases in whatever
+//! follows downstream.
+class QualMasker : public Filter
 {
 	private:
 		int q_ ;
 
 	public:
-		QualFilter( int q ) : q_(q) {}
+		QualMasker( int q ) : q_(q) {}
 		virtual bool xform( Result& ) ;
 } ;
 
@@ -656,18 +725,10 @@ class RmdupStream : public Stream
 //! redundant information), then the results are simply concatenated.
 class ConcatStream : public StreamBundle
 {
-	private:
-		std::deque< output::Result > rs_ ;
-
 	public:
-		virtual void add_stream( StreamHolder ) ;
+		virtual Header fetch_header() ;
 		virtual Result fetch_result() ;
 } ;
-
-StreamHolder make_input_stream( const char* name, bool solexa_scores = false, char origin = 33 ) ;
-StreamHolder make_input_stream( int fd, const char* name = "<pipe>", bool solexa_scores = false, char origin = 33 ) ;
-StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name = "<pipe>", int64_t total = -1, bool solexa_scores = false, char origin = 33 ) ;
-
 
 class FastqReader : public Stream
 {
@@ -677,14 +738,45 @@ class FastqReader : public Stream
 		char origin_ ;
 
 		void read_next_message() {
-			state_ = read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ )
-				? have_output : end_of_stream ;
-			sanitize( *res_.mutable_read() ) ;
+            if( read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ ) ) {
+                state_ = have_output ;
+                sanitize( *res_.mutable_read() ) ;
+            } else {
+                state_ = end_of_stream ;
+				is_.reset( 0 ) ;
+            }
 		}
 
 	public: 
 		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) ;
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
+		virtual string type_name() const { return "FastqReader" ; }
+} ;
+
+class SffReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		string name_ ;
+		unsigned remaining_ ;
+		unsigned number_of_flows_ ;
+
+		const void* buf_ ;
+		int buf_size_ ;
+
+		uint8_t read_uint8() ;
+		uint16_t read_uint16() ;
+		uint32_t read_uint32() ;
+		void read_string( unsigned, string* ) ;
+		void skip( int ) ;
+
+	public:
+		SffReader( auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name ) : 
+			is_( is ), name_( name ), buf_(0), buf_size_(0) {}
+
+		virtual Header fetch_header() ;
+		virtual Result fetch_result() ;
+		virtual string type_name() const { return "SffReader(" + name_ + ")" ; }
 } ;
 
 } // namespace streams

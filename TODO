@@ -1,0 +1,4 @@
+- The memory management from scheme code is untenable.  Much better
+  would be a style where a wrapper function creates a stream, calls a
+  continuation on it, extracts a result and disposes of it.  While we're
+  at it, do this from scsh, not Elk.

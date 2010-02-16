@@ -30,6 +30,8 @@
 #include <iterator>
 #include <sstream>
 
+#include <dlfcn.h>
+
 namespace streams {
 
 bool GenTextAlignment::xform( Result& res ) 
@@ -42,13 +44,12 @@ bool GenTextAlignment::xform( Result& res )
 
 		std::string& r = *h.mutable_aln_ref() ;
 		std::string& q = *h.mutable_aln_qry() ;
-		std::string& c = *h.mutable_aln_cns() ;
 
 		GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
 		DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
 		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 
-		r.clear() ; q.clear() ; c.clear() ;
+		r.clear() ; q.clear() ;
 		if( context_ ) 
 		{
 			DnaP ref1 = ref ;
@@ -58,7 +59,6 @@ bool GenTextAlignment::xform( Result& res )
 				if( ref1[-1] ) --ref1 ;
 			}
 			q = std::string( context_, '-' ) ;
-			c = std::string( context_, ' ' ) ;
 		}
 
 		for( int i = 0 ; i != h.cigar_size() ; ++i )
@@ -71,7 +71,6 @@ bool GenTextAlignment::xform( Result& res )
 					for( size_t j = 0 ; j != l ; ++j, ++ref, ++qry ) {
 						r.push_back( from_ambicode( *ref ) ) ;
 						q.push_back( *qry ) ;
-						c.push_back( from_ambicode( *ref ) == *qry ? '*' : ' ' ) ;
 					}
 					break ;
 
@@ -80,7 +79,6 @@ bool GenTextAlignment::xform( Result& res )
 					for( size_t j = 0 ; j != l ; ++j, ++qry ) {
 						r.push_back( '-' ) ;
 						q.push_back( *qry ) ;
-						c.push_back( ' ' ) ;
 					}
 					break ;
 
@@ -88,7 +86,6 @@ bool GenTextAlignment::xform( Result& res )
 					for( size_t j = 0 ; j != l ; ++j, ++ref ) {
 						r.push_back( from_ambicode( *ref ) ) ;
 						q.push_back( '-' ) ;
-						c.push_back( ' ' ) ;
 					}
 					break ;
 
@@ -104,43 +101,229 @@ bool GenTextAlignment::xform( Result& res )
 			if( *ref ) ++ref ;
 		}
 		q += std::string( context_, '-' ) ;
-		c += std::string( context_, ' ' ) ;
 	}
 	return true ;
 }
 
-void TextWriter::print_msg( const google::protobuf::Message& m )
+typedef void (*PrintMethod)( const google::protobuf::Message& m, const google::protobuf::Reflection*, const google::protobuf::FieldDescriptor*, ostream&, int ) ;
+
+void generic_show_message( const google::protobuf::Message&, std::ostream&, int ) ;
+void generic_show_known_fields( const google::protobuf::Message&, std::ostream&, int ) ;
+void generic_show_unknown_fields( const google::protobuf::Message&, std::ostream&, int ) ;
+
+// hides a field by printing nothing
+extern "C" void show_noop( const google::protobuf::Message& m, const google::protobuf::Reflection*, const google::protobuf::FieldDescriptor*, ostream& s, int ) {}
+
+// CIGAR line: decode to string, same way SAM would do it
+extern "C" void show_cigar( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
 {
-	google::protobuf::TextFormat::Print( m, os_.get() ) ;
-	void* data ; int size ;
-	os_->Next( &data, &size ) ;
-	*(char*)data = '\n' ;
-	data = (char*)data + 1 ;
-	--size ;
-	if( !size ) os_->Next( &data, &size ) ;
-	*(char*)data = '\n' ;
-	data = (char*)data + 1 ;
-	--size ;
-	if( size ) os_->BackUp( size ) ;
+	s << string( indent, ' ' ) << f->name() << ": " ;
+	for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i )
+	{
+		uint32_t c = r->GetRepeatedUInt32( m, f, i ) ;
+		if( c == 0 ) s << '/' ;
+		else s << cigar_len(c) << "MIDGSHP........M"[ cigar_op(c) ] ;
+	}
+	s << '\n' ;
+}
+
+// array of ints: formatted into comma-separated line
+extern "C" void show_uint32_array( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
+{
+	s << string( indent, ' ' ) << f->name() << ": " ;
+	if( int l = r->FieldSize( m, f ) ) 
+	{
+		s << r->GetRepeatedUInt32( m, f, 0 ) ;
+		for( int i = 1 ; i != l ; ++i )
+			s << ',' << r->GetRepeatedUInt32( m, f, i ) ;
+	}
+	s << '\n' ;
+}
+
+// seen bases: same as array of ints, but we have four interleaved
+// arrays
+extern "C" void show_seen_bases( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
+{
+	for( int i = 0 ; i != 4 ; ++i )
+	{
+		s << string( indent, ' ' ) << f->name() << '_' << "ACGT"[i] << ": " ;
+		int l = r->FieldSize( m, f ) ;
+		if( i <= l )
+		{
+			s << r->GetRepeatedUInt32( m, f, i ) ;
+			for( int j = i+4 ; j < l ; j+=4 )
+				s << ',' << r->GetRepeatedUInt32( m, f, j ) ;
+		}
+		s << '\n' ;
+	}
+}
+
+// Hit: basically a generic message, but we add the textual,
+// line-wrapped alignment (if present)
+extern "C" void show_hit( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int i ) 
+{
+	for( int j = 0 ; j != r->FieldSize( m, f ) ; ++j )
+	{
+		const output::Hit& h = static_cast<const output::Hit&>( r->GetRepeatedMessage( m, f, j ) ) ;
+		s << string( i, ' ' ) << f->name() << " {\n" ;
+		generic_show_known_fields( h, s, i+2 ) ;
+		
+		// prints a hit: REF & QRY are hidden anyway; here we add them 
+		if( h.has_aln_ref() && h.has_aln_qry() && h.aln_ref().size() == h.aln_qry().size() ) {
+			const std::string& r = h.aln_ref(), q = h.aln_qry() ;
+			for( size_t k = 0 ; k < r.size() ; k += 50 )
+			{
+				s << '\n' ;
+				s << string( i+2, ' ' ) << "REF: " << r.substr( k, 50 ) << '\n' ;
+				s << string( i+2, ' ' ) << "QRY: " << q.substr( k, 50 ) << '\n' ;
+				s << string( i+2, ' ' ) << "CNS: " ;
+				for( size_t l = k ; l != k+50 && l != r.size() ; ++l )
+					s << " *"[ r[l] == q[l] ] ;
+				s << '\n' ;
+			}
+		}
+
+		generic_show_unknown_fields( h, s, i+2 ) ;
+		s << string( i, ' ' ) << "}\n" ;
+	}
+}
+
+void generic_show_string( const string& s, std::ostream& o, int off = 0 )
+{
+	o << '"' ;
+	for( size_t i = 0 ; i != s.size() ; ++i )
+	{
+		unsigned c = (unsigned char)s[i] + off ;
+		switch( c )
+		{
+			case '\r': o << "\\r" ; break ;
+			case '\n': o << "\\n" ; break ;
+			case '"':  o << "\\\"" ; break ;
+			case '\\': o << "\\\\" ; break ;
+			case '\t': o << "\\t" ; break ;
+			default:
+					   if( c >= ' ' && c <= '~' && c != '"' ) o << (char)c ;
+					   else o << '\\' << (char)( '0' + ((c >> 6) & 7) )
+                                      << (char)( '0' + ((c >> 3) & 7) )
+                                      << (char)( '0' + ((c >> 0) & 7) ) ;
+		}
+	}
+	o << '"' ;
+}
+
+extern "C" void show_quality( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int i ) 
+{
+	s << string( i, ' ' ) << f->name() << ' ' ;
+	generic_show_string( r->GetString( m, f ), s, 33 ) ;
+	s << '\n' ;
+}
+
+void universal_print_field( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent )
+{
+	if( f->options().HasExtension( output::show ) )
+	{
+		const std::string& method_name = f->options().GetExtension( output::show ) ;
+		if( void* p = dlsym( RTLD_DEFAULT, method_name.c_str() ) ) return ((PrintMethod)p)( m, r, f, s, indent ) ;
+		std::stringstream ss ;
+		ss << "TextWriter: " << method_name << " declared for "
+			<< m.GetDescriptor()->name() << "::" << f->name() << ", but not found." ;
+		console.output( Console::warning, ss.str() ) ;
+	}
+
+	if( f->label() == google::protobuf::FieldDescriptor::LABEL_REPEATED ) {
+		for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i ) 
+		{
+			s << string( indent, ' ' ) << f->name() ;
+			if( f->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE ) s << ':' ;
+			s << ' ' ;
+
+			switch( f->cpp_type() )
+			{
+				case google::protobuf::FieldDescriptor::CPPTYPE_INT32:   s << r->GetRepeatedInt32( m, f, i ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_INT64:   s << r->GetRepeatedInt64( m, f, i ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_UINT32:  s << r->GetRepeatedUInt32( m, f, i ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_UINT64:  s << r->GetRepeatedUInt64( m, f, i ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE:  s << r->GetRepeatedDouble( m, f, i ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_FLOAT:   s << r->GetRepeatedFloat( m, f, i ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_BOOL:    s << ( r->GetRepeatedBool( m, f, i ) ? "true" : "false" ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_ENUM:    s << r->GetRepeatedEnum( m, f, i )->name() ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_STRING:  generic_show_string( r->GetRepeatedString( m, f, i ), s ) ; break ;
+				case google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE: generic_show_message( r->GetRepeatedMessage( m, f, i ), s, indent ) ; break ;
+				default: std::cerr << "don't know how to print cpp_type " << f->cpp_type() << "\n" ;
+			}
+			s << '\n' ;
+		}
+	}
+	else 
+	{
+		s << string( indent, ' ' ) << f->name() ;
+		if( f->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE ) s << ':' ;
+		s << ' ' ;
+
+		switch( f->cpp_type() )
+		{
+			case google::protobuf::FieldDescriptor::CPPTYPE_INT32:   s << r->GetInt32( m, f ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_INT64:   s << r->GetInt64( m, f ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_UINT32:  s << r->GetUInt32( m, f ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_UINT64:  s << r->GetUInt64( m, f ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE:  s << r->GetDouble( m, f ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_FLOAT:   s << r->GetFloat( m, f ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_BOOL:    s << ( r->GetBool( m, f ) ? "true" : "false" ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_ENUM:    s << r->GetEnum( m, f )->name() ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_STRING:  generic_show_string( r->GetString( m, f ), s ) ; break ;
+			case google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE: generic_show_message( r->GetMessage( m, f ), s, indent ) ; break ;
+			default: std::cerr << "don't know how to print cpp_type " << f->cpp_type() << "\n" ;
+		}
+		s << '\n' ;
+	}
+}
+
+void generic_show_known_fields( const google::protobuf::Message& m, std::ostream& s, int indent )
+{
+	const google::protobuf::Reflection* reflection = m.GetReflection() ;
+	std::vector< const google::protobuf::FieldDescriptor* > fields;
+	reflection->ListFields( m, &fields ) ;
+	for( size_t i = 0 ; i < fields.size() ; i++ )
+	{
+		universal_print_field( m, reflection, fields[i], s, indent ) ;
+	}
+}
+
+void generic_show_unknown_fields( const google::protobuf::Message& m, std::ostream& s, int indent )
+{
+	// XXX missing (or unneeded?)
+}
+
+void generic_show_message( const google::protobuf::Message& m, std::ostream& s, int indent )
+{
+	s << "{\n" ;
+	generic_show_known_fields( m, s, indent+2 ) ;
+	generic_show_unknown_fields( m, s, indent+2 ) ;
+	s << string( indent, ' ' ) << "}" ;
+}
+
+void show_message( const std::string& name, const google::protobuf::Message& m, std::ostream& s )
+{
+	s << name << ' ' ;
+	generic_show_message( m, s, 0 ) ;
+	s << "\n\n\n" ;
 }
 
 void TextWriter::put_header( const Header& h )
 {
 	Stream::put_header( h ) ;
-	print_msg( h ) ;
-	for( int i = 0 ; i != h.config().genome_path_size() ; ++i )
-		Metagenome::add_path( h.config().genome_path( i ) ) ;
+	show_message( "Header", h, *out_ ) ;
 }
 
 void TextWriter::put_result( const Result& r )
 {
-	google::protobuf::TextFormat::Print( r, os_.get() ) ;
+	show_message( "Result", r, *out_ ) ;
 }
 
 void TextWriter::put_footer( const Footer& f )
 {
 	Stream::put_footer( f ) ;
-	print_msg( f ) ;
+	show_message( "Footer", f, *out_ ) ;
 }
 
 //! \page anfo_to_sam Conversion to SAM
@@ -283,8 +466,8 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 				*out_ << '*' ;
 		}
 
-		/*[TAGS]*/ /*SCORE*/
-		*out_ << "\tAS:i:" << hit.score() << '\n' ;
+		/*[TAGS]*/ /* score is actually phred likelihood */
+		*out_ << "\tUQ:i:" << hit.score() << '\n' ;
 	}
 
 	if( result.hit_size() == 0 )
@@ -335,7 +518,7 @@ void FastaAlnWriter::put_result( const Result& r )
 {
 	if( const Hit* h = hit_to( r ) )
 	{
-		if( h->has_aln_ref() && h->has_aln_qry() && h->has_aln_cns() )
+		if( h->has_aln_ref() && h->has_aln_qry() )
 		{
 			*out_ << '>' << h->sequence() << ' '
 				<< h->start_pos()
@@ -354,17 +537,21 @@ void FastqWriter::put_result( const Result& rr )
     const output::Read& r = rr.read() ;
 	if( r.has_quality() ) 
 	{
-		*out_ << '@' << r.seqid() ;
+		*out_ << ( with_qual_ && r.has_quality() ? '@' : '>' ) << r.seqid() ;
 		if( r.has_description() ) *out_ << ' ' << r.description() ;
 		for( size_t i = 0 ; i < r.sequence().size() ; i += 50 )
 			*out_ << '\n' << r.sequence().substr( i, 50 ) ;
-		*out_ << "\n+\n" ;
-        const std::string& q = r.quality() ;
-		for( size_t i = 0 ; i < q.size() ; i += 50 )
+		*out_ << '\n' ;
+		if( with_qual_ && r.has_quality() ) 
 		{
-			for( size_t j = i ; j != i+50 && j != q.size() ; ++j )
-				*out_ << (char)std::min(126, 33 + q[j]) ;
-			*out_ << '\n' ;
+			*out_ << "+\n" ;
+			const std::string& q = r.quality() ;
+			for( size_t i = 0 ; i < q.size() ; i += 50 )
+			{
+				for( size_t j = i ; j != i+50 && j != q.size() ; ++j )
+					*out_ << (char)std::min(126, 33 + (uint8_t)q[j]) ;
+				*out_ << '\n' ;
+			}
 		}
 	}
 }
@@ -378,6 +565,43 @@ void TableWriter::put_result( const Result& r )
 
 		*out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 	}
+}
+
+void WigCoverageWriter::put_result( const Result& r )
+{
+	// depth must be known at all
+	if( !r.read().depth_size() ) return ;
+
+	// assume one hit, but if there are more, take the best one
+	const Hit* h = hit_to( r ) ;
+
+	// must be on forward strand (by construction, in fact)
+	if( !h || h->aln_length() <= 0 ) return ;
+
+	*out_ << "fixedStep\tchrom=" << h->sequence() << "\tstart=" << h->start_pos() << "\tstep=1\n" ;
+
+	int alnpos = 0 ;
+	int cigar_maj = 0 ;
+	size_t cigar_min = 0 ;
+	while( alnpos != r.read().depth_size() && cigar_maj != h->cigar_size() ) {
+		switch( cigar_op( h->cigar(cigar_maj) ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Delete:
+				*out_ << r.read().depth(alnpos) << '\n' ;
+				++alnpos ;
+				break ;
+			default:
+				break ;
+		} 
+		++cigar_min ;
+		while( cigar_maj != h->cigar_size() && cigar_min == cigar_len( h->cigar(cigar_maj) ) ) {
+			++cigar_maj ;
+			cigar_min = 0 ;
+		}
+	}
+	*out_ << '\n' ;
 }
 
 } // namespace

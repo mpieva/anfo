@@ -19,7 +19,7 @@
 //! environments, e.g. our broken setup of the Sun Grid Engine.  These
 //! are the concessions to the environment:
 //!
-//! * This version is single threaded (doesn't even link pthreads).
+//! * This version is single threaded.
 //! * It installs a signal handler to report punishment by the SGE.
 //! * It writes a new file and renames it at the end so that improper
 //!   shutdown is detectable.
@@ -64,7 +64,7 @@ using namespace config ;
 using namespace std ;
 using namespace google::protobuf::io ;
 
-extern "C" RETSIGTYPE sig_handler( int sig ) { exit_with = sig + 128 ; }
+extern "C" void sig_handler( int sig ) { exit_with = sig + 128 ; }
 	
 WRAPPED_MAIN
 {
@@ -142,7 +142,8 @@ WRAPPED_MAIN
 	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
 	{
 		streams::StreamHolder inp(
-				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
+				new streams::UniversalReader( files.front(), 0, solexa_scale, fastq_origin ) ) ;
+        inp->fetch_header() ;
 
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{

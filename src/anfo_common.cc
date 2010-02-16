@@ -41,7 +41,7 @@ string expand( const string& s, int x )
     char u = 'a' + (x%26), v = 'a' + (x/26) ;
     string r ;
     size_t i = 0 ;
-    for( ; i+1 != s.size() ; ++i )
+    for( ; i+1 < s.size() ; ++i )
     {
         if( s[i] == '%' && s[i+1] == '%' ) {
             r.push_back( v ) ;
@@ -50,7 +50,7 @@ string expand( const string& s, int x )
         }
         else r.push_back( s[i] ) ;
     }
-    r.push_back( s[i] ) ;
+    if( i < s.size() ) r.push_back( s[i] ) ;
     return r ;
 }
 

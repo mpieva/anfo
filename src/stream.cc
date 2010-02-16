@@ -29,6 +29,7 @@ extern "C" {
 #include <google/protobuf/repeated_field.h>
 
 #include <algorithm>
+#include <numeric>
 #include <set>
 
 #if HAVE_FCNTL_H
@@ -87,6 +88,7 @@ AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream
 				cis.PopLimit( lim ) ;
 				++anfo_reader__num_files_ ;
 				read_next_message( cis, name_ ) ;
+                if( state_ == end_of_stream ) is_.reset( 0 ) ;
 				return ;
 			}
 		}
@@ -293,6 +295,7 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 				comp_size = fastlz_compress_level( level_, &buf_[0], uncomp_size, &tmp[0] ) ;
 				break ;
 
+#if HAVE_LIBZ && HAVE_ZLIB_H
 			case gzip:
 				comp_size_l = compressBound( uncomp_size ) ;
 				tmp.resize( comp_size_l ) ;
@@ -300,7 +303,9 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 					throw "cannot happen!  overflow in compress2" ;
 				comp_size = comp_size_l ;
 				break ;
+#endif
 
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
 			case bzip:
                 // docu says 5% is overkill.  didn't work with 1% reserve, though...
 				comp_size = uncomp_size * 21 / 20 + 601 ;
@@ -308,6 +313,7 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 				if( BZ_OK != BZ2_bzBuffToBuffCompress( &tmp[0], &comp_size, &buf_[0], uncomp_size, level_, 0, 0 ) )
 					throw "cannot happen!  overflow in BZ2_bzBuffToBuffCompress" ;
 				break ;
+#endif
 
 			default:
 				throw "cannot happen!  unknown compression method" ;
@@ -361,7 +367,7 @@ ChunkedWriter::~ChunkedWriter()
 
 bool ChunkedReader::get_next_chunk() 
 {
-	if( ais_.get() && ais_->ByteCount() < buf_.size() ) return true ;
+	if( ais_.get() && (unsigned)ais_->ByteCount() < buf_.size() ) return true ;
 	ais_.reset( 0 ) ;
 
 	CodedInputStream cis( is_.get() ) ;
@@ -394,14 +400,22 @@ bool ChunkedReader::get_next_chunk()
 			break ;
 
 		case ChunkedWriter::gzip: 
+#if HAVE_LIBZ && HAVE_ZLIB_H
 			if( Z_OK != uncompress( (Bytef*)&buf_[0], &dlen, (const Bytef*)&tmp[0], comp_size ) 
 					|| uncomp_size != dlen )
 				throw "GZip decompression failed" ;
+#else
+			throw "GZip'ed chunk found, but no zlib support present." ;
+#endif
 			break ;
 
 		case ChunkedWriter::bzip:
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
 			if( BZ_OK != BZ2_bzBuffToBuffDecompress( &buf_[0], &uncomp_size, &tmp[0], comp_size, 0, 0 ) )
 				throw "BZip2 decompression failed" ;
+#else
+			throw "Bzip'ed chunk found, but no libbz2 support present." ;
+#endif
 			break ;
 
 		default:
@@ -451,16 +465,17 @@ Result ChunkedReader::fetch_result()
 	{
 		CodedInputStream cis( ais_.get() ) ;
 		read_next_message( cis, name_ ) ;
+        if( state_ == end_of_stream ) 
+        {
+            // skip backwards link (just because...)
+            is_->Skip( 8 ) ;
+            // delete and close(!) input(-file)
+            is_.reset( 0 ) ;
+            --anfo_reader__num_files_ ;
+        }
 	}
 	else state_ = end_of_stream ;
 	return r ;
-}
-
-Footer ChunkedReader::fetch_footer()
-{
-	// skip backwards link
-	is_->Skip( 8 ) ;
-	return Stream::fetch_footer() ;
 }
 
 template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
@@ -558,6 +573,7 @@ void sanitize( Read& rd )
 	if( rd.has_quality() && rd.quality().length() != l ) rd.clear_quality() ;
 	if( rd.has_trim_right() && rd.trim_right() > l ) rd.clear_trim_right() ;
 	if( rd.trim_left() > l ) rd.clear_trim_left() ;
+    if( rd.has_description() && rd.description().empty() ) rd.clear_description() ;
 }
 
 //! \brief merges two hits by keeping the better one
@@ -721,7 +737,19 @@ bool ScoreFilter::keep( const Hit& h )
 bool MapqFilter::keep( const Hit& h )
 { return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
 
-bool LengthFilter::xform( Result& r ) {
+bool QualFilter::xform( Result& h )
+{
+	const Read& r = h.read() ;
+	return r.has_quality() && accumulate(
+			r.quality().begin(),
+			r.quality().end(),
+			static_cast<int>( 0 ),
+			plus<int>() ) 
+		>= r.quality().size() * minqual_ ;
+}
+
+bool LengthFilter::xform( Result& r )
+{
 	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
 	if( r.hit_size() && len < minlength_ ) r.clear_hit() ;
 	return true ;
@@ -931,34 +959,49 @@ void RmdupStream::call_consensus()
 	}
 }
 
-void ConcatStream::add_stream( StreamHolder s )
+//! \todo Tends to return the header from the first input stream, but
+//! will accumulate further headers (and throw them away).  This is
+//! necessary, because we cannot look ahead to further headers.  Clearly
+//! a better solution would be great, but doesn't readily present
+//! itself.  Could adding arbitrary header information to the footer
+//! work?
+Header ConcatStream::fetch_header()
 {
-	merge_sensibly( hdr_, s->fetch_header() ) ;
-	if( s->get_state() == have_output )
+	for( state_ = invalid ; state_ == invalid ; )
 	{
-		streams_.push_back( s ) ;
-		state_ = have_output ;
+		if( streams_.empty() ) state_ = end_of_stream ;
+        else {
+            merge_sensibly( hdr_, streams_[0]->fetch_header() ) ;
+            if( streams_[0]->get_state() == have_output ) state_ = have_output ;
+            else 
+            {
+                merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
+                streams_.pop_front() ;
+            }
+        }
 	}
-	else
-	{
-		if( state_ == invalid ) state_ = end_of_stream ;
-		merge_sensibly( foot_, s->fetch_footer() ) ;
-	}
+	return hdr_ ;
 }
 
 Result ConcatStream::fetch_result()
 {
-	Result r = streams_[0]->fetch_result() ;
-	if( streams_[0]->get_state() != have_output )
+    Result r = streams_[0]->fetch_result() ;
+	for( state_ = invalid ; state_ == invalid ; )
 	{
-		merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
-		streams_.pop_front() ;
+		if( streams_.empty() ) state_ = end_of_stream ;
+        else if( streams_[0]->get_state() == have_output ) state_ = have_output ;
+        else 
+        {
+            merge_sensibly( foot_, streams_[0]->fetch_footer() ) ;
+            streams_.pop_front() ;
+            if( !streams_.empty() ) 
+                merge_sensibly( hdr_, streams_[0]->fetch_header() ) ;
+        }
 	}
-	if( streams_.empty() ) state_ = end_of_stream ;
-	return r ;
+    return r ;
 }
 
-bool QualFilter::xform( Result& r )
+bool QualMasker::xform( Result& r )
 {
 	if( r.read().has_quality() ) 
 		for( size_t i = 0 ; i != r.read().sequence().size() && i != r.read().quality().size() ; ++i )
@@ -991,7 +1034,7 @@ namespace {
 			}
 
 		public:
-			StreamWithProgress( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name, int64_t total )
+			StreamWithProgress( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, int64_t total )
 				: is_( is ), name_( basename( name ) ), total_( total ), read_( 0 ) {}
 
 			virtual bool Next( const void **data, int *size ) { return check( is_->Next( data, size ) ) ; }
@@ -1002,12 +1045,12 @@ namespace {
 
 	} ;
 
-	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char* name, bool solexa_scores, char origin )
+	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin )
 	{
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
 		const void* p ; int l ;
-		if( !is->Next( &p, &l ) ) return new Stream ;
+		if( !is->Next( &p, &l ) ) return StreamHolder() ; // XXX new Stream ;
 		is->BackUp( l ) ;
 
 		const uint8_t* q = (const uint8_t*)p ;
@@ -1016,6 +1059,9 @@ namespace {
 
 		else if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == '1' )
 			return new ChunkedReader( is, name ) ;
+
+		else if( l >= 4 && q[0] == '.' && q[1] == 's' && q[2] == 'f' && q[3] == 'f' )
+			return new SffReader( is, name ) ;
 
 		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
 		{
@@ -1031,28 +1077,134 @@ namespace {
 	}
 } ;
 
-
-StreamHolder make_input_stream( const char *name, bool solexa_scores, char origin )
+UniversalReader::UniversalReader(
+				const std::string& name,
+				google::protobuf::io::ZeroCopyInputStream* is,
+				bool solexa_scores,
+				int origin
+				)
+    : is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin )
 {
-	return name && *name && strcmp( name, "-" ) 
-		? make_input_stream( throw_errno_if_minus1(
-				open( name, O_RDONLY ), "opening ", name ), name, solexa_scores, origin ) 
-		: make_input_stream( dup( 0 ), "<stdin>", solexa_scores, origin ) ;
+    // we cannot open the file just yet, but we can check if it is there
+    if( !is_.get() ) throw_errno_if_minus1( access( name_.c_str(), R_OK ), "accessing ", name_.c_str() ) ;
 }
 
-StreamHolder make_input_stream( int fd, const char *name, bool solexa_scores, char origin )
+Header UniversalReader::fetch_header() 
 {
-	struct stat st ;
-	std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
-	s->SetCloseOnDelete( true ) ;
-	return make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream >(s), name, fstat( fd, &st ) ? -1 : st.st_size, solexa_scores, origin ) ;
+	if( !is_.get() ) {
+		int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening (UniversalReader) ", name_.c_str() ) ;
+		std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
+		s->SetCloseOnDelete( true ) ;
+		struct stat st ;
+		if( fstat( fd, &st ) ) is_ = s ;
+		else is_.reset( new StreamWithProgress( 
+					std::auto_ptr<google::protobuf::io::ZeroCopyInputStream>(s), name_, st.st_size ) ) ;
+	}
+
+	str_ = make_input_stream_( is_, name_, solexa_scores_, origin_ ) ;
+	return str_->fetch_header() ;
 }
 
-StreamHolder make_input_stream( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const char *name,
-		int64_t total, bool solexa_scores, char origin )
+uint8_t SffReader::read_uint8()
 {
-	std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > s( new StreamWithProgress( is, name, total ) ) ;
-	return make_input_stream_( s, name, solexa_scores, origin ) ;
+	while( !buf_size_ )
+		if( !is_->Next( &buf_, &buf_size_ ) )
+			throw "SffReader: premature end of file in " + name_ ;
+
+	uint8_t x = *(const char*)buf_ ;
+	buf_ = (const char*)buf_ + 1 ;
+	--buf_size_ ;
+	return x ;
+}
+
+uint16_t SffReader::read_uint16() { return ((uint16_t)read_uint8() << 8) | read_uint8() ; }
+uint32_t SffReader::read_uint32() { return ((uint32_t)read_uint16() << 16) | read_uint16() ; }
+void SffReader::read_string( unsigned l, string* s ) {
+	s->clear() ;
+	while( l ) {
+		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
+			throw "SffReader: premature end of file in " + name_ ;
+
+		while( buf_size_ && l ) 
+		{
+			s->push_back( *(char*)buf_ ) ;
+			--l ;
+			--buf_size_ ;
+			buf_ = (const char*)buf_ + 1 ;
+		}
+	}
+}
+void SffReader::skip( int l ) 
+{
+	while( l ) {
+		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
+			throw "SffReader: premature end of file in " + name_ ;
+		
+		unsigned k = min( l, buf_size_ ) ;
+		l -= k ;
+		buf_size_ -= k ;
+		buf_ = (char*)buf_ + k ;
+	}
+}
+
+Header SffReader::fetch_header()
+{
+	// common header as per section 13.3.8.1 of 454 manual
+	if( read_uint32() != 0x2E736666 || read_uint32() != 1 ) 
+		throw "SffReader: " + name_ + " has wrong magic number or version" ;
+	skip( 12 ) ;										// index offset and length
+	remaining_ = read_uint32() ;						// number of reads
+	unsigned hdr_length = read_uint16() ;				// header length
+	read_uint16() ;										// length of key (ignored, is trimmed)
+	number_of_flows_ = read_uint16() ;
+	if( read_uint8() != 1 )
+		throw "SffReader: " + name_ + " has unknown flow format code" ;
+	// rest is ignored, will lump it into the padding
+	skip( hdr_length - 31 ) ;
+
+	state_ = remaining_ ? have_output : end_of_stream ;
+	hdr_.Clear() ;
+	return hdr_ ;
+}
+
+Result SffReader::fetch_result()
+{
+	res_.Clear() ;
+
+	// read header as per section 13.3.8.2 of 454 manual
+	unsigned hdr_length = read_uint16() ;
+	unsigned name_length = read_uint16() ;
+	unsigned num_bases = read_uint32() ;
+	unsigned clip_qual_left = read_uint16() ;
+	unsigned clip_qual_right = read_uint16() ;
+	unsigned clip_adapter_left = read_uint16() ;
+	unsigned clip_adapter_right = read_uint16() ;
+	read_string( name_length, res_.mutable_read()->mutable_seqid() ) ;		// read name
+	skip( hdr_length - 16 - name_length ) ;									// padding
+
+	// read data as per section 13.3.8.3 of 454 manual
+	skip( number_of_flows_ * 2 ) ;											// flow values
+	skip( num_bases ) ;														// flow indexes
+	read_string( num_bases, res_.mutable_read()->mutable_sequence() ) ;		// bases
+	read_string( num_bases, res_.mutable_read()->mutable_quality() ) ;		// quality
+	skip (7 - ((number_of_flows_ * 2 + num_bases * 3 -1) % 8)) ;			// eight_byte_padding
+
+	if( clip_qual_left || clip_adapter_left ) 
+		res_.mutable_read()->set_trim_left( max( clip_qual_left, clip_adapter_left ) -1 ) ;
+
+	if( clip_qual_right && clip_adapter_right ) 
+		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - min( clip_qual_right, clip_adapter_right ) ) ;
+	else if( clip_qual_right )
+		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - clip_qual_right ) ;
+	else if( clip_adapter_right )
+		res_.mutable_read()->set_trim_right( res_.read().sequence().size() - clip_adapter_right ) ;
+
+	if( !--remaining_ )
+    {
+        state_ = end_of_stream ;
+        is_.reset(0) ;
+    }
+	return res_ ;
 }
 
 } ; // namespace

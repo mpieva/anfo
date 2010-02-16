@@ -33,23 +33,26 @@ namespace streams {
 
 	using namespace google::protobuf::io ;
 
-//! \brief writes in google's text format
-//! This is the human readable version of the native format.
+//! \brief writes in (a modification of) Google's text format
+//! This is essentially the human readable version of the native format.
 //! Additionally, alignment strings and a CLUSTAL-style 'conservation'
-//! line are added, provided the reference genome is available.
+//! line are added, provided they were looked up using the reference
+//! genome beforehand, and some fields, notably the CIGAR line, are
+//! printed in a more compact format.
 class TextWriter : public Stream
 {
 	private:
-		auto_ptr< ZeroCopyOutputStream > os_ ;
+		auto_ptr< std::ostream > out_ ;
 
 		void print_msg( const google::protobuf::Message& ) ;
 
 	public:
-		TextWriter( const pair< ZeroCopyOutputStream*, string > &p ) : os_( p.first ) {}
+		TextWriter( const pair< std::ostream*, string > &p ) : out_( p.first ) {}
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
+		virtual string type_name() const { return "TextWriter" ; }
 } ;
 
 //! \brief writes in SAM format
@@ -134,9 +137,10 @@ class FastqWriter : public Stream
 {
 	private:
 		std::auto_ptr< std::ostream > out_ ;
+		bool with_qual_ ;
 
 	public:
-		FastqWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
+		FastqWriter( const pair< ostream*, string > &p, bool q ) : out_( p.first ), with_qual_(q) {}
 		virtual void put_result( const Result& ) ;
 } ;
 
@@ -158,6 +162,22 @@ class GenTextAlignment : public Filter
 	public:
 		GenTextAlignment( int context ) : context_( context ) {}
 		virtual bool xform( Result& ) ;
+} ;
+
+//! \brief writes out coverage depth in WIG format
+//! This only works after DuctTaper has been applied, afterwards it
+//! extracts the depth of coverage (aka number of observations) per
+//! position.
+//! Note that the output file will get huge; we're talking about a text
+//! based format...
+class WigCoverageWriter : public Stream
+{
+	private:
+		std::auto_ptr< std::ostream > out_ ;
+
+	public:
+		WigCoverageWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
+		virtual void put_result( const Result& ) ;
 } ;
 
 } // namespace
