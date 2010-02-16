@@ -119,7 +119,7 @@ WRAPPED_MAIN
 	streams::StreamHolder os = new streams::ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
 
 	Config conf = get_default_config( config_file ) ;
-	Mapper mapper( conf ) ;
+	Mapper mapper( conf, "" ) ;
 
 	deque<string> files ;
 	while( const char* arg = poptGetArg( pc ) ) files.push_back( expand( arg, task_id ) ) ;
@@ -148,10 +148,12 @@ WRAPPED_MAIN
 		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
 		{
 			output::Result r = inp->fetch_result() ;
-			QSequence ps ;
-			std::deque< alignment_type > ol ;
-			int pmax = mapper.index_sequence( r, ps, ol ) ;
-			if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
+			mapper.index_sequence( r ) ;
+			mapper.process_sequence( r ) ;
+			// XXX QSequence ps ;
+			// std::deque< alignment_type > ol ;
+			// int pmax = mapper.index_sequence( r, ps, ol ) ;
+			// if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
 			os->put_result( r ) ;
 		}
 	}

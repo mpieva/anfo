@@ -74,6 +74,7 @@ using namespace google::protobuf::io ;
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 
+/* XXX
 struct AlignmentWorkload
 {
 	int pmax ;
@@ -81,17 +82,18 @@ struct AlignmentWorkload
 	std::auto_ptr< output::Result > r ;
 	std::auto_ptr< QSequence > ps ;
 } ;
+*/
 
 struct CommonData
 {
 	Queue<output::Result*, 8> output_queue ;
-	Queue<AlignmentWorkload*, 8> intermed_queue ;
+	Queue<output::Result*, 8> intermed_queue ;
 	Queue<output::Result*, 8> input_queue ;
 	streams::StreamHolder output_stream ;
 	Mapper mapper ;
 
 	CommonData( const Config& conf, const char* fn )
-		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf ) {}
+		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf, "" ) {} // XXX
 } ;
 
 void* run_output_thread( void* p )
@@ -110,12 +112,14 @@ void* run_indexer_thread( void* cd_ )
 	CommonData *cd = (CommonData*)cd_ ;
 	while( output::Result *r = cd->input_queue.dequeue() )
 	{
-		std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
-		w->r.reset( r ) ;
-		w->ps.reset( new QSequence() ) ;
-		w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
-		if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
-		else                    cd->output_queue.enqueue( w->r.release() ) ;
+		// std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
+		// w->r.reset( r ) ;
+		// w->ps.reset( new QSequence() ) ;
+		cd->mapper.index_sequence( *r ) ;
+		// w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
+		// if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
+		// else                    cd->output_queue.enqueue( w->r.release() ) ;
+		cd->output_queue.enqueue( r ) ;
 	}
 	cd->input_queue.enqueue(0) ;
 	return 0 ;
@@ -124,11 +128,12 @@ void* run_indexer_thread( void* cd_ )
 void* run_worker_thread( void* cd_ )
 {
 	CommonData *cd = (CommonData*)cd_ ;
-	while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
+	// while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
+	while( output::Result *r = cd->intermed_queue.dequeue() )
 	{
-		cd->mapper.process_sequence( *w->ps, w->pmax, w->ol, *w->r ) ;
-		cd->output_queue.enqueue( w->r.release() ) ;
-		delete w ;
+		cd->mapper.process_sequence( *r ) ; // XXX *w->ps, w->pmax, w->ol, *w->r ) ;
+		cd->output_queue.enqueue( r ) ; // XXX w->r.release() ) ;
+		// delete w ;
 	}
 	cd->intermed_queue.enqueue(0) ;
 	return 0 ;

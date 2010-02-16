@@ -535,22 +535,8 @@ void merge_sensibly( Header& lhs, const Header& rhs )
 
 void sanitize( Header& hdr )
 {
-	nub( *hdr.mutable_sge_slicing_index() ) ;
 	nub( *hdr.mutable_command_line() ) ;
-	nub( *hdr.mutable_config()->mutable_genome_path() ) ;
 	nub( *hdr.mutable_config()->mutable_policy() ) ;
-	if( hdr.has_sge_slicing_stride() ) 
-	{
-		set< int > indices ;
-		for( int i = 0 ; i != hdr.sge_slicing_index_size() ; ++i )
-			indices.insert( hdr.sge_slicing_index(i) ) ;
-		
-		if( indices.size() == hdr.sge_slicing_stride() )
-		{
-			hdr.clear_sge_slicing_index() ;
-			hdr.clear_sge_slicing_stride() ;
-		}
-	}
 	hdr.clear_was_sorted_by_coordinate() ;
 	if( hdr.is_sorted_by_coordinate_size() == 1 && hdr.is_sorted_by_coordinate(0) == "" )
 	{

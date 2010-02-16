@@ -43,23 +43,39 @@ using namespace config ;
 using namespace std ;
 using namespace google::protobuf::io ;
 
+struct Subject
+{
+	string chrom, seq ;
+	int start, len ;
+	bool strand ;
+} ;
+
+istream& operator >> ( istream& s, Subject& t )
+{
+	string strand ;
+	s >> t.chrom >> strand >> t.start >> t.len >> t.seq ;
+	t.strand = !strand.empty() && strand[0] == '-' ;
+	return s ; 
+}
 
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum option_tags { opt_none, opt_version, opt_quiet } ;
+	enum option_tags { opt_none, opt_version } ;
 
-	const char* config_file = 0 ;
-	int outputlevel = 0 ;
-	int simulation = 0 ;
+	FixedIndex::LookupParams params ;
+	params.cutoff = numeric_limits<uint32_t>::max() ;
+	params.allow_mismatches = 0 ;
+	int lower_limit = 9 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
-		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
-		{ "simulation",  's', POPT_ARG_NONE,   &simulation,  opt_none,    "Verify simulated data", 0 },
-		{ "debug",       'd', POPT_ARG_INT,    &outputlevel, opt_none,    "Set debug level to L", "L" },
+		{ "lower", 0, POPT_ARG_INT, &lower_limit, 0, "Set lower limit for word length", 0 },
+		{ "mismatches", 0, POPT_ARG_INT, &params.allow_mismatches, 0, "Set number of allowed mismatches in seed", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
+
+	console.loglevel = Console::info ;
 
 	poptContext pc = poptGetContext( "anfo", argc, argv, options, 0 ) ;
 	poptSetOtherOptionHelp( pc, "[OPTION...] [sequence-file...]" ) ;
@@ -78,81 +94,58 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	Mapper mapper( get_default_config( config_file ) ) ;
+	FixedIndex index( "hg18_chr1_12.idx" ) ;
+	GenomeHolder genome = Metagenome::find_genome( index.ci_.genome_name() ) ;
 
-	unsigned total_seeded = 0, total_failures = 0 ;
+	vector<Subject> subjects ;
 	while( const char* arg = poptGetArg( pc ) ) 
 	{
-		Holder< streams::Stream > inp( new streams::UniversalReader( arg ) ) ;
-		inp->fetch_header() ;
-		while( inp->get_state() == streams::Stream::have_output )
+		ifstream ifs( arg ) ;
+		Subject subj ;
+		while( ifs >> subj ) subjects.push_back( subj ) ;
+	}
+		
+	for( params.wordsize = lower_limit ; params.wordsize <= 12 ; ++params.wordsize )
+	{
+		for( params.stride = 4 ; params.stride <= 8 ; params.stride *= 2 )
 		{
-			QSequence ps ;
-			output::Result r = inp->fetch_result() ;
-			std::deque< alignment_type > ol ;
-			mapper.index_sequence( r, ps, ol ) ;
-
-			uint32_t closest = UINT_MAX ;
-			uint32_t seq_len = ps.length() ;
-			if( simulation )
+			for( int min_seed_len = 24 ; min_seed_len <= 48 ; min_seed_len+=4 )
 			{
-				size_t p0 = r.read().seqid().find( '-', 4 ) ;
-				size_t p1 = r.read().seqid().find( '_', p0 ) ;
+				cout << params.wordsize << '\t' << params.stride << '\t' << min_seed_len << '\t' << flush ;
 
-				std::string seq_name = r.read().seqid().substr( 4, p0-4 ) ;
-				uint32_t orig_pos = atoi( r.read().seqid().substr( p0+1, p1-p0-1 ).c_str() ) ;
-				if( r.read().seqid()[p1+1] == '+' ) orig_pos += seq_len / 2 ;
-				else orig_pos += seq_len / 2 ;
+				unsigned total_seeds = 0, total_seqs = 0, total_hits = 0 ;
 
-				for( size_t i = 0 ; i != ol.size() ; ++i )
+				for( vector<Subject>::const_iterator subj = subjects.begin() ; subj != subjects.end() ; ++subj )
 				{
-					uint32_t offset ;
-					const Sequence *sequ ;
-					Metagenome::translate_to_genome_coords( ol[i].reference, offset, &sequ ) ;
-					if( sequ->name() == seq_name && orig_pos - offset < closest )
-						closest = orig_pos - offset ;
-					if( sequ->name() == seq_name && offset - orig_pos < closest )
-						closest = offset - orig_pos ;
-				}
-			}
+					// XXX soooo ugly (and slow)
+					PreSeeds seeds ;
+					int num_useless ;
+					index.lookupS( subj->seq, seeds, params, &num_useless ) ;
 
-			if( r.aln_stats_size() )
-			{
-				++total_seeded ;
-				cout << setw(27) << r.read().seqid()
-					<< setw(5) << seq_len
-					<< setw(10) << r.aln_stats(0).num_raw_seeds()
-					<< setw(10) << r.aln_stats(0).num_useless()
-					<< setw(10) << r.aln_stats(0).num_grown_seeds()
-					<< setw(10) << r.aln_stats(0).num_clumps() ;
+					output::Seeds ss ;
+					total_seeds += params.allow_mismatches 
+						? combine_seeds( seeds, min_seed_len, &ss ) 
+						: select_seeds( seeds, 2 /*p.max_diag_skew()*/, 4 /*p.max_gap()*/, min_seed_len, genome->get_contig_map(), &ss ) ;
+					++total_seqs ;
 
-				if( simulation )
-				{
-					if( closest <= seq_len / 2 ) std::cout << "  got correct seed" ;
-					else {
-						++total_failures ;
-						if( closest == UINT_MAX ) std::cout << "  no seed" ;
-						else std::cout << "  closest seed: " << closest ;
+					unsigned left = genome->find_pos( subj->chrom, subj->start ) - genome->get_base() ;
+					for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
+					{
+						unsigned ref = ss.ref_positions(i) ;
+						int qry = ss.query_positions(i) ;
+						if( subj->strand == (qry < 0) && ref >= left && ref < left+subj->len )
+						{
+							++total_hits ;
+							break ;
+						}
 					}
 				}
-				std::cout << std::endl ;
-
-				for( size_t i = 0 ; i != ol.size() ; ++i )
-				{
-					uint32_t offset ;
-					const Sequence *sequ ;
-					Metagenome::translate_to_genome_coords( ol[i].reference, offset, &sequ ) ;
-
-					if( outputlevel >= 1 )
-						std::cout << sequ->name() << "+" << offset << ", " ;
-				}
-				if( outputlevel >= 1 )
-					std::cout << std::dec << std::endl ;
+				cout << total_seqs << '\t' << total_seeds << '\t' << total_hits << endl ;
 			}
 		}
 	}
-	if( simulation )
-		cout << total_failures << " failures in " << total_seeded << " attempts." << endl ;
+
+	// cout << endl ;
 
 	poptFreeContext( pc ) ;
 	return 0 ;

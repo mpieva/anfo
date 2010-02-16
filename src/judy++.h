@@ -145,6 +145,7 @@ template< typename value > class JudyL
 
 		value *first(  Word_t& index ) const { return (value*)JudyLFirst( arr, &index, 0 ) ; }
 		value *next(   Word_t& index ) const { return (value*)JudyLNext( arr, &index, 0 ) ; }
+		value *prev(   Word_t& index ) const { return (value*)JudyLPrev( arr, &index, 0 ) ; }
 		value *last(   Word_t& index ) const { return (value*)JudyLLast( arr, &index, 0 ) ; }
 
 		const_ref<value> lookup( Word_t index ) const { return const_ref<value>( (value*)JudyLGet( arr, index, 0 ) ) ; }
@@ -162,6 +163,7 @@ const_ref< value > operator , ( const JudyL<value> &j, Word_t i )
 { return j.lookup( i ) ; }
 
 inline int64_t deep_count( const Judy1 &j ) { return j.count() ; }
+inline int64_t deep_count( const JudyL<uint32_t> &j ) { return j.count() ; }
 inline int64_t deep_count( const JudyL<Judy1> &j ) {
 	Word_t w = 0 ; 
 	int64_t c = 0 ;

@@ -68,31 +68,19 @@ Policy select_policy( const Config &c, const Read &r )
 	return p ;
 }
 
-Mapper::Mapper( const config::Config &config ) : mi(config)
+Mapper::Mapper( const config::Config &config, const string& index_name ) :
+	mi_(config), index_name_(index_name) 
 {
-	if( !mi.has_aligner() ) throw "no aligner configuration---cannot start." ;
-	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
+	if( !mi_.has_aligner() ) throw "no aligner configuration---cannot start." ;
+	if( !mi_.policy_size() ) throw "no policies---nothing to do." ;
 
-    for( int i = mi.genome_path_size() ; i != 0 ; --i )
-        Metagenome::add_path( mi.genome_path(i-1) ) ;
+	simple_adna::pb = adna_parblock( mi_.aligner() ) ;
 
-	simple_adna::pb = adna_parblock( mi.aligner() ) ;
-	for( int i = 0 ; i != mi.policy_size() ; ++i )
-	{
-		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )
-		{
-			CompactIndexSpec &ixs = *mi.mutable_policy(i)->mutable_use_compact_index(j) ;
-			FixedIndex &ix = indices[ ixs.name() ] ;
-			if( !ix ) {
-				FixedIndex( ixs.name(), mi, MADV_WILLNEED ).swap( ix ) ;
-				const string& genome_name = ix.ci_.genome_name() ; 
-				Metagenome::find_genome( genome_name ) ;
-			}
-		}
-	}
+	FixedIndex( index_name ).swap( index_ ) ;
+	genome_ = Metagenome::find_genome( index_.ci_.genome_name() ) ;
 }
 
-int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol )
+void Mapper::index_sequence( output::Result &r ) // XXX , QSequence &qs ) // , std::deque< alignment_type >& ol )
 {
 	static const int minscore = 4 ;
 
@@ -106,152 +94,191 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 	const output::Read &rd = r.read() ;
 	const string &seq = rd.sequence() ;
 
-	if( mi.trim_right_size() || mi.trim_left_size() ) 
+	if( mi_.trim_right_size() || mi_.trim_left_size() ) 
 	{
 		unsigned n = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
 		while( n && ( seq[n-1] == 'n' || seq[n-1] == 'N') ) --n ;
 		r.mutable_read()->set_trim_right( n ) ;
 	}
 
-	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
+	for( int i = 0 ; i != mi_.trim_right_size() ; ++i )
 	{
 		int ymax, score = overlap_align(
 				seq.rbegin() + ( rd.has_trim_right() ? seq.length() - rd.trim_right() : 0 ), seq.rend(),
-				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(), &ymax ) ;
+				mi_.trim_right(i).rbegin(), mi_.trim_right(i).rend(), &ymax ) ;
 		if( score >= minscore && ymax > 0 )
 			r.mutable_read()->set_trim_right(
 					(rd.has_trim_right() ? rd.trim_right() : seq.length()) - ymax ) ;
 	}
 
-	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
+	for( int i = 0 ; i != mi_.trim_left_size() ; ++i )
 	{
 		int ymax, score = overlap_align(
 				seq.begin() + rd.trim_left(), seq.end(),
-				mi.trim_left(i).begin(), mi.trim_left(i).end(), &ymax ) ;
+				mi_.trim_left(i).begin(), mi_.trim_left(i).end(), &ymax ) ;
 		if( score >= minscore && ymax > 0 )
 			r.mutable_read()->set_trim_left( rd.trim_left() + ymax ) ;
 	}
 
-	Policy p = select_policy( mi, r.read() ) ;
-	QSequence( rd ).swap( qs ) ;
+	Policy p = select_policy( mi_, r.read() ) ;
+	// XXX QSequence( rd ).swap( qs ) ;
 
 	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
-		const FixedIndex &ix = indices[ cis.name() ] ;
-		GenomeHolder g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
-		assert( ix ) ; assert( g->get_base() ) ;
+		if( cis.name() == index_name_ ) {
+			FixedIndex::LookupParams params ;
+			params.cutoff = cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ;
+			params.allow_mismatches = cis.allow_near_perfect() ;
+			params.wordsize = index_.ci_.wordsize() ;
+			params.stride = index_.ci_.stride() ;
 
-		vector<Seed> seeds ;
-		num_raw += ix.lookupS( 
-				seq.substr( rd.trim_left(), rd.has_trim_right() ? rd.trim_right() : std::string::npos ),
-				seeds, cis.allow_near_perfect(), &num_useless,
-				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
-		num_comb += seeds.size() ;
-		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g->get_contig_map() ) ;
-		num_clumps += seeds.size() ;
+			// const FixedIndex &ix = indices[ cis.name() ] ;
+			// console.output( Console::warning, "opening genome " + ix.ci_.genome_name() ) ;
+			// GenomeHolder g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
+			// XXX console.output( Console::warning, "done" ) ;
+			// if( !ix || !g->get_base() )
+			// throw "couldn't find requested index " + cis.name()
+			// + " or genome " + ix.ci_.genome_name() ;
 
-		g->add_ref() ; // XXX dirty hack
-		setup_alignments( *g, qs, seeds.begin(), seeds.end(), ol ) ;
+			Seeds *ss = 0 ;
+			for( int i = 0 ; !ss && i != r.seeds_size() ; ++i )
+				if( r.seeds(i).genome_name() == index_.ci_.genome_name() )
+					ss = r.mutable_seeds(i) ;
+			if( !ss ) ss = r.add_seeds() ;
+
+			ss->set_max_penalty_per_nuc( max( p.max_penalty_per_nuc(), ss->max_penalty_per_nuc() ) ) ;
+			if( p.has_repeat_threshold() ) ss->set_repeat_threshold( p.repeat_threshold() ) ;
+
+			// XXX soooo ugly (and slow)
+			PreSeeds seeds ;
+			num_raw += index_.lookupS( 
+					seq.substr( rd.trim_left(), rd.has_trim_right() ? rd.trim_right() : std::string::npos ),
+					seeds, params, &num_useless ) ;
+					
+			// num_comb += deep_count( seeds ) ;
+			num_clumps += cis.allow_near_perfect() 
+				? combine_seeds( seeds, p.min_seed_len(), ss )
+				: select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), genome_->get_contig_map(), ss ) ;
+
+			// XXX num_clumps += seeds.size() ;
+
+			// g->add_ref() ; // XXX dirty hack
+			// setup_alignments( *g, qs, seeds.begin(), seeds.end(), ol ) ;
+		}
 	}
 	AlnStats *as = r.add_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
-	as->set_num_grown_seeds( num_comb ) ;
+	// as->set_num_grown_seeds( num_comb ) ;
 	as->set_num_clumps( num_clumps ) ;
 	if( p.has_tag() ) as->set_tag( p.tag() ) ;
-
-	if( !p.has_max_penalty_per_nuc() )
-	{
-		as->set_reason( output::no_policy ) ;
-		return INT_MAX ;
-	}
-	else if( ol.empty() ) 
-	{
-		as->set_reason( num_useless ? output::repeats_only : output::no_seeds ) ;
-		return INT_MAX ;
-	}
-	else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
-	{
-		as->set_reason( output::too_many_seeds ) ;
-		return INT_MAX ;
-	}
-	else return p.max_penalty_per_nuc() ;
 }
 
-void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r )
+void Mapper::process_sequence( /*const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol,*/ output::Result &r )
 {
-	uint32_t o, c, tt, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
+	AlnStats *as = r.aln_stats_size() ? r.mutable_aln_stats( r.aln_stats_size()-1 ) : r.add_aln_stats() ;
+
+	// not seeded means no policy (or logic bug, but let's not go there...)
+	if( !r.seeds_size() ) {
+		as->set_reason( output::no_policy ) ;
+		return ;
+	}
+
+	const Seeds &ss = r.seeds( r.seeds_size()-1 ) ;
+
+	// invariant violated, we won't deal with that
+	if( ss.ref_positions_size() != ss.query_positions_size() )
+		throw "invalid seeds: coordinates must come in pairs" ;
+
+	if( !ss.ref_positions_size() ) {
+		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
+		return ;
+	}
+
+	if( ss.has_repeat_threshold() && (unsigned)ss.ref_positions_size() >= ss.repeat_threshold() ) {
+		as->set_reason( output::too_many_seeds ) ;
+		return ;
+	}
+
+	GenomeHolder g = Metagenome::find_genome( ss.genome_name() ) ;
+
+	QSequence qs( r.read() ) ;
+	uint32_t o, c, tt, max_penalty = (uint32_t)( ss.max_penalty_per_nuc() * qs.length() ) ;
+
+	std::deque< alignment_type > ol ;
+	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
+		ol.push_back( alignment_type( *g, qs, ss.ref_positions(i), ss.query_positions(i) ) ) ;
+
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
+	r.mutable_seeds()->RemoveLast() ;
 
-	AlnStats *as = r.mutable_aln_stats( r.aln_stats_size()-1 ) ;
 	as->set_open_nodes_after_alignment( o ) ;
 	as->set_closed_nodes_after_alignment( c ) ;
 	as->set_tracked_closed_nodes_after_alignment( tt ) ;
-	if( !best )
-	{
+
+	if( !best ) {
 		as->set_reason( output::bad_alignment ) ;
+		return ;
 	}
-	else
-	{
-		int penalty = best.penalty ;
 
-		deque< pair< alignment_type, const alignment_type* > > ol_ ;
-		reset( best ) ;
-		greedy( best ) ;
-		(enter_bt<alignment_type>( ol_ ))( best ) ;
-		DnaP minpos, maxpos ;
-		std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
-		int32_t len = maxpos - minpos - 1 ;
+	int penalty = best.penalty ;
 
-		output::Hit *h = r.add_hit() ;
+	deque< pair< alignment_type, const alignment_type* > > ol_ ;
+	reset( best ) ;
+	greedy( best ) ;
+	(enter_bt<alignment_type>( ol_ ))( best ) ;
+	DnaP minpos, maxpos ;
+	std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
+	int32_t len = maxpos - minpos - 1 ;
 
-		uint32_t start_pos ;
-		const Sequence *sequ ;
-		const Genome *genome ;
+	output::Hit *h = r.add_hit() ;
 
-		if( !Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
-			throw "Not supposed to happen:  invalid alignment coordinates" ;
-		
-		if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
-		h->set_sequence( sequ->name() ) ;
-		if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-		else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
+	uint32_t start_pos ;
+	const Sequence *sequ ;
+	const Genome *genome ;
 
-		h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
-		h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-		h->set_score( penalty ) ;
-		std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
+	if( !Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
+		throw "Not supposed to happen:  invalid alignment coordinates" ;
 
-		// XXX: h->set_evalue
+	if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
+	h->set_sequence( sequ->name() ) ;
+	if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+	else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
 
-		//! \todo Find second best hit and similar stuff.
-		//! We want the distance to the next best hit; also,
-		//! unless already found, we want the best hit to some
-		//! selected genome(s).
+	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
+	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
+	h->set_score( penalty ) ;
+	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
-		// XXX set diff_to_next_species, diff_to_next_order
-		// XXX find another best hit (genome only)
+	// XXX: h->set_evalue
 
-		// get rid of overlaps of that first alignment, then look
-		// for the next one
-		// XXX this is cumbersome... need a better PQueue impl...
-		// XXX make distance configurable
-		ol.erase( 
-				std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
-				ol.end() ) ;
-		make_heap( ol.begin(), ol.end() ) ;
+	//! \todo Find second best hit and similar stuff.
+	//! We want the distance to the next best hit; also,
+	//! unless already found, we want the best hit to some
+	//! selected genome(s).
 
-		// search long enough to make sensible mapping quality possible
-		uint32_t max_penalty_2 = 254 + penalty ;
-		alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
-		as->set_open_nodes_after_alignment( o ) ;
-		as->set_closed_nodes_after_alignment( c ) ;
-		as->set_tracked_closed_nodes_after_alignment( tt ) ;
-		if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
-	}
+	// XXX set diff_to_next_species, diff_to_next_order
+	// XXX find another best hit (genome only)
+
+	// get rid of overlaps of that first alignment, then look
+	// for the next one
+	// XXX this is cumbersome... need a better PQueue impl...
+	// XXX make distance configurable
+	ol.erase( 
+			std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
+			ol.end() ) ;
+	make_heap( ol.begin(), ol.end() ) ;
+
+	// search long enough to make sensible mapping quality possible
+	uint32_t max_penalty_2 = 254 + penalty ;
+	alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
+	as->set_open_nodes_after_alignment( o ) ;
+	as->set_closed_nodes_after_alignment( c ) ;
+	as->set_tracked_closed_nodes_after_alignment( tt ) ;
+	if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
 }
 
 //! \page finding_alns How to find everything we need

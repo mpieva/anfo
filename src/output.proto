@@ -36,13 +36,6 @@ message Header {
     // copy of the config block used in the run
     required config.Config config = 2 ;
 
-    // index of first processed input, if input is sliced
-    // multiple starts are possible after merging multiple outputs
-    repeated uint32 sge_slicing_index = 3 ;
-
-    // number of slices if input is sliced
-    optional uint32 sge_slicing_stride = 4 [ default=1 ] ;
-
     // copy of command line
     repeated string command_line = 5 ;
 
@@ -254,6 +247,26 @@ message Read {
     optional uint32 trim_right = 12 ;
 }
 
+// A set of starting points.  The understanding is that each one of them
+// is already "good enough", so we really only need to encode two
+// coordinates, no size and no quality of any kind.
+message Seeds {
+    // genome we seeded on (typ. hg18, pt2, etc.)
+    required string genome_name = 1 ;
+
+    // positions of starting points on the reference
+    repeated uint32 ref_positions = 2 [ packed=true, (show) = "show_uint32_array" ] ;
+
+    // positions of starting points on the query
+    // negative numbers mean to align on the reverse complemented strand
+    repeated int32 query_positions = 3 [ packed=true, (show) = "show_uint32_array" ] ;
+
+    // maximum penalty per nucleotide (copied from config)
+    required uint32 max_penalty_per_nuc = 4 [ default = 0 ] ;
+
+    optional uint32 repeat_threshold = 5 ;
+}
+
 message Result {
     // raw sequence or consensus
     required Read read = 1 ;
@@ -276,6 +289,10 @@ message Result {
 
     // if reads were joined into contigs, their number
     optional int32 num_reads = 7 ;
+
+    // seeds to be communicated between indexer and aligner
+    // for internal use only
+    repeated Seeds seeds = 8 ;
 }
 
 // We store multiple best hits, one per genome (where something like the

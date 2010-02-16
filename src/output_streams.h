@@ -124,7 +124,6 @@ class FastaAlnWriter : public Stream
 
 	public:
 		FastaAlnWriter( const pair< ostream*, string > &p ) : out_( p.first ) {}
-		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 } ;
 

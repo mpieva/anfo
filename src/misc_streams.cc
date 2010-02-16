@@ -63,11 +63,12 @@ Header MergeStream::fetch_header()
 	return hdr_ ;
 }
 
+//! \todo uses linear search, but a heap would be more appropriate
 Result MergeStream::fetch_result() 
 {
-	assert( state_ == have_output ) ;
-	assert( rs_.size() == streams_.size() ) ;
-	assert( streams_.size() != 0 ) ;
+	if( state_ != have_output ) throw "logic error: MergeStream::fetch_result called in wrong stream state" ;
+	if( rs_.size() != streams_.size() ) throw "logic error: # of records does not equal # of streams in MergeStream::fetch_result" ;
+	if( !streams_.size() ) throw "logic error: no streams left in MergeStream::fetch_result" ;
 
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
@@ -131,7 +132,7 @@ Result NearSortedJoin::fetch_result()
 		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
 
 		Stream &s = **cur_input_ ;
-		assert( s.get_state() == have_output ) ;
+		if( s.get_state() != have_output ) throw "logic error: NearSortedJoin::fetch_result wasn't provided with input" ;
 
 		Result r = s.fetch_result() ;
 		if( s.get_state() == end_of_stream )
@@ -340,7 +341,9 @@ void MismatchStats::put_result( const Result& r )
 	for( int i = 0 ; i != r.hit_size() ; ++i )
 	{
 		const Hit& h = r.hit(i) ;
-		assert( h.has_aln_ref() && h.has_aln_qry() ) ;
+		if( !h.has_aln_ref() || !h.has_aln_qry() ) 
+			throw "MismatchStats needs reconstructed alignments" ;
+
 		for( size_t j = 0 ; j != h.aln_ref().size() && j != h.aln_qry().size() ; ++j )
 		{
 			char a = h.aln_ref()[j], b = h.aln_qry()[j] ;
@@ -496,12 +499,10 @@ RegionFilter::RegionFilter( const pair< istream*, string >& p )
 void Sanitizer::put_header( const Header& h )
 {
 	Filter::put_header( h ) ;
-	hdr_.clear_sge_slicing_index() ;
-	hdr_.clear_sge_slicing_stride() ;
 	hdr_.clear_command_line() ;
 	hdr_.clear_sge_job_id() ;
 	hdr_.clear_sge_task_id() ;
-	hdr_.mutable_config()->clear_genome_path() ;
+	hdr_.DiscardUnknownFields() ;
 }
 
 bool Sanitizer::xform( Result& r )

@@ -72,7 +72,6 @@ struct StreamWrapper {
 
 extern "C" Object terminate_stream( Object o )
 {
-	StreamWrapper* s = (StreamWrapper*)POINTER(o) ;
     ((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
 	Deregister_Object( o ) ;
 	return Void ;

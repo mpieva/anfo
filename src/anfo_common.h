@@ -49,15 +49,19 @@ struct reference_overlaps {
 class Mapper
 {
 	private:
-		config::Config mi ;
-		// Genomes genomes ;
-		Indices indices ;
+		config::Config mi_ ;
+		FixedIndex index_ ;
+	public:
+		GenomeHolder genome_ ;
+
+	private:
+		std::string index_name_ ;
 
 	public:
-		Mapper( const config::Config &config ) ;
+		Mapper( const config::Config &config, const std::string& index_name ) ;
 
-		int index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol ) ;
-		void process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r ) ;
+		void index_sequence( output::Result &r ) ; // XXX , QSequence &qs, std::deque< alignment_type >& ol ) ;
+		void process_sequence( /* XXX const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol,*/ output::Result &r ) ;
 } ;
 
 std::string expand( const std::string&, int ) ;

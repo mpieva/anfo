@@ -505,13 +505,6 @@ void SamWriter::put_footer( const Footer& f )
 		}
 }
 
-void FastaAlnWriter::put_header( const Header& h )
-{
-	Stream::put_header( h ) ;
-	for( int i = 0 ; i != h.config().genome_path_size() ; ++i )
-		Metagenome::add_path( h.config().genome_path( i ) ) ;
-}
-
 //! \todo Coordinates in here are quite probably wrong (good thing
 //! nobody relies on them anyway).
 void FastaAlnWriter::put_result( const Result& r ) 

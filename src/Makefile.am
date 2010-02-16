@@ -1,5 +1,5 @@
 bin_PROGRAMS =  fa2dna  dnaindex  anfo  anfo-sge  anfo-tool
-libexec_PROGRAMS =  index-test  martin-table  file-info
+libexec_PROGRAMS =  martin-table  file-info  index-test
 lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \

@@ -57,6 +57,7 @@
 (define (write-text     file) (bracket-stream (prim-write-text     file)))
 (define (write-threealn file) (bracket-stream (prim-write-threealn file)))
 (define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
+(define write-native write-file)
 
 (define*
   (duct-tape (label: lbl "contig"))
