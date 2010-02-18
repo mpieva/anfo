@@ -29,6 +29,7 @@ extern "C" {
 #include <google/protobuf/repeated_field.h>
 
 #include <algorithm>
+#include <cctype>
 #include <numeric>
 #include <set>
 
@@ -70,9 +71,6 @@ namespace {
 		return p != string::npos ? s.substr(p+1) : s ;
 	}
 } ;
-
-FastqReader::FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) 
-	: is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
 
 AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
 {
@@ -1033,6 +1031,18 @@ namespace {
 
 	} ;
 
+	bool magic( const void *p, int l, const char* sig )
+	{
+		for( const uint8_t* q = (const uint8_t*)p ; *sig ; ++q, --l, ++sig )
+			if( !l || *q != *sig ) return false ;
+		return true ;
+	}
+	bool is_fastq( const void *p, int l ) 
+	{
+		const uint8_t* q = (const uint8_t*)p ;
+		return l >= 3 && (*q == '>' || *q == '@') && isprint( q[1] ) && !magic( p, l, "@HD" ) ;
+	}
+
 	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin )
 	{
 		// peek into stream, but put it back.  then check magic numbers and
@@ -1041,27 +1051,21 @@ namespace {
 		if( !is->Next( &p, &l ) ) return StreamHolder() ; // XXX new Stream ;
 		is->BackUp( l ) ;
 
-		const uint8_t* q = (const uint8_t*)p ;
-		if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == 'O' )
-			return new AnfoReader( is, name ) ;
-
-		else if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == '1' )
-			return new ChunkedReader( is, name ) ;
-
-		else if( l >= 4 && q[0] == '.' && q[1] == 's' && q[2] == 'f' && q[3] == 'f' )
-			return new SffReader( is, name ) ;
-
-		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
+		if( magic( p, l, "ANFO" ) )	return new AnfoReader( is, name ) ;
+		if( magic( p, l, "ANF1" ) ) return new ChunkedReader( is, name ) ;
+		if( magic( p, l, ".sff" ) ) return new SffReader( is, name ) ;
+		if( magic( p, l, "BZh" ) )
 		{
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
 			return make_input_stream_( bs, name, solexa_scores, origin ) ;
 		}
-		else if( l >= 2 && q[0] == 31 && q[1] == 139 )
+		if( magic( p, l, "\x1f\x8b" ) )
 		{
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
 			return make_input_stream_( zs, name, solexa_scores, origin ) ;
 		}
-		else return new FastqReader( is, solexa_scores, origin ) ;
+		if( is_fastq( p, l ) ) return new FastqReader( is, solexa_scores, origin ) ;
+		return new SamReader( is ) ;
 	}
 } ;
 

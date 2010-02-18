@@ -756,9 +756,35 @@ class FastqReader : public Stream
 		}
 
 	public: 
-		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) ;
+		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) :
+			is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
+
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 		virtual string type_name() const { return "FastqReader" ; }
+} ;
+
+class SamReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+
+		void read_next_message() {
+            if( read_sam( is_.get(), res_ ) ) {
+                state_ = have_output ;
+                sanitize( *res_.mutable_read() ) ;
+            } else {
+                state_ = end_of_stream ;
+				is_.reset( 0 ) ;
+            }
+		}
+
+	public: 
+		SamReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is ) :
+			is_( is ) { read_next_message() ; }
+
+		virtual Header fetch_header() { hdr_.add_is_sorted_by_coordinate( "" ) ; return Stream::fetch_header() ; }
+		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
+		virtual string type_name() const { return "SamReader" ; }
 } ;
 
 class SffReader : public Stream

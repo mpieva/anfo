@@ -76,7 +76,6 @@ struct SnpRec {
 } ;
 
 inline Ambicode maybe_compl( bool str, Ambicode a ) { return str ? a : complement(a) ; }
-inline char compl_ascii( char x ) { return from_ambicode( complement( to_ambicode( x ) ) ) ; }
 
 void decode_flags( const string& f, SnpRec& r )
 {

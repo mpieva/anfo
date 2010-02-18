@@ -20,6 +20,8 @@
 
 #include "sequence.h"
 #include "logdom.h"
+#include "stream.h"
+
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -233,3 +235,109 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 	return true ;
 }
 
+namespace {
+
+inline std::string get_column( Reader& r )
+{
+	string s ;
+	while( r && r.peek() != '\t' && r.peek() != '\n' ) s.push_back( r.get() ) ;
+	while( r && r.peek() == '\t' ) r.get() ;
+	return s ;
+}
+inline int get_int_column( Reader& r )
+{
+	int x = 0 ;
+	while( r && isdigit( r.peek() ) ) x = 10*x + (r.get() - '0') ;
+	while( r && r.peek() == '\t' ) r.get() ;
+	return x ;
+}
+inline int get_cigar_column( Reader& r, google::protobuf::RepeatedField<uint32_t> *cig )
+{
+	int len = 0 ;
+	while( r && r.peek() != '\t' && r.peek() != '\n' )
+	{
+		int x = 0 ;
+		output::Hit::Operation op ;
+
+		while( isdigit( r.peek() ) ) x = 10*x + (r.get() - '0') ;
+		switch( r.get() )
+		{
+			case 'M': op = output::Hit::Match ; len += x ; break ;
+			case 'I': op = output::Hit::Insert ; break ;
+			case 'D': op = output::Hit::Delete ; len += x ; break ;
+			case 'S': op = output::Hit::SoftClip ; break ;
+			case 'H': op = output::Hit::HardClip ; break ;
+			case 'N': op = output::Hit::Skip ; len += x ; break ;
+			case 'P': op = output::Hit::Pad ; break ;
+		}
+		cig->Add( streams::mk_cigar( op, x ) ) ;
+	}
+	while( r && r.peek() == '\t' ) r.get() ;
+	return len ;
+}
+
+inline bool get_opt_field( Reader& r, char *tag, int &intval, string &stringval ) 
+{
+	for( ;; ) 
+	{
+		if( !r || !isalpha( r.peek() ) ) return false ;
+		tag[0] = r.get() ; if( !r || !isalnum( r.peek() ) ) return false ;
+		tag[1] = r.get() ; if( !r || r.get() != ':' || !r || !isalpha( r.peek() ) ) return false ;
+		char key = r.get() ; if( !r || r.get() != ':' ) return false ;
+		switch( key )
+		{
+			case 'i': intval = get_int_column( r ) ; return true ;
+			case 'Z': stringval = get_column( r ) ; return true ;
+			default: get_column( r ) ;
+		}
+	}
+}
+
+} ; // namespace
+
+
+bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, output::Result& r ) 
+{
+	Reader s( zis ) ;
+
+	r.Clear() ;
+	r.mutable_read()->set_seqid( get_column( s ) ) ;
+	int flags = get_int_column( s ) ;								// XXX
+
+	output::Hit *h = r.add_hit() ;
+	h->set_genome_name( "" ) ; 										// XXX
+	h->set_sequence( get_column( s ) ) ;
+	h->set_start_pos( get_int_column( s )-1 ) ;
+	h->set_diff_to_next( get_int_column( s ) ) ;
+	h->set_aln_length( get_cigar_column( s, h->mutable_cigar() ) ) ;
+	string junk = get_column( s ) ; 												// MRNM (ignored)
+	get_int_column( s ) ; 											// MPOS (ignored)
+	get_int_column( s ) ; 											// ISIZE (ignored)
+	r.mutable_read()->set_sequence( get_column( s ) ) ;
+
+	string qual = get_column( s ) ;
+	if( qual != "*" ) {
+		for( int i = 0 ; i != qual.size() ; ++i ) qual[i] -= 33 ;
+		r.mutable_read()->set_quality( qual ) ;
+	}
+
+	char tag[2] ;
+	int intval ;
+	string stringval ;
+	while( get_opt_field( s, tag, intval, stringval ) )
+	{
+		if( tag[0] == 'U' && tag[1] == 'Q' ) h->set_score( intval ) ;
+		if( tag[0] == 'A' && tag[1] == 'S' ) if( !h->has_score() ) h->set_score( intval ) ;
+	}
+
+	if( flags & 0x10 ) {
+		h->set_aln_length( -h->aln_length() ) ;
+		std::reverse( h->mutable_cigar()->begin(), h->mutable_cigar()->end() ) ;
+		std::reverse( r.mutable_read()->mutable_sequence()->begin(), r.mutable_read()->mutable_sequence()->end() ) ;
+		std::transform( r.mutable_read()->mutable_sequence()->begin(), r.mutable_read()->mutable_sequence()->end(), 
+				r.mutable_read()->mutable_sequence()->begin(), compl_ascii ) ;
+		if( r.read().has_quality() ) std::reverse( r.mutable_read()->mutable_quality()->begin(), r.mutable_read()->mutable_quality()->end() ) ;
+
+	}
+	return s && s.get() == '\n' ;
+}

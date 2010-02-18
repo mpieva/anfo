@@ -297,7 +297,7 @@ message Result {
 // on the globally 'best' hit, which is simply the best one of the
 // available ones.
 message Hit {
-    // globally unique name of the genome (used when sorting hits be
+    // globally unique name of the genome (used when sorting hits by
     // coordinate, can be used to locate the reference sequence if
     // present; if empty, the sequence name should be globally unique)
     required string genome_name = 1 ;
