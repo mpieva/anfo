@@ -138,10 +138,6 @@ message Policy {
     // minimum total length of combined seeds to make an alignment
     optional uint32 min_seed_len = 7 ; 
 
-    // distance cutoff scaled by 1000
-    // (need to add an E-Value cutoff at some point)
-    required uint32 max_penalty_per_nuc = 8 ;
-
     // pattern to match names against
     optional string name_pattern = 9 ;
 
@@ -175,6 +171,12 @@ message Aligner {
     // geometrically distributed with a suitable parameter
     // if left out, no overhangs are produced
     optional float mean_overhang_length = 7 ;
+
+    // distance cutoff scaled by 1000
+    // (need to add an E-Value cutoff at some point)
+    required uint32 max_penalty_per_nuc = 8 ;
+
+    optional uint32 max_mapq = 9 [ default = 254 ] ;
 }
 
 

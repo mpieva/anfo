@@ -56,18 +56,23 @@ string expand( const string& s, int x )
 
 namespace streams {
 
+//! \brief selects a policy appropriate for a given read
+//! This simply checks whether a read is within a given length bin and
+//! matches a name pattern, if given.  All policies found this way are
+//! merged.  Checking for too many Ns was considered, but isn't actually
+//! worthwhile since Ns don't contribute to seeds anyway.
 Policy select_policy( const Config &c, const Read &r )
 {
-	Policy p ;
-	for( int i = 0 ; i != c.policy_size() ; ++i )
-	{
-		const Policy &pi = c.policy(i) ;
-		if( ( !pi.has_minlength() || pi.minlength() <= r.sequence().length() ) &&
-			( !pi.has_maxlength() || pi.maxlength() >= r.sequence().length() ) &&
-			( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), r.seqid().c_str(), 0 ) ) )
-			p.MergeFrom( pi ) ;
-	}
-	return p ;
+    Policy p ;
+    for( int i = 0 ; i != c.policy_size() ; ++i )
+    {
+        const Policy &pi = c.policy(i) ;
+        if( ( !pi.has_minlength() || pi.minlength() <= r.sequence().length() ) &&
+                ( !pi.has_maxlength() || pi.maxlength() >= r.sequence().length() ) &&
+                ( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), r.seqid().c_str(), 0 ) ) )
+            p.MergeFrom( pi ) ;
+    }
+    return p ;
 }
 
 Indexer::Indexer( const config::Config &config, const string& index_name ) :
@@ -124,13 +129,14 @@ void Indexer::put_result( const Result& r )
 	}
 
 	Policy p = select_policy( conf_, res_.read() ) ;
+	AlnStats *as = res_.add_aln_stats() ;
 
 	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
-		if( cis.name() == index_name_ ) {
-			FixedIndex::LookupParams params ;
+		if( cis.name() == index_name_ || cis.name() + ".idx" == index_name_ ) {
+            FixedIndex::LookupParams params ;
 			params.cutoff = cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ;
 			params.allow_mismatches = cis.allow_near_perfect() ;
 			params.wordsize = cis.has_wordsize() ? cis.wordsize() : index_.metadata().wordsize() ;
@@ -143,10 +149,11 @@ void Indexer::put_result( const Result& r )
 			for( int i = 0 ; !ss && i != res_.seeds_size() ; ++i )
 				if( res_.seeds(i).genome_name() == index_.metadata().genome_name() )
 					ss = res_.mutable_seeds(i) ;
-			if( !ss ) ss = res_.add_seeds() ;
-
-			ss->set_max_penalty_per_nuc( max( p.max_penalty_per_nuc(), ss->max_penalty_per_nuc() ) ) ;
-			if( p.has_repeat_threshold() ) ss->set_repeat_threshold( p.repeat_threshold() ) ;
+			if( !ss ) 
+            {
+                ss = res_.add_seeds() ;
+                ss->set_genome_name( index_.metadata().genome_name() ) ;
+            }
 
 			PreSeeds seeds ;
 			num_raw += index_.lookupS( 
@@ -156,32 +163,40 @@ void Indexer::put_result( const Result& r )
 			num_clumps += cis.allow_near_perfect() 
 				? combine_seeds( seeds, p.min_seed_len(), ss )
 				: select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), index_.gaps(), ss ) ;
+
+            if( p.has_repeat_threshold() && (unsigned)ss->ref_positions_size() >= p.repeat_threshold() )
+            {
+                ss->clear_ref_positions() ;
+                ss->clear_query_positions() ;
+                as->set_reason( output::too_many_seeds ) ;
+            }
 		}
 	}
-	AlnStats *as = res_.add_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
 	as->set_num_clumps( num_clumps ) ;
 	if( p.has_tag() ) as->set_tag( p.tag() ) ;
 }
 
-Mapper::Mapper( const config::Config &config, const string& genome_name ) :
+Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
 	conf_(config), genome_( Metagenome::find_genome( genome_name ) )
 {
-	if( !conf_.has_aligner() ) throw "no aligner configuration---cannot start." ;
-	simple_adna::pb = adna_parblock( conf_.aligner() ) ;
+	simple_adna::pb = adna_parblock( conf_ ) ;
 }
 
 void Mapper::put_header( const Header& h )
 {
 	Stream::put_header( h ) ;
-	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_.aligner() ) ;
+	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
 }
 
 void Mapper::put_result( const Result& r )
 {
 	Stream::put_result( r ) ;
 	AlnStats *as = res_.aln_stats_size() ? res_.mutable_aln_stats( res_.aln_stats_size()-1 ) : res_.add_aln_stats() ;
+
+    // is it already clear that we cannot do anything?
+    if( as->has_reason() ) return ;
 
 	// not seeded means no policy (or logic bug, but let's not go there...)
 	if( !res_.seeds_size() ) {
@@ -200,15 +215,10 @@ void Mapper::put_result( const Result& r )
 		return ;
 	}
 
-	if( ss.has_repeat_threshold() && (unsigned)ss.ref_positions_size() >= ss.repeat_threshold() ) {
-		as->set_reason( output::too_many_seeds ) ;
-		return ;
-	}
-
 	GenomeHolder g = Metagenome::find_genome( ss.genome_name() ) ;
 
 	QSequence qs( res_.read() ) ;
-	uint32_t o, c, tt, max_penalty = (uint32_t)( ss.max_penalty_per_nuc() * qs.length() ) ;
+	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
 	std::deque< alignment_type > ol ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
@@ -276,7 +286,7 @@ void Mapper::put_result( const Result& r )
 	make_heap( ol.begin(), ol.end() ) ;
 
 	// search long enough to make sensible mapping quality possible
-	uint32_t max_penalty_2 = 254 + penalty ;
+	uint32_t max_penalty_2 = conf_.max_mapq() + penalty ;
 	alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
 	as->set_open_nodes_after_alignment( o ) ;
 	as->set_closed_nodes_after_alignment( c ) ;

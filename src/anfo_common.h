@@ -71,11 +71,11 @@ class Indexer : public Stream
 class Mapper : public Stream
 {
 	private:
-		config::Config conf_ ;
+		config::Aligner conf_ ;
 		GenomeHolder genome_ ;
 
 	public:
-		Mapper( const config::Config &config, const std::string& genome_name ) ;
+		Mapper( const config::Aligner &config, const std::string& genome_name ) ;
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;

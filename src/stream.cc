@@ -36,6 +36,8 @@ extern "C" {
 #include <fcntl.h>
 #endif
 
+#include <iostream>
+
 namespace std {
 	bool operator < ( const output::Read& p, const output::Read& q )
 	{ return p.SerializeAsString() < q.SerializeAsString() ; }

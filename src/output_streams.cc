@@ -139,6 +139,17 @@ extern "C" void show_uint32_array( const google::protobuf::Message& m, const goo
 	}
 	s << '\n' ;
 }
+extern "C" void show_int32_array( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
+{
+	s << string( indent, ' ' ) << f->name() << ": " ;
+	if( int l = r->FieldSize( m, f ) ) 
+	{
+		s << r->GetRepeatedInt32( m, f, 0 ) ;
+		for( int i = 1 ; i != l ; ++i )
+			s << ',' << r->GetRepeatedInt32( m, f, i ) ;
+	}
+	s << '\n' ;
+}
 
 // seen bases: same as array of ints, but we have four interleaved
 // arrays

@@ -152,9 +152,17 @@ WRAPPED_MAIN
 
 	// XXX add adapter trimmer here!
 	for( int i = 0 ; i != more_opts.size() ; ++i )
-		comp->add_stream( more_opts[i].first == opt_genome
-				? (Stream*) new Mapper( conf, more_opts[i].second )
-				: (Stream*) new Indexer( conf, more_opts[i].second ) ) ;
+    {
+        if( more_opts[i].first == opt_genome )
+        {
+            if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
+            comp->add_stream( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
+        }
+        else
+        {
+			comp->add_stream( new Indexer( conf, more_opts[i].second ) ) ;
+        }
+    }
 
     of.append( ".#new#" ) ;
 	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression

@@ -23,9 +23,12 @@
 #include "sequence.h"
 #include "util.h"
 
+#include <google/protobuf/text_format.h>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
+
+#include <iostream>
 
 #include <algorithm>
 #include <deque>
@@ -85,7 +88,12 @@ void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int t
 	os.WriteTag( mk_msg_tag( tag ) ) ;
 	os.WriteVarint32( m.ByteSize() ) ;
 	if( !m.SerializeToCodedStream( &os ) )
-		throw "error while serializing" ;
+    {
+        string s ;
+        google::protobuf::TextFormat::PrintToString( m, &s ) ;
+        cerr << s ;
+        throw "error while serializing: " ;
+    }
 }
 
 template< typename Msg >

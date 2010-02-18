@@ -259,10 +259,7 @@ message Seeds {
 
     // positions of starting points on the query
     // negative numbers mean to align on the reverse complemented strand
-    repeated int32 query_positions = 3 [ packed=true, (show) = "show_uint32_array" ] ;
-
-    // maximum penalty per nucleotide (copied from config)
-    required uint32 max_penalty_per_nuc = 4 [ default = 0 ] ;
+    repeated int32 query_positions = 3 [ packed=true, (show) = "show_int32_array" ] ;
 
     optional uint32 repeat_threshold = 5 ;
 }

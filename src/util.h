@@ -155,7 +155,7 @@ inline int path_open(
 
 				size_t end, start = 0 ;
 				for( ; fd == -1 && (end = path.find( ':', start )) != std::string::npos ; start = end+1 )
-					fd = open2( path.substr( start, end ) + "/" + name, ext ) ;
+					fd = open2( path.substr( start, end-start ) + "/" + name, ext ) ;
 				if( fd == -1 ) fd = open2( path.substr( start ) + "/" + name, ext ) ;
 			}
 		}
