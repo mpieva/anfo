@@ -223,7 +223,7 @@ template <class Comp> class SortingStream : public Stream
 
 		unsigned max_que_size_ ;
         unsigned num_open_files_ ;
-		int max_arr_size_ ;
+		unsigned max_arr_size_ ;
 		Comp comp_ ;
 
 		//! \brief quicksort the scratch area
@@ -248,7 +248,7 @@ template <class Comp> class SortingStream : public Stream
 		}
 
 	public:
-		SortingStream( int as = 256, unsigned qs = 256, Comp comp = Comp() ) :
+		SortingStream( unsigned as = 256, unsigned qs = 256, Comp comp = Comp() ) :
             final_stream_(), total_scratch_size_(0), max_que_size_(qs),
             num_open_files_(0), max_arr_size_( as), comp_( comp )
 		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }

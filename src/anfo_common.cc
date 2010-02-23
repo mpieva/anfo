@@ -131,7 +131,7 @@ void Indexer::put_result( const Result& r )
 	Policy p = select_policy( conf_, res_.read() ) ;
 	AlnStats *as = res_.add_aln_stats() ;
 
-	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
+	int num_raw = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
