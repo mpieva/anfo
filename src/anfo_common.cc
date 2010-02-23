@@ -175,7 +175,6 @@ void Indexer::put_result( const Result& r )
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
 	as->set_num_clumps( num_clumps ) ;
-	if( p.has_tag() ) as->set_tag( p.tag() ) ;
 }
 
 Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
@@ -198,31 +197,33 @@ void Mapper::put_result( const Result& r )
     // is it already clear that we cannot do anything?
     if( as->has_reason() ) return ;
 
+	const Seeds *ss = 0 ;
+    for( int i = 0 ; !ss && i != res_.seeds_size() ; ++i )
+        if( res_.seeds(i).genome_name() == genome_->name() 
+                || res_.seeds(i).genome_name() == genome_->name() + ".dna" )
+            ss = &res_.seeds(i) ;
+   
 	// not seeded means no policy (or logic bug, but let's not go there...)
-	if( !res_.seeds_size() ) {
+	if( !ss ) {
 		as->set_reason( output::no_policy ) ;
 		return ;
 	}
 
-	const Seeds &ss = res_.seeds( res_.seeds_size()-1 ) ;
-
 	// invariant violated, we won't deal with that
-	if( ss.ref_positions_size() != ss.query_positions_size() )
+	if( ss->ref_positions_size() != ss->query_positions_size() )
 		throw "invalid seeds: coordinates must come in pairs" ;
 
-	if( !ss.ref_positions_size() ) {
+	if( !ss->ref_positions_size() ) {
 		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
 		return ;
 	}
-
-	GenomeHolder g = Metagenome::find_genome( ss.genome_name() ) ;
 
 	QSequence qs( res_.read() ) ;
 	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
 	std::deque< alignment_type > ol ;
-	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
-		ol.push_back( alignment_type( *g, qs, ss.ref_positions(i), ss.query_positions(i) ) ) ;
+	for( int i = 0 ; i != ss->ref_positions_size() ; ++i )
+		ol.push_back( alignment_type( *genome_, qs, ss->ref_positions(i), ss->query_positions(i) ) ) ;
 
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
@@ -250,16 +251,13 @@ void Mapper::put_result( const Result& r )
 	output::Hit *h = res_.add_hit() ;
 
 	uint32_t start_pos ;
-	const Sequence *sequ ;
-	const Genome *genome ;
+    const config::Sequence *sequ = genome_->translate_back( minpos+1, start_pos ) ;
+	if( !sequ ) throw "Not supposed to happen:  invalid alignment coordinates" ;
 
-	if( !Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
-		throw "Not supposed to happen:  invalid alignment coordinates" ;
-
-	if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
+	if( genome_->g_.has_name() ) h->set_genome_name( genome_->g_.name() ) ;
 	h->set_sequence( sequ->name() ) ;
 	if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-	else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
+	else if( genome_->g_.has_taxid() ) h->set_taxid( genome_->g_.taxid() ) ;
 
 	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
 	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;

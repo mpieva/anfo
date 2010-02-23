@@ -140,9 +140,6 @@ message Policy {
 
     // pattern to match names against
     optional string name_pattern = 9 ;
-
-    // to to associate to statistics if necessary
-    optional string tag = 10 ;
 }
 
 message Aligner {
