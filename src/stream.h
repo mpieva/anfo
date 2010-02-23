@@ -345,13 +345,15 @@ class UniversalReader : public Stream
 
 		bool solexa_scores_ ;
 		int origin_ ;
+		string genome_ ;
 
 	public: 
 		UniversalReader(
 				const std::string& name,
 				google::protobuf::io::ZeroCopyInputStream* is = 0,
 				bool solexa_scores = false,
-				int origin = 33 
+				int origin = 33,
+				const string& genome = ""
 				) ;
 
 		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
@@ -704,9 +706,10 @@ class RmdupStream : public Stream
 		// XXX double err_prob_[4][4] ; // get this from config or
 		// something?
 
-		bool is_duplicate( const Result& , const Result& ) ;
+		bool is_duplicate( const Result& , const Result& ) const ;
 		void add_read( const Result& ) ;
 		void call_consensus() ;
+		int max_score( const Hit* h ) const ;
 
 	public:
 		//! \brief sets parameters
@@ -767,20 +770,30 @@ class SamReader : public Stream
 {
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		string name_, genome_ ;
+		Chan progress_ ;
+		int nmsg_ ;
 
 		void read_next_message() {
-            if( read_sam( is_.get(), res_ ) ) {
+            if( read_sam( is_.get(), genome_, res_ ) ) {
                 state_ = have_output ;
                 sanitize( *res_.mutable_read() ) ;
+				if( (++nmsg_ & 0xffff) == 0 ) {
+					stringstream ss ;
+					ss << name_ << ": " << nmsg_ << " records" ;
+					progress_( Console::info, ss.str() ) ;
+				}
             } else {
                 state_ = end_of_stream ;
 				is_.reset( 0 ) ;
+				progress_.close() ;
+				foot_.set_exit_code( 0 ) ;
             }
 		}
 
 	public: 
-		SamReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is ) :
-			is_( is ) { read_next_message() ; }
+		SamReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& n, const string& g ) :
+			is_( is ), name_( n ), genome_( g ), nmsg_(0) { read_next_message() ; }
 
 		virtual Header fetch_header() { hdr_.add_is_sorted_by_coordinate( "" ) ; return Stream::fetch_header() ; }
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
@@ -814,6 +827,18 @@ class SffReader : public Stream
 } ;
 
 } // namespace streams
+
+class PipeInputStream : public google::protobuf::io::FileInputStream 
+{
+	private:
+		pid_t cpid_ ;
+
+	public:
+		PipeInputStream( int fd, pid_t cpid ) : google::protobuf::io::FileInputStream( fd ), cpid_( cpid ) {} 
+		virtual ~PipeInputStream() { Close() ; throw_errno_if_minus1( waitpid( cpid_, 0, 0 ), "waiting for pipe process" ) ; }
+} ;
+
+std::pair< PipeInputStream*, std::string > make_PipeInputStream( const std::string& ) ;
 
 class PipeOutputStream : public google::protobuf::io::FileOutputStream 
 {
