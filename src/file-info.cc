@@ -55,7 +55,7 @@ WRAPPED_MAIN
 			google::protobuf::io::OstreamOutputStream os( &std::cout ) ;
 			google::protobuf::TextFormat::Print( g, &os ) ;
 		}
-		else if( sig == FixedIndex::signature || sig & 0xffffff == FixedIndex::signature & 0xffffff )
+		else if( sig == FixedIndex::signature || (sig & 0xffffff) == (FixedIndex::signature & 0xffffff) )
 		{
 			std::cout << "inverted list index"
 				<< ( sig == FixedIndex::signature ? "" : " (legacy format)" ) 

@@ -28,13 +28,13 @@ extend google.protobuf.FieldOptions {
 
 message Header {
     // program version string
-    required string version = 1 ;
+    optional string version = 1 ;
 
     // file format version, in case incompatible changes are introduced
     optional uint32 file_version = 8 [ default = 1 ] ;
 
     // copy of the config block used in the run
-    required config.Config config = 2 ;
+    optional config.Config config = 2 ;
 
     // copy of command line
     repeated string command_line = 5 ;
@@ -56,7 +56,7 @@ message Header {
 
     // old way to encode sorting, don't use
     optional bool was_sorted_by_coordinate = 14 [default=false] ;
-	optional bool is_sorted_by_all_genomes = 12 [default=false] ;
+    optional bool is_sorted_by_all_genomes = 12 [default=false] ;
 }
 
 // XXX: a few easily accessible statistics could be included here,

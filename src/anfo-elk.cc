@@ -306,25 +306,33 @@ WRAP( p_merge,  ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams(
 WRAP( p_join,   ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new NearSortedJoin, argc, argv ) ; }
 WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,   argc, argv ) ; }
 
-WRAP( p_read_file, ( Object fn, Object sol_scores, Object origin ), (fn,sol_scores,origin) )
+WRAP( p_read_file, ( Object fn, Object sol_scores, Object origin, Object genome, Object name ), (fn,sol_scores,origin,genome,name) )
 {
 	bool sol = Truep( sol_scores ) ;
 	int ori = Get_Integer( origin ) ;
+	string g ;
+
+	if( TYPE(genome) == T_Symbol ) genome = SYMBOL(genome)->name ;
+	if( TYPE(genome) == T_String ) g.assign( STRING(genome)->data, STRING(genome)->size ) ;
+
 	switch( TYPE(fn) )
 	{
-		// case T_Primitive:
-		// case T_Compound:
-			// return obj_to_stream( Funcall( o, Null, 0 ), sol, ori ) ;
-
 		case T_Symbol:
 		case T_String:
-			return wrap_stream( new UniversalReader( object_to_string(fn), 0, sol, ori ) ) ;
-
+			{
+				string nm = object_to_string(fn) ;
+				if( !nm.empty() && nm[nm.size()-1] == '|' )
+					return wrap_stream( new UniversalReader( object_to_string( name, "<pipe>" ),
+								make_PipeInputStream( nm.substr(0,nm.size()-1) ).first,
+								sol, ori, g ) ) ;
+				else 
+					return wrap_stream( new UniversalReader( object_to_string(fn), 0, sol, ori, g ) ) ;
+			}
 		case T_Fixnum:
-			return wrap_stream( new UniversalReader( "<pipe>", new FileInputStream( Get_Integer(fn) ), sol, ori ) ) ;
+			return wrap_stream( new UniversalReader( object_to_string( name, "<pipe>" ), new FileInputStream( Get_Integer(fn) ), sol, ori, g ) ) ;
 
 		case T_Boolean:
-			if( !Truep(fn) ) return wrap_stream( new UniversalReader( "<stdin>", new FileInputStream(0), sol, ori ) ) ;
+			if( !Truep(fn) ) return wrap_stream( new UniversalReader( object_to_string( name, "<stdin>" ), new FileInputStream(0), sol, ori, g ) ) ;
 
 		default:
 			Primitive_Error( "can't handle file argument ~s", fn ) ;
@@ -410,7 +418,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_limit_core,       "limit-core!",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_get_summary,      "get-summary",         1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_read_file,        "prim-read-file",      3, 3, EVAL ) ;
+	Define_Primitive( (P)p_read_file,        "prim-read-file",      5, 5, EVAL ) ;
 	Define_Primitive( (P)p_write_native,     "prim-write-native",   2, 2, EVAL ) ;
 	Define_Primitive( (P)p_write_text,       "prim-write-text",     1, 1, EVAL ) ; 
 	Define_Primitive( (P)p_write_sam,        "prim-write-sam",      1, 1, EVAL ) ;

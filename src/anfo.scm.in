@@ -34,11 +34,13 @@
 (define compress:  'compress:)
 (define context:   'context:)
 (define editor:    'editor:)
+(define genome:    'genome:)
 (define genomes:   'genomes:)
 (define handles:   'handles:)
 (define intercept: 'intercept:)
 (define label:     'label:)
 (define mem:       'mem:)
+(define name:      'name:)
 (define num:       'num:)
 (define origin:    'origin:)
 (define primary:   'primary:)
@@ -57,7 +59,6 @@
 (define (write-text     file) (bracket-stream (prim-write-text     file)))
 (define (write-threealn file) (bracket-stream (prim-write-threealn file)))
 (define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
-(define write-native write-file)
 
 (define*
   (duct-tape (label: lbl "contig"))
@@ -70,8 +71,10 @@
 (define*
   (read-file in 
 	     (solexa: sol *default-solexa-scale*)
-	     (origin: ori *default-origin*))
-  (bracket-stream (prim-read-file in sol ori)))
+	     (origin: ori *default-origin*)
+	     (genome: gen "")
+	     (name:   nam #f))
+  (bracket-stream (prim-read-file in sol ori gen nam)))
 
 (define (filter-chain left right file) (bracket-stream (prim-filter-chain left right file)))
 (define (filter-length len) (bracket-stream (prim-filter-length len)))
@@ -203,6 +206,8 @@
   (write-file out
 	      (compress: comp *default-compression*))
   (bracket-stream (prim-write-native out comp)))
+
+(define write-native write-file)
 
 (define (anfo-with-input in)
   (cond

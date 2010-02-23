@@ -21,6 +21,7 @@
 #include <climits>
 #include <limits>
 #include <istream>
+#include <string>
 #include <vector>
 
 #include <math.h>
@@ -382,7 +383,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 //! \brief reads a sequence from a SAM file
 //! \param zis stream to read from
 //! \return true iff a sequence could be read
-bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, output::Result& r ) ;
+bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, const std::string& genome, output::Result& r ) ;
 
 #endif
 

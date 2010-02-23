@@ -431,7 +431,7 @@ inline int select_seeds( PreSeeds& v, uint32_t d, int32_t r, uint32_t m,
 					{
 						// make sure both parts belong to the same contig
 						Word_t next_gap = open_in_clump->offset + open_in_clump->diagonal ;
-						if( !gaps.first( next_gap ) || next_gap >
+						if( !gaps.first( next_gap ) || next_gap > (Word_t)
 								candidate->offset + candidate->diagonal ) 
 						{
 							std::swap( *clump_end++, *candidate ) ;

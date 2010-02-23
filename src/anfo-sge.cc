@@ -151,7 +151,7 @@ WRAPPED_MAIN
 	poptFreeContext( pc ) ;
 
 	// XXX add adapter trimmer here!
-	for( int i = 0 ; i != more_opts.size() ; ++i )
+	for( size_t i = 0 ; i != more_opts.size() ; ++i )
     {
         if( more_opts[i].first == opt_genome )
         {
