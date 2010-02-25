@@ -1075,7 +1075,7 @@ namespace {
 
 	bool magic( const void *p, int l, const char* sig )
 	{
-		for( const uint8_t* q = (const uint8_t*)p ; *sig ; ++q, --l, ++sig )
+		for( const char* q = (const char*)p ; *sig ; ++q, --l, ++sig )
 			if( !l || *q != *sig ) return false ;
 		return true ;
 	}
@@ -1096,6 +1096,7 @@ namespace {
 		if( magic( p, l, "ANFO" ) )	return new AnfoReader( is, name ) ;
 		if( magic( p, l, "ANF1" ) ) return new ChunkedReader( is, name ) ;
 		if( magic( p, l, ".sff" ) ) return new SffReader( is, name ) ;
+		if( magic( p, l, "BAM\x01" ) ) return new BamReader( is, name, genome ) ;
 		if( magic( p, l, "BZh" ) )
 		{
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
@@ -1103,10 +1104,12 @@ namespace {
 		}
 		if( magic( p, l, "\x1f\x8b" ) )
 		{
+			cerr << "decode GZip" << endl ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
 			return make_input_stream_( zs, name, solexa_scores, origin, genome ) ;
 		}
 		if( is_fastq( p, l ) ) return new FastqReader( is, solexa_scores, origin ) ;
+		cerr << "falling back to reading SAM" << endl ;
 		return new SamReader( is, name, genome ) ;
 	}
 } ;
@@ -1145,7 +1148,7 @@ uint8_t SffReader::read_uint8()
 {
 	while( !buf_size_ )
 		if( !is_->Next( &buf_, &buf_size_ ) )
-			throw "SffReader: premature end of file in " + name_ ;
+			throw "BamReader: premature end of file in " + name_ ;
 
 	uint8_t x = *(const char*)buf_ ;
 	buf_ = (const char*)buf_ + 1 ;
@@ -1159,7 +1162,7 @@ void SffReader::read_string( unsigned l, string* s ) {
 	s->clear() ;
 	while( l ) {
 		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
-			throw "SffReader: premature end of file in " + name_ ;
+			throw "BamReader: premature end of file in " + name_ ;
 
 		while( buf_size_ && l ) 
 		{
@@ -1174,7 +1177,7 @@ void SffReader::skip( int l )
 {
 	while( l ) {
 		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
-			throw "SffReader: premature end of file in " + name_ ;
+			throw "BamReader: premature end of file in " + name_ ;
 		
 		unsigned k = min( l, buf_size_ ) ;
 		l -= k ;
@@ -1240,6 +1243,126 @@ Result SffReader::fetch_result()
         state_ = end_of_stream ;
         is_.reset(0) ;
     }
+	return res_ ;
+}
+
+
+uint8_t BamReader::read_uint8()
+{
+	while( !buf_size_ )
+		if( !is_->Next( &buf_, &buf_size_ ) )
+			throw "BamReader: premature end of file in " + name_ ;
+
+	uint8_t x = *(const char*)buf_ ;
+	buf_ = (const char*)buf_ + 1 ;
+	--buf_size_ ;
+	return x ;
+}
+
+uint16_t BamReader::read_uint16() { return read_uint8() | ((uint16_t)read_uint8() << 8) ; }
+uint32_t BamReader::read_uint32() { return read_uint16() | ((uint32_t)read_uint16() << 16) ; }
+void BamReader::read_string( unsigned l, string* s ) {
+	s->clear() ;
+	while( l ) {
+		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
+			throw "BamReader: premature end of file in " + name_ ;
+
+		while( buf_size_ && l ) 
+		{
+			s->push_back( *(char*)buf_ ) ;
+			--l ;
+			--buf_size_ ;
+			buf_ = (const char*)buf_ + 1 ;
+		}
+	}
+}
+
+BamReader::BamReader( auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, const string& genome ) : 
+	is_( is ), name_( name ), genome_( genome ), buf_(0), buf_size_(0)
+{
+	if( read_uint32() != 0x014d4142 ) throw "missing BAM magic number" ;
+	string sam_header ;
+	read_string( read_uint32(), &sam_header ) ;
+	unsigned nrefseq = read_uint32() ;
+	refseqs_.resize( nrefseq ) ;
+	for( unsigned i = 0 ; i != nrefseq ; ++i )
+	{
+		read_string( read_uint32()-1, &refseqs_[i] ) ;
+		read_uint8() ; // NUL terminator
+		read_uint32() ; // chromosome length
+	}
+	while( buf_ && !buf_size_ ) if( !is_->Next( &buf_, &buf_size_ ) ) buf_ = 0 ;
+	state_ = buf_ && buf_size_ ? have_output : end_of_stream ;
+}
+
+Result BamReader::fetch_result()
+{
+	res_.Clear() ;
+	Hit *h = res_.add_hit() ;
+
+	cerr << __PRETTY_FUNCTION__ << endl ;
+	unsigned bsize = read_uint32() ;
+	cerr << __PRETTY_FUNCTION__ << endl ;
+	unsigned refid = read_uint32() ;
+	if( refid < refseqs_.size() ) h->set_sequence( refseqs_[ refid ] ) ;
+	h->set_start_pos( read_uint32() ) ;
+	int namelen = read_uint8() ;
+	int mapq = read_uint8() ;
+	if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+	read_uint16() ; // BIN
+	int cigarlen = read_uint16() ;
+	int flags = read_uint16() ;
+	int seqlen = read_uint32() ;
+	read_uint32() ; // MATE RID
+	read_uint32() ; // MATE POS
+	read_uint32() ; // INS SIZE
+	read_string( namelen-1, res_.mutable_read()->mutable_seqid() ) ;
+	read_uint8() ;
+	for( int i = 0 ; i != cigarlen ; ++i ) h->add_cigar( read_uint32() ) ;
+	// SEQ?
+	read_string( (seqlen+1)/2, res_.mutable_read()->mutable_sequence() ) ;
+	
+	string qual ;
+	read_string( seqlen, &qual ) ;
+	bool has_qual = false ;
+	for( unsigned i = 0 ; i != qual.size() ; ++i )
+	{
+		if( (uint8_t)qual[i] != 0xff ) has_qual = true ;
+		// qual[i] -= 33 ; ???
+	}
+	if( has_qual ) res_.mutable_read()->set_quality( qual ) ;
+
+	bsize -= 32 + namelen + 4*cigarlen + ((seqlen+1)/2) + seqlen ;
+	cerr << "read len " << seqlen << ", extra info: " << bsize << endl ;
+	while( bsize ) 
+	{
+		char tag0 = read_uint8() ;
+		char tag1 = read_uint8() ;
+		char type = read_uint8() ;
+		bsize -= 3 ;
+
+		int ival ;
+		string sval ;
+
+		switch( type )
+		{
+			case 'A':
+			case 'c': case 'C': ival = read_uint8() ; bsize -= 1 ; break ;
+			case 's': case 'S': ival = read_uint16() ; bsize -= 2 ; break ;
+			case 'i': case 'I': ival = read_uint32() ; bsize -= 4 ; break ;
+			case 'f': throw "can't decode float" ;
+			case 'Z': --bsize ; while( char c = read_uint8() ) { cerr << c ; sval.push_back( c ) ; --bsize ; } cerr << endl ;break ;
+			case 'H': throw "can't decode HEX string" ;
+			default: throw string( "can't decode shit " ) + tag0 + tag1 + ':' + type ;
+		}
+		// use any of those?
+		std::cerr << "got " << tag0 << tag1 << ':' << type << ", " << bsize << " to go" << endl;  
+	}
+	if( flags & 4 ) res_.mutable_hit()->RemoveLast() ;
+	// XXX flags?
+
+	while( buf_ && !buf_size_ ) if( !is_->Next( &buf_, &buf_size_ ) ) buf_ = 0 ;
+	state_ = buf_ && buf_size_ ? have_output : end_of_stream ;
 	return res_ ;
 }
 

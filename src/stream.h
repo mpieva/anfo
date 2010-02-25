@@ -826,6 +826,28 @@ class SffReader : public Stream
 		virtual string type_name() const { return "SffReader(" + name_ + ")" ; }
 } ;
 
+class BamReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		string name_ ;
+		string genome_ ;
+		vector< string > refseqs_ ;
+
+		const void* buf_ ;
+		int buf_size_ ;
+
+		uint8_t read_uint8() ;
+		uint16_t read_uint16() ;
+		uint32_t read_uint32() ;
+		void read_string( unsigned, string* ) ;
+
+	public:
+		BamReader( auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, const string& genome ) ;
+		virtual Result fetch_result() ;
+		virtual string type_name() const { return "BamReader(" + name_ + ")" ; }
+} ;
+
 } // namespace streams
 
 class PipeInputStream : public google::protobuf::io::FileInputStream 

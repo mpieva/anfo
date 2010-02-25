@@ -486,7 +486,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 		// special treatment of unaligned sequence
 		*out_ << /*QNAME*/  result.read().seqid() << '\t'
 			<< /*FLAG */ bam_funmap
-			<< "*\t0\t0\t*\t*\t0\t0\t" // RNAME, POS, MAPQ, CIGAR, MRNM, MPOS, ISIZE
+			<< "\t*\t0\t0\t*\t*\t0\t0\t" // RNAME, POS, MAPQ, CIGAR, MRNM, MPOS, ISIZE
 			<< /*SEQ*/ result.read().sequence() << '\t' ;
 
 		if( result.read().has_quality() ) /*QUAL*/   
@@ -496,7 +496,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 			*out_ << '*' ;
 
 		/*[TAGS]*/
-		*out_ << "\t\n" ;
+		*out_ << "\n" ;
 		return no_hit ;
 	}
 	else return goodness ;
