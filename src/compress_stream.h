@@ -58,9 +58,14 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 				// inflate some; after that we either have output or
 				// need to get more input (or have an error)
 				int r = inflate( &zs_, Z_NO_FLUSH ) ;
-				// when are we finished?  when we get Z_STREAM_END, but
+				// when are we finished?  when the input is fully
+				// consumed.  In case the gzip stream ends with input
+				// left, we simply re-initialize.
 				// we may still have a block to hand out
-				if( r == Z_STREAM_END ) break ;
+				if( r == Z_STREAM_END ) {
+					r = inflateEnd( &zs_ ) ;
+					if( r == Z_OK ) r = inflateInit2( &zs_, 15+16 ) ;
+				}
 				else if( r != Z_OK ) throw zs_.msg ;
 			}
 
@@ -102,10 +107,10 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 				zs_.zalloc = 0 ;
 				zs_.zfree = 0 ;
 				zs_.opaque = 0 ;
-				if( inflateInit2( &zs_, 15+16 ) != Z_OK ) throw zs_.msg ;
-
 				zs_.next_in = (Bytef*)p ;
 				zs_.avail_in = l ;
+				if( inflateInit2( &zs_, 15+16 ) != Z_OK ) throw zs_.msg ;
+
 				zs_.next_out = obuf_ ;
 				zs_.avail_out = sizeof( obuf_ ) ;
 				next_undelivered_ = obuf_ ;

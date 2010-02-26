@@ -171,7 +171,7 @@ message Aligner {
 
     // distance cutoff scaled by 1000
     // (need to add an E-Value cutoff at some point)
-    required uint32 max_penalty_per_nuc = 8 ;
+    optional uint32 max_penalty_per_nuc = 8 [ default = 15 ] ;
 
     optional uint32 max_mapq = 9 [ default = 254 ] ;
 }

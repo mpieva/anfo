@@ -88,7 +88,7 @@ void DuctTaper::flush_contig()
 	// remove cols where sth. was inserted, but most reads show a gap
 	for( Accs::iterator i = observed_.begin() ; i != observed_.end() ; )
 	{
-		if( std::accumulate( i->seen, i->seen+4, 0 ) <= i->seen[4] && i->is_ins )
+		if( std::accumulate( i->seen, i->seen+4, 0 ) <= i->gapped && i->is_ins )
 			i = observed_.erase(i) ;
 		else ++i ;
 	}
@@ -99,7 +99,7 @@ void DuctTaper::flush_contig()
 	for( Accs::iterator i = observed_.begin() ; i != observed_.end() ; ++i )
 	{
 		int cov = std::accumulate( i->seen, i->seen+4, 0 ) ;
-		if( cov > i->seen[4] ) {
+		if( cov > i->gapped ) {
 			if( i->is_ins ) push_i( cigar, 1 ) ; else push_m( cigar, 1 ) ;
 
 			Logdom lk_tot = std::accumulate( i->lk, i->lk+10, Logdom::null() ) ;
@@ -110,7 +110,7 @@ void DuctTaper::flush_contig()
 				if( i->lk[j] > i->lk[maxlk] ) maxlk = j ;
 			}
 
-			rd.add_depth( cov + i->seen[4] ) ;
+			rd.add_depth( cov + i->gapped ) ;
 			rd.mutable_sequence()->push_back( "ACGT"[maxlk] ) ;
 
 			Logdom q = Logdom::null() ;

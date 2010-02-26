@@ -342,7 +342,7 @@ bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, const string& gen
 		}
 
 		char tag[2] ;
-		int intval ;
+		int intval = 0 ;
 		string stringval ;
 		while( get_opt_field( s, tag, intval, stringval ) )				// TAG:VTYPE:VALUE
 		{

@@ -1093,23 +1093,48 @@ namespace {
 		if( !is->Next( &p, &l ) ) return StreamHolder() ; // XXX new Stream ;
 		is->BackUp( l ) ;
 
-		if( magic( p, l, "ANFO" ) )	return new AnfoReader( is, name ) ;
-		if( magic( p, l, "ANF1" ) ) return new ChunkedReader( is, name ) ;
-		if( magic( p, l, ".sff" ) ) return new SffReader( is, name ) ;
-		if( magic( p, l, "BAM\x01" ) ) return new BamReader( is, name, genome ) ;
+		if( magic( p, l, "ANFO" ) ) {
+			console.output( Console::info, name + ": linear ANFO file" ) ;
+			return new AnfoReader( is, name ) ;
+		}
+		if( magic( p, l, "ANF1" ) ) {
+			console.output( Console::info, name + ": chunked ANFO file" ) ;
+			return new ChunkedReader( is, name ) ;
+		}
+		if( magic( p, l, ".sff" ) ) {
+			console.output( Console::info, name + ": SFF file" ) ;
+			return new SffReader( is, name ) ;
+		}
+		if( magic( p, l, "BAM\x01" ) ) {
+			console.output( Console::info, name + ": BAM file" ) ;
+			return new BamReader( is, name, genome ) ;
+		}
 		if( magic( p, l, "BZh" ) )
 		{
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
+			console.output( Console::info, name + ": BZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
 			return make_input_stream_( bs, name, solexa_scores, origin, genome ) ;
+#else
+			throw "found BZip'ed file, but have no libbz2 support" ;
+#endif
 		}
 		if( magic( p, l, "\x1f\x8b" ) )
 		{
-			cerr << "decode GZip" << endl ;
+#if HAVE_LIBZ && HAVE_ZLIB_H
+			console.output( Console::info, name + ": GZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
 			return make_input_stream_( zs, name, solexa_scores, origin, genome ) ;
+#else
+			throw "found GZip'ed file, but have no zlib support" ;
+#endif
 		}
-		if( is_fastq( p, l ) ) return new FastqReader( is, solexa_scores, origin ) ;
-		cerr << "falling back to reading SAM" << endl ;
+		if( is_fastq( p, l ) ) 
+		{
+			console.output( Console::info, name + ": FastA or FastQ" ) ;
+			return new FastqReader( is, solexa_scores, origin ) ;
+		}
+		console.output( Console::notice, name + ": unknown, will parse as SAM" ) ;
 		return new SamReader( is, name, genome ) ;
 	}
 } ;
@@ -1300,9 +1325,7 @@ Result BamReader::fetch_result()
 	res_.Clear() ;
 	Hit *h = res_.add_hit() ;
 
-	cerr << __PRETTY_FUNCTION__ << endl ;
 	unsigned bsize = read_uint32() ;
-	cerr << __PRETTY_FUNCTION__ << endl ;
 	unsigned refid = read_uint32() ;
 	if( refid < refseqs_.size() ) h->set_sequence( refseqs_[ refid ] ) ;
 	h->set_start_pos( read_uint32() ) ;
@@ -1318,22 +1341,65 @@ Result BamReader::fetch_result()
 	read_uint32() ; // INS SIZE
 	read_string( namelen-1, res_.mutable_read()->mutable_seqid() ) ;
 	read_uint8() ;
-	for( int i = 0 ; i != cigarlen ; ++i ) h->add_cigar( read_uint32() ) ;
-	// SEQ?
-	read_string( (seqlen+1)/2, res_.mutable_read()->mutable_sequence() ) ;
-	
+	unsigned aln_len = 0 ;
+	for( int i = 0 ; i != cigarlen ; ++i ) {
+		int cig = read_uint32() ;
+		h->add_cigar( cig ) ;
+		switch( cigar_op( cig ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Delete:
+			case Hit::Skip:
+				aln_len += cigar_len( cig ) ;
+				break ;
+
+			case Hit::Insert:
+			case Hit::SoftClip:
+			case Hit::HardClip:
+			case Hit::Pad:
+				break ;
+		}
+	}
+	h->set_aln_length( flags & 0x10 ? -aln_len : aln_len ) ;
+	if( flags & 0x10 ) reverse( h->mutable_cigar()->begin(), h->mutable_cigar()->end() ) ;
+
+	if( flags & 0x10 ) {
+		string seq ;
+		for( int i = 0 ; i != seqlen ; ++i )
+		{
+			static char bases_rev[] = "=TG.C...A......N" ;
+			uint8_t code = read_uint8() ;
+			seq.push_back( bases_rev[ (code >> 4) & 0xf ] ) ;
+			if( ++i == seqlen ) break ;
+			seq.push_back( bases_rev[ code & 0xf ] ) ;
+		}
+		res_.mutable_read()->mutable_sequence()->assign( seq.rbegin(), seq.rend() ) ;
+	}
+	else {
+		for( int i = 0 ; i != seqlen ; ++i )
+		{
+			static char bases_fwd[] = "=AC.G...T......N" ;
+			uint8_t code = read_uint8() ;
+			res_.mutable_read()->mutable_sequence()->push_back( bases_fwd[ (code >> 4) & 0xf ] ) ;
+			if( ++i == seqlen ) break ;
+			res_.mutable_read()->mutable_sequence()->push_back( bases_fwd[ code & 0xf ] ) ;
+		}
+	}
+
 	string qual ;
 	read_string( seqlen, &qual ) ;
 	bool has_qual = false ;
 	for( unsigned i = 0 ; i != qual.size() ; ++i )
-	{
 		if( (uint8_t)qual[i] != 0xff ) has_qual = true ;
-		// qual[i] -= 33 ; ???
+	
+	if( has_qual ) {
+		if( flags & 0x10 ) res_.mutable_read()->mutable_quality()->assign(
+				qual.rbegin(), qual.rend() ) ;
+		else res_.mutable_read()->set_quality( qual ) ;
 	}
-	if( has_qual ) res_.mutable_read()->set_quality( qual ) ;
 
 	bsize -= 32 + namelen + 4*cigarlen + ((seqlen+1)/2) + seqlen ;
-	cerr << "read len " << seqlen << ", extra info: " << bsize << endl ;
 	while( bsize ) 
 	{
 		char tag0 = read_uint8() ;
@@ -1341,7 +1407,7 @@ Result BamReader::fetch_result()
 		char type = read_uint8() ;
 		bsize -= 3 ;
 
-		int ival ;
+		int ival = 0 ;
 		string sval ;
 
 		switch( type )
@@ -1351,15 +1417,14 @@ Result BamReader::fetch_result()
 			case 's': case 'S': ival = read_uint16() ; bsize -= 2 ; break ;
 			case 'i': case 'I': ival = read_uint32() ; bsize -= 4 ; break ;
 			case 'f': throw "can't decode float" ;
-			case 'Z': --bsize ; while( char c = read_uint8() ) { cerr << c ; sval.push_back( c ) ; --bsize ; } cerr << endl ;break ;
+			case 'Z': --bsize ; while( char c = read_uint8() ) { sval.push_back( c ) ; --bsize ; } break ;
 			case 'H': throw "can't decode HEX string" ;
 			default: throw string( "can't decode shit " ) + tag0 + tag1 + ':' + type ;
 		}
-		// use any of those?
-		std::cerr << "got " << tag0 << tag1 << ':' << type << ", " << bsize << " to go" << endl;  
+		if( tag0 == 'U' && tag1 == 'Q' ) h->set_score( ival ) ;
+		if( tag0 == 'A' && tag1 == 'S' && !h->has_score() ) h->set_score( ival ) ;
 	}
 	if( flags & 4 ) res_.mutable_hit()->RemoveLast() ;
-	// XXX flags?
 
 	while( buf_ && !buf_size_ ) if( !is_->Next( &buf_, &buf_size_ ) ) buf_ = 0 ;
 	state_ = buf_ && buf_size_ ? have_output : end_of_stream ;

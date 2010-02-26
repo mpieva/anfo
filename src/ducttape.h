@@ -76,7 +76,7 @@ class DuctTaper : public Stream
 			{ seen[0] = seen[1] = seen[2] = seen[3] = 0 ; }
 
 			bool pristine() const
-			{ for( int i = 0 ; i != 5 ; ++i ) if( seen[i] ) return false ; return gapped == 0 ; }
+			{ for( int i = 0 ; i != 4 ; ++i ) if( seen[i] ) return false ; return gapped == 0 ; }
 		} ;
 		typedef std::vector< Acc > Accs ;
 		Accs observed_ ;
