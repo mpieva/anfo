@@ -295,7 +295,7 @@ void StatStream::put_result( const Result& r )
 	unsigned bases = r.read().sequence().size() ;
 	unsigned gc = count( r.read().sequence().begin(), r.read().sequence().end(), 'G' )
 		        + count( r.read().sequence().begin(), r.read().sequence().end(), 'C' ) ;
-	unsigned count = std::max( r.member_size(), 1 ) ;
+	unsigned count = std::max( r.members_size() + r.nmembers(), 1U ) ;
 	total_ += count ;
 	bases_ += bases ;
 	bases_gc_ += gc ;

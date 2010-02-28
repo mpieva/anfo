@@ -620,11 +620,11 @@ class Subsample : public Filter
 class MultiFilter : public Filter
 {
 	private:
-		int n_ ;
+		unsigned n_ ;
 
 	public:
-		MultiFilter( int n ) : n_(n) {}
-		virtual bool xform( Result& r ) { return r.member_size() >= n_ ; }
+		MultiFilter( unsigned n ) : n_(n) {}
+		virtual bool xform( Result& r ) { return r.members_size() + r.nmembers() >= n_ ; }
 } ;
 
 //! \brief stream that filters out low quality bases

@@ -145,7 +145,7 @@ namespace {
 			if( o.has_trim_right() ) r.set_trim_right( o.trim_right() ) ;
 		}
 
-		rs.mutable_member()->MergeFrom( o.member() ) ;
+		rs.mutable_members()->MergeFrom( o.member() ) ;
 
 		if( o.has_best_hit() ) *rs.add_hit() = upgrade( o.best_hit() ) ;
 		if( o.has_best_to_genome() ) {
@@ -596,8 +596,13 @@ void merge_sensibly( Result& lhs, const Result& rhs )
 	// - read: all equal, no merging needed
 
 	// - member: concatenate and remove doubles
-	lhs.mutable_member()->MergeFrom( rhs.member() ) ;
-	nub( *lhs.mutable_member() ) ;
+	lhs.mutable_members()->MergeFrom( rhs.members() ) ;
+	lhs.set_nmembers( lhs.nmembers() + rhs.nmembers() ) ;
+	nub( *lhs.mutable_members() ) ;
+	if( lhs.members_size() >= 8 ) {
+		lhs.set_nmembers( lhs.nmembers() + lhs.members_size() ) ;
+		lhs.clear_members() ;
+	}
 
 	// - hits: merge those for the same genome, concatenate the rest
 	for( int j = 0 ; j != rhs.hit_size() ; ) {
@@ -784,11 +789,21 @@ void RmdupStream::add_read( const Result& rhs )
 {
 	// if the new member is itself a cluster, we add its member reads,
 	// not the single synthetic one
-	if( rhs.member_size() ) 
-		for( int i = 0 ; i != rhs.member_size() ; ++i )
-			*cur_.add_member() = rhs.member(i) ;
+	if( rhs.nmembers() )
+	{
+		cur_.set_nmembers( rhs.nmembers() + cur_.nmembers() + cur_.members_size() ) ;
+		cur_.clear_members() ;
+	}
+	else if( rhs.members_size() ) 
+		for( int i = 0 ; i != rhs.members_size() ; ++i )
+			*cur_.add_members() = rhs.members(i) ;
 	else
-		*cur_.add_member() = rhs.read() ;
+		*cur_.add_members() = rhs.read() ;
+
+	if( cur_.members_size() >= 8 ) {
+		cur_.set_nmembers( cur_.nmembers() + cur_.members_size() ) ;
+		cur_.clear_members() ;
+	}
 
 	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
@@ -916,7 +931,7 @@ void RmdupStream::put_result( const Result& next )
 			// a good one, we need to actually merge it.  If cur_ is a
 			// plain result, turn it into a degenerate merged one
 			// first...
-			if( cur_.member_size() == 0 )
+			if( cur_.members_size() + cur_.nmembers() == 0 )
 			{
 				add_read( cur_ ) ;
 				cur_.mutable_read()->set_seqid( "C_" + cur_.read().seqid() ) ;
@@ -955,7 +970,7 @@ void RmdupStream::put_result( const Result& next )
 
 void RmdupStream::call_consensus()
 {
-	if( !cur_.member_size() ) {
+	if( !cur_.members_size() && !cur_.nmembers() ) {
         limit_quality( *cur_.mutable_read(), maxq_ ) ;
         return ;
     }

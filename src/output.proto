@@ -271,8 +271,10 @@ message Result {
     required Read read = 1 ;
 
     // if this result is the consensus of multiple reads, those reads
-    // can go here
-    repeated Read member = 2 ;
+    // can go here.  if there are too many, just their number can be
+	// stored instead.
+    repeated Read members = 2 ;
+	optional uint32 nmembers = 9 [ default = 0 ] ;
 
     // alignments, if any
     repeated Hit hit = 3 [ (show) = "show_hit" ] ;
