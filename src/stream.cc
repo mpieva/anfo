@@ -1343,6 +1343,7 @@ Result BamReader::fetch_result()
 	unsigned bsize = read_uint32() ;
 	unsigned refid = read_uint32() ;
 	if( refid < refseqs_.size() ) h->set_sequence( refseqs_[ refid ] ) ;
+	if( !genome_.empty() ) h->set_genome_name( genome_ ) ;
 	h->set_start_pos( read_uint32() ) ;
 	int namelen = read_uint8() ;
 	int mapq = read_uint8() ;
