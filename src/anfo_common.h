@@ -45,6 +45,30 @@ struct reference_overlaps {
 
 namespace streams {
 
+//! \brief takes care of stuff needed before aligning
+//! This is for "housekeeping" that needs to be done before indexing
+//! and alignment, most notably adapter/artefact trimming.
+
+class Housekeeper : public Stream
+{
+	private:
+		const int minscore_ ;
+		vector< string > trim_left_ ;
+		vector< string > trim_right_ ;
+
+	public:
+		Housekeeper( const config::Config &config ) :
+			minscore_( config.min_trim_score() ),
+			trim_left_( config.trim_left().begin(), config.trim_left().end() ),
+			trim_right_( config.trim_right().begin(), config.trim_right().end() )
+		{}
+
+		Housekeeper( vector<string> left, vector<string> right, int minscore )
+			: minscore_( minscore_ ), trim_left_( left ), trim_right_( right ) {}
+
+		virtual void put_result( const Result& ) ;
+} ;
+
 //! \brief configured Indexer
 //! Knows about one index, will look at each record, check the policy
 //! and if appropriate, will do an index lookup.  Constructed seeds are

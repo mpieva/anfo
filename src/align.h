@@ -298,7 +298,6 @@ struct flat_alignment : public gen_alignment<flat_alignment> {
 	static uint32_t gap_penalty() { return 1 ; }
 
 	flat_alignment() : gen_alignment<flat_alignment>() {}
-	// XXX flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<flat_alignment>(g,ps,s) {}
 	flat_alignment( const CompactGenome& g, const QSequence& ps, unsigned ref_pos, int qry_pos ) : gen_alignment<flat_alignment>(g,ps,ref_pos,qry_pos) {}
 } ;
 
@@ -455,7 +454,6 @@ struct simple_adna : public gen_alignment<simple_adna> {
 
 
 	simple_adna() : gen_alignment<simple_adna>() {}
-	// XXX simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}
 	simple_adna( const CompactGenome& g, const QSequence& ps, unsigned ref_pos, int qry_pos ) : gen_alignment<simple_adna>(g,ps,ref_pos,qry_pos) {}
 
 	enum {

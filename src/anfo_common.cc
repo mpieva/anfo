@@ -75,6 +75,135 @@ Policy select_policy( const Config &c, const Read &r )
     return p ;
 }
 
+string effective_sequence( const Read& rd )
+{
+	return rd.sequence().substr(
+			rd.trim_left(),
+			rd.has_trim_right() ? rd.trim_right() : std::string::npos
+			) ;
+}
+
+void trim_cigar_left( google::protobuf::RepeatedField<uint32_t> &cig, unsigned len )
+{
+	for( int p = 0 ; p != cig.size() ; ++p )
+	{
+		switch( cigar_op( cig.Get( p ) ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Insert:
+			case Hit::SoftClip:
+				if( cigar_len( cig.Get( p ) ) > len )
+				{
+					cig.Set( p, mk_cigar(
+								cigar_op( cig.Get( p ) ),
+								cigar_len( cig.Get( p ) ) - len ) ) ;
+					// remove beginning and get out
+					if( !p ) return ;
+					int q = 0 ;
+					while( p != cig.size() ) cig.Set( q++, cig.Get( p++ ) ) ;
+					while( q != cig.size() ) cig.RemoveLast() ;
+					return ;
+				}
+				else len -= cigar_len( cig.Get( p ) ) ;
+				break ;
+
+			case Hit::Delete:
+			case Hit::Skip:
+			case Hit::Pad:
+			case Hit::HardClip:
+				break ;
+		}
+	}
+	// nothing left if we get here
+	cig.Clear() ;
+}
+
+void trim_cigar_right( google::protobuf::RepeatedField<uint32_t> &cig, unsigned len )
+{
+	for( int p = cig.size() ; p ; --p )
+	{
+		switch( cigar_op( cig.Get( p-1 ) ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Insert:
+			case Hit::SoftClip:
+				if( cigar_len( cig.Get( p-1 ) ) > len )
+				{
+					cig.Set( p-1, mk_cigar(
+								cigar_op( cig.Get( p-1 ) ),
+								cigar_len( cig.Get( p-1 ) ) - len ) ) ;
+					// remove beginning and get out
+					while( p != cig.size() ) cig.RemoveLast() ;
+					return ;
+				}
+				else len -= cigar_len( cig.Get( p-1 ) ) ;
+				break ;
+
+			case Hit::Delete:
+			case Hit::Skip:
+			case Hit::Pad:
+			case Hit::HardClip:
+				break ;
+		}
+	}
+	// nothing left if we get here
+	cig.Clear() ;
+}
+
+void Housekeeper::put_result( const Result& rs )
+{
+	Stream::put_result( rs ) ;
+
+	// trim adapters, set trim points
+	// How does this work?  We create an overlap alignment, then
+	// calculate an alignment score from the number of differences.  The
+	// formula equals a match score of 1 and a mismatch score of -3.
+	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
+	// score is good enough, we trim.
+
+	const output::Read &rd = res_.read() ;
+	const string &seq = rd.sequence() ;
+
+	unsigned r0 = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
+	unsigned l0 = rd.trim_left() ;
+	unsigned r = r0, l = l0 ;
+
+	// first step: always trim trailing Ns (often caused by 454
+	// failed quality trimming)
+	while( r && ( seq[r-1] == 'n' || seq[r-1] == 'N') ) --r ;
+
+	for( int i = 0 ; i != trim_right_.size() ; ++i )
+	{
+		int ymax, score = overlap_align(
+				seq.rbegin() + ( seq.length() - r ), seq.rend(),
+				trim_right_[i].rbegin(), trim_right_[i].rend(), &ymax ) ;
+		if( score >= minscore_ && ymax > 0 ) r -= ymax ;
+	}
+
+	for( int i = 0 ; i != trim_left_.size() ; ++i )
+	{
+		int ymax, score = overlap_align(
+				seq.begin() + l, seq.end(),
+				trim_left_[i].begin(), trim_left_[i].end(), &ymax ) ;
+		if( score >= minscore_ && ymax > 0 ) l += ymax ;
+	}
+
+	if( l > l0 )
+	{
+		for( unsigned i = 0 ; i != res_.hit_size() ; ++i )
+			trim_cigar_left( *res_.mutable_hit(i)->mutable_cigar(), l-l0 ) ;
+		res_.mutable_read()->set_trim_right( l ) ;
+	}
+	if( r < r0 ) 
+	{
+		for( unsigned i = 0 ; i != res_.hit_size() ; ++i )
+			trim_cigar_right( *res_.mutable_hit(i)->mutable_cigar(), r-r0 ) ;
+		res_.mutable_read()->set_trim_right( r ) ;
+	}
+}
+
 Indexer::Indexer( const config::Config &config, const string& index_name ) :
 	conf_( config ), index_name_( index_name ), index_( index_name )
 {
@@ -90,45 +219,7 @@ void Indexer::put_header( const Header& h )
 void Indexer::put_result( const Result& r )
 {
 	Stream::put_result( r ) ;
-	static const int minscore = 4 ;
-
-	// trim adapters, set trim points
-	// How does this work?  We create an overlap alignment, then
-	// calculate an alignment score from the number of differences.  The
-	// formula equals a match score of 1 and a mismatch score of -3.
-	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
-	// score is good enough, we trim.
-
-	const output::Read &rd = res_.read() ;
-	const string &seq = rd.sequence() ;
-
-	if( conf_.trim_right_size() || conf_.trim_left_size() ) 
-	{
-		unsigned n = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
-		while( n && ( seq[n-1] == 'n' || seq[n-1] == 'N') ) --n ;
-		res_.mutable_read()->set_trim_right( n ) ;
-	}
-
-	for( int i = 0 ; i != conf_.trim_right_size() ; ++i )
-	{
-		int ymax, score = overlap_align(
-				seq.rbegin() + ( rd.has_trim_right() ? seq.length() - rd.trim_right() : 0 ), seq.rend(),
-				conf_.trim_right(i).rbegin(), conf_.trim_right(i).rend(), &ymax ) ;
-		if( score >= minscore && ymax > 0 )
-			res_.mutable_read()->set_trim_right(
-					(rd.has_trim_right() ? rd.trim_right() : seq.length()) - ymax ) ;
-	}
-
-	for( int i = 0 ; i != conf_.trim_left_size() ; ++i )
-	{
-		int ymax, score = overlap_align(
-				seq.begin() + rd.trim_left(), seq.end(),
-				conf_.trim_left(i).begin(), conf_.trim_left(i).end(), &ymax ) ;
-		if( score >= minscore && ymax > 0 )
-			res_.mutable_read()->set_trim_left( rd.trim_left() + ymax ) ;
-	}
-
-	Policy p = select_policy( conf_, res_.read() ) ;
+	Policy p = select_policy( conf_, res_.read()  ) ;
 	AlnStats *as = res_.add_aln_stats() ;
 
 	int num_raw = 0, num_clumps = 0, num_useless = 0 ;
@@ -156,9 +247,8 @@ void Indexer::put_result( const Result& r )
             }
 
 			PreSeeds seeds ;
-			num_raw += index_.lookupS( 
-					seq.substr( rd.trim_left(), rd.has_trim_right() ? rd.trim_right() : std::string::npos ),
-					seeds, params, &num_useless ) ;
+			num_raw += index_.lookupS(
+					effective_sequence( res_.read() ), seeds, params, &num_useless ) ;
 					
 			num_clumps += cis.allow_near_perfect() 
 				? combine_seeds( seeds, p.min_seed_len(), ss )
@@ -272,12 +362,11 @@ void Mapper::put_result( const Result& r )
 	//! selected genome(s).
 
 	// XXX set diff_to_next_species, diff_to_next_order
-	// XXX find another best hit (genome only)
 
 	// get rid of overlaps of that first alignment, then look
 	// for the next one
-	// XXX this is cumbersome... need a better PQueue impl...
-	// XXX make distance configurable
+	// XXX this is cumbersome... need a better PQueue impl... or a
+	// better algorithm
 	ol.erase( 
 			std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
 			ol.end() ) ;

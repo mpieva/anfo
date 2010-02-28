@@ -117,7 +117,6 @@ WRAPPED_MAIN
 
 				for( vector<Subject>::const_iterator subj = subjects.begin() ; subj != subjects.end() ; ++subj )
 				{
-					// XXX soooo ugly (and slow)
 					PreSeeds seeds ;
 					int num_useless ;
 					index.lookupS( subj->seq, seeds, params, &num_useless ) ;

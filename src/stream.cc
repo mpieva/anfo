@@ -1105,7 +1105,7 @@ namespace {
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
 		const void* p ; int l ;
-		if( !is->Next( &p, &l ) ) return StreamHolder() ; // XXX new Stream ;
+		if( !is->Next( &p, &l ) ) return new Stream() ; // gives an empty stream
 		is->BackUp( l ) ;
 
 		if( magic( p, l, "ANFO" ) ) {

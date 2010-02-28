@@ -71,7 +71,7 @@ extern "C" void sig_handler( int sig ) { exit_with = sig + 128 ; }
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum option_tags { opt_none, opt_version, opt_index, opt_genome } ;
+	enum option_tags { opt_none, opt_version, opt_housekeep, opt_index, opt_genome } ;
 
 	std::vector< pair< int, string > > more_opts ;
 
@@ -84,15 +84,16 @@ WRAPPED_MAIN
 	if( const char *t = getenv( "SGE_TASK_ID" ) ) task_id = atoi( t ) -1 ; 
 
 	struct poptOption options[] = {
-		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
-		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
-		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
-		{ "index",       'i', POPT_ARG_STRING, 0,			 opt_index,   "Use FILE as index according to config", "FILE" },
-		{ "genome",      'g', POPT_ARG_STRING, 0,			 opt_genome,  "Use FILE as genome according to config", "FILE" },
-		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
-		{ "nommap",       0 , POPT_ARG_NONE,&Metagenome::nommap,opt_none, "Don't use mmap(), read() indexes instead", 0 },
-		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
-		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
+		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version,   "Print version number and exit", 0 },
+		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,      "Read config from FILE", "FILE" },
+		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,      "Write output to FILE", "FILE" },
+		{ "housekeeping",'H', POPT_ARG_NONE,   0,            opt_housekeep, "Perform housekeeping (e.g. trimming)", 0 },
+		{ "index",       'i', POPT_ARG_STRING, 0,			 opt_index,     "Use FILE as index according to config", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, 0,			 opt_genome,    "Use FILE as genome according to config", "FILE" },
+		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,      "Overwrite existing output file", 0 },
+		{ "nommap",       0 , POPT_ARG_NONE,   &Metagenome::nommap,opt_none,"Don't use mmap(), read() indexes instead", 0 },
+		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,      "Quality scores use Solexa formula", 0 },
+		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,      "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -106,6 +107,10 @@ WRAPPED_MAIN
 		case opt_version:
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
+
+		case opt_housekeep:
+			more_opts.push_back( make_pair( rc, (const char*)0 ) ) ;
+			break ;
 
 		case opt_index:
 		case opt_genome:
@@ -150,10 +155,13 @@ WRAPPED_MAIN
 	}
 	poptFreeContext( pc ) ;
 
-	// XXX add adapter trimmer here!
 	for( size_t i = 0 ; i != more_opts.size() ; ++i )
     {
-        if( more_opts[i].first == opt_genome )
+		if( more_opts[i].first == opt_housekeep )
+		{
+            comp->add_stream( new Housekeeper( conf ) ) ;
+		}
+		else if( more_opts[i].first == opt_genome )
         {
             if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
             comp->add_stream( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
@@ -181,31 +189,13 @@ WRAPPED_MAIN
 	while( !exit_with && comp->get_state() == Stream::have_output && outs->get_state() == Stream::need_input )
 		outs->put_result( comp->fetch_result() ) ;
 
-	/*
-	{
-		StreamHolder inp(
-        inp->fetch_header() ;
-
-		for( ; !exit_with && inp->get_state() == Stream::have_output ; ++total_count )
-		{
-			output::Result r = inp->fetch_result() ;
-			mapper.index_sequence( r ) ;
-			mapper.process_sequence( r ) ;
-			// XXX QSequence ps ;
-			// std::deque< alignment_type > ol ;
-			// int pmax = mapper.index_sequence( r, ps, ol ) ;
-			// if( pmax != INT_MAX ) mapper.process_sequence( ps, pmax, ol, r ) ;
-			os->put_result( r ) ;
-		}
-	}
-	*/
-
 	{
 		output::Footer ofoot = comp->fetch_footer() ;
 		exit_with |= ofoot.exit_code() ;
 		ofoot.set_exit_code( exit_with ) ;
 		outs->put_footer( ofoot ) ;
 	}
+		
 	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
 	return 0 ;
 }

@@ -39,12 +39,14 @@
 (define handles:   'handles:)
 (define intercept: 'intercept:)
 (define label:     'label:)
+(define left:      'left:)
 (define mem:       'mem:)
 (define name:      'name:)
 (define num:       'num:)
 (define origin:    'origin:)
 (define primary:   'primary:)
 (define quality:   'quality:)
+(define right:     'right:)
 (define score:     'score:)
 (define secondary: 'secondary:)
 (define sequences: 'sequences:)
@@ -135,6 +137,12 @@
 		 (intercept: intercept 20)
 		 (quality: qual 40))
   (bracket-stream (prim-rmdup slope intercept qual)))
+
+(define*
+  (trim (left: left '())
+        (right: right '())
+		(score: score 4))
+  (bracket-stream (prim-trim left right score)))
 
 (define (stats)
   (let* ((p (lambda (lo hi) (+ lo (* hi 65536 32768))))

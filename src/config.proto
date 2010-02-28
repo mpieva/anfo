@@ -197,6 +197,10 @@ message Config {
     // indexing.
     repeated string trim_right = 5 ;
     repeated string trim_left  = 6 ;
+
+	// minimum score needed for something to be trimmed.  default should
+	// be fine
+	optional uint32 min_trim_score = 7 [ default = 4 ] ;
 }
 
 // :vim:expandtab:ts=4:sw=4:cindent:
