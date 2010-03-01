@@ -279,6 +279,14 @@ void Mapper::put_header( const Header& h )
 	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
 }
 
+static inline bool icompare( const string& a, const string& b )
+{
+    if( a.size() != b.size() ) return false ;
+    for( size_t i = 0 ; i != a.size() ; ++i )
+        if( tolower( a[i] ) != tolower( b[i] ) ) return false ;
+    return true ;
+}
+
 void Mapper::put_result( const Result& r )
 {
 	Stream::put_result( r ) ;
@@ -289,8 +297,8 @@ void Mapper::put_result( const Result& r )
 
 	const Seeds *ss = 0 ;
     for( int i = 0 ; !ss && i != res_.seeds_size() ; ++i )
-        if( res_.seeds(i).genome_name() == genome_->name() 
-                || res_.seeds(i).genome_name() == genome_->name() + ".dna" )
+        if( icompare( res_.seeds(i).genome_name(), genome_->name() )
+                || icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
             ss = &res_.seeds(i) ;
    
 	// not seeded means no policy (or logic bug, but let's not go there...)
