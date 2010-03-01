@@ -174,7 +174,7 @@ void Housekeeper::put_result( const Result& rs )
 	// failed quality trimming)
 	while( r && ( seq[r-1] == 'n' || seq[r-1] == 'N') ) --r ;
 
-	for( int i = 0 ; i != trim_right_.size() ; ++i )
+	for( size_t i = 0 ; i != trim_right_.size() ; ++i )
 	{
 		int ymax, score = overlap_align(
 				seq.rbegin() + ( seq.length() - r ), seq.rend(),
@@ -182,7 +182,7 @@ void Housekeeper::put_result( const Result& rs )
 		if( score >= minscore_ && ymax > 0 ) r -= ymax ;
 	}
 
-	for( int i = 0 ; i != trim_left_.size() ; ++i )
+	for( size_t i = 0 ; i != trim_left_.size() ; ++i )
 	{
 		int ymax, score = overlap_align(
 				seq.begin() + l, seq.end(),
@@ -192,13 +192,13 @@ void Housekeeper::put_result( const Result& rs )
 
 	if( l > l0 )
 	{
-		for( unsigned i = 0 ; i != res_.hit_size() ; ++i )
+		for( int i = 0 ; i != res_.hit_size() ; ++i )
 			trim_cigar_left( *res_.mutable_hit(i)->mutable_cigar(), l-l0 ) ;
 		res_.mutable_read()->set_trim_right( l ) ;
 	}
 	if( r < r0 ) 
 	{
-		for( unsigned i = 0 ; i != res_.hit_size() ; ++i )
+		for( int i = 0 ; i != res_.hit_size() ; ++i )
 			trim_cigar_right( *res_.mutable_hit(i)->mutable_cigar(), r-r0 ) ;
 		res_.mutable_read()->set_trim_right( r ) ;
 	}

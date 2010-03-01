@@ -246,18 +246,22 @@ WRAPPED_MAIN
 		}
 		else if( (more_opts[i].first & 0xf)  == opt_genome )
         {
-			// XXX the threads!
             if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
-            comp->add_stream( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
+
+			vector< StreamHolder > v ;
+			for( int i = 0 ; i != more_opts[i].first >> 4 ; ++i )
+				v.push_back( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
+            comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
         }
         else
         {
-			// XXX the threads!
-			comp->add_stream( new Indexer( conf, more_opts[i].second ) ) ;
+			vector< StreamHolder > v ;
+			for( int i = 0 ; i != more_opts[i].first >> 4 ; ++i )
+				v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
+			comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
         }
     }
 
-	// XXX separate output thread!
     of.append( ".#new#" ) ;
 	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
 
@@ -275,7 +279,6 @@ WRAPPED_MAIN
 	while( !exit_with && comp->get_state() == Stream::have_output && outs->get_state() == Stream::need_input )
 		outs->put_result( comp->fetch_result() ) ;
 
-	// XXX if we did create threads, we should "join" them... somehow
 	{
 		output::Footer ofoot = comp->fetch_footer() ;
 		exit_with |= ofoot.exit_code() ;

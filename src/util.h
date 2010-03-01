@@ -207,6 +207,8 @@ int mktempfile( std::string* name = 0 ) ;
 //! Output goes to the controlling terminal (/dev/tty) if possible,
 //! progress notifications are displayed in the last line and everything
 //! is updating sensibly.  Might grow into a logging system, too.
+//! 
+//! XXX this isn't thread safe.  should be changed...
 class Console 
 {
 	public: 
