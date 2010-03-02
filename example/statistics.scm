@@ -14,5 +14,5 @@
 	     (divergence primary: 'hg18
 			 secondary: 'pt2
 			 chop: 4)))))
-(display "\n")
+(newline)
 
