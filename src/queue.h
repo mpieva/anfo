@@ -1,5 +1,5 @@
 /*
-stolen and adapted from
+inspired by
 c-pthread-queue - c implementation of a bounded buffer queue using posix threads
 Copyright (C) 2008  Matthew Dickinson
 
@@ -170,14 +170,17 @@ namespace streams {
 // 
 // If a result is asked for (from ELK), we collect all of them into a
 // list.
+//
+// XXX result collection is missing
+// XXX error handling is basically absent
 class ConcurrentStream : public Stream
 {
 	private:
-		static const int size_ = 10 ;
+		enum { size_ = 16 } ;
 		vector< pair< StreamHolder, ConcurrentStream* > > streams_ ;
 
-		Result *incoming_[10] ;
-		Result *outgoing_[10] ;
+		Result *incoming_[ size_ ] ;
+		Result *outgoing_[ size_ ] ;
 
 		pthread_cond_t input_available_ ;
 		pthread_cond_t room_for_output_ ;
@@ -196,16 +199,13 @@ class ConcurrentStream : public Stream
 		bool incoming_terminated() const { return !incoming_empty() && !incoming_[next_in_] ; }
 
 	public:
-		// Takes a list of streams (need not be identical, but the
-		// results will be weird if they aren't) and wires them in
-		// parallel.  Every stream gets its own thread.
+		//! \brief starts streams in parallel in the background
+		//! This takes a list of streams (need not be identical, but the
+		//! results will be weird if they aren't) and wires them in
+		//! parallel.  Every stream gets its own thread.
 		template< typename Iter > ConcurrentStream( Iter begin, Iter end ) :
-			// input_available_( PTHREAD_COND_INITIALIZER ),
-			// room_for_output_( PTHREAD_COND_INITIALIZER ),
-			// action_needed_( PTHREAD_COND_INITIALIZER ),
 			next_in_(0), next_in_free_(0),
 			next_out_(0), next_out_free_(0),
-			// mutex_( PTHREAD_MUTEX_INITIALIZER ),
 			eos_outstanding_(0)
 		{
 			pthread_cond_init( &input_available_, 0 ) ;
@@ -217,15 +217,19 @@ class ConcurrentStream : public Stream
 				streams_.push_back( make_pair( *begin, this ) ) ;
 		}
 
-		// State is entirely determined by the queues.
+		//! \brief determines stream state
+		//! State is entirely determined by the queues, so that it can
+		//! change due to background activity.
+		//! \todo We may need a way to indicate "both input need and
+		//!       output available".
 		virtual state get_state() 
 		{
-			state s = invalid ;
 			pthread_mutex_lock( &mutex_ ) ;
-			while( s == invalid )
+			state s = invalid ;
+			for(;;)
 			{
-				if( !incoming_full() && !incoming_terminated() ) s = need_input ;
-				else if( !eos_outstanding_ ) s = end_of_stream ;
+				if( !incoming_full() && !incoming_terminated() ) { s = need_input ; break ; }
+				else if( !eos_outstanding_ ) { s = end_of_stream ; break ; }
 				else {
 					while( !outgoing_empty() && !outgoing_[ next_out_ ] )
 					{
@@ -233,8 +237,8 @@ class ConcurrentStream : public Stream
 						++next_out_ ;
 						next_out_ %= size_ ;
 					}
-					if( !eos_outstanding_ ) s = end_of_stream ;
-					else if( !outgoing_empty() ) s = have_output ;
+					if( !eos_outstanding_ ) { s = end_of_stream ; break ; }
+					else if( !outgoing_empty() ) { s = have_output ; break ; }
 				}
 				pthread_cond_wait( &action_needed_, &mutex_ ) ;
 			}
@@ -262,8 +266,8 @@ class ConcurrentStream : public Stream
 		virtual void put_result( const Result& r )
 		{
 			pthread_mutex_lock( &mutex_ ) ;
-			outgoing_[ next_out_free_++ ] = new Result( r ) ;
-			next_out_free_ %= size_ ;
+			incoming_[ next_in_free_++ ] = new Result( r ) ;
+			next_in_free_ %= size_ ;
 			pthread_mutex_unlock( &mutex_ ) ;
 			pthread_cond_signal( &input_available_ ) ;
 		}
@@ -274,8 +278,8 @@ class ConcurrentStream : public Stream
 		// checked by the caller and the queue cannot fill up by itself.
 		virtual void put_footer( const Footer& f )
 		{
-			foot_ = f ;
 			pthread_mutex_lock( &mutex_ ) ;
+			foot_ = f ;
 			incoming_[ next_in_free_++ ] = 0 ;
 			next_in_free_ %= size_ ;
 			pthread_mutex_unlock( &mutex_ ) ;
@@ -284,7 +288,8 @@ class ConcurrentStream : public Stream
 
 		// we fetch each header, then merge them.
 		// (XXX if there is anything anywhere that needs locking around
-		// reading the header, it needs to be implemented there).
+		// reading the header, it needs to be implemented there; but
+		// that's unlikely to be needed).
 		virtual Header fetch_header()
 		{
 			Header h ;
@@ -329,20 +334,31 @@ class ConcurrentStream : public Stream
 			return p->second->run_thread( p->first ) ;
 		}
 
-		Result *dequeue()
+		//! \brief dequeues a record from incoming and passes it on
+		//! We dequeue a record (waiting for it if necessary).  If we
+		//! got a record, we unlock and pass it on.  Else we leave the
+		//! terminator in and fetch the footer before releasing the
+		//! mutex.
+		void dequeue( const StreamHolder& s )
 		{
 			pthread_mutex_lock( &mutex_ ) ;
 			while( incoming_empty() )
 				pthread_cond_wait( &input_available_, &mutex_ ) ;
 
-			Result *r = incoming_[ next_in_ ] ;
-			if( r ) {
+			auto_ptr< Result > r( incoming_[ next_in_ ] ) ;
+			if( r.get() ) {
 				++next_in_ ;
 				next_in_ %= size_ ;
+				pthread_mutex_unlock( &mutex_ ) ;
+				pthread_cond_signal( &action_needed_ ) ;
+				s->put_result( *r ) ;
 			}
-			pthread_mutex_unlock( &mutex_ ) ;
-			pthread_cond_signal( r ? &action_needed_ : &input_available_ ) ;
-			return r ;
+			else
+			{
+				s->put_footer( foot_ ) ;
+				pthread_mutex_unlock( &mutex_ ) ;
+				pthread_cond_signal( &input_available_ ) ;
+			}
 		}
 
 		void enqueue( Result* r )
@@ -369,11 +385,8 @@ class ConcurrentStream : public Stream
 						throw "stream in invalid state: not supposed to happen!" ;
 
 					case need_input:
-						{
-							auto_ptr< Result > r( dequeue() ) ;
-							if( r.get() ) s->put_result( *r ) ;
-							else s->put_footer( foot_ ) ;
-						}
+						dequeue( s ) ;
+						break ;
 
 					case have_output:
 						enqueue( new Result( s->fetch_result() ) ) ;
