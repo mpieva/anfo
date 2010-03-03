@@ -197,7 +197,7 @@ WRAPPED_MAIN
 			return 0 ;
 
 		case opt_housekeep:
-			more_opts.push_back( make_pair( rc + (nthreads << 4), (const char*)0 ) ) ;
+			more_opts.push_back( make_pair( rc + (nthreads << 4), string() ) ) ;
 			break ;
 
 		case opt_index:
@@ -248,17 +248,25 @@ WRAPPED_MAIN
         {
             if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
 
-			vector< StreamHolder > v ;
-			for( int i = 0 ; i != more_opts[i].first >> 4 ; ++i )
-				v.push_back( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
-            comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
+			if( (more_opts[i].first >> 4) > 1 ) {
+				vector< StreamHolder > v ;
+				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+					v.push_back( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
+				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
+			}
+			else
+				comp->add_stream( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
         }
         else
         {
-			vector< StreamHolder > v ;
-			for( int i = 0 ; i != more_opts[i].first >> 4 ; ++i )
-				v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
-			comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
+			if( (more_opts[i].first >> 4) > 1 ) {
+				vector< StreamHolder > v ;
+				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+					v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
+				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
+			}
+			else
+				comp->add_stream( new Indexer( conf, more_opts[i].second ) ) ;
         }
     }
 

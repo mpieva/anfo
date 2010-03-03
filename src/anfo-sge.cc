@@ -109,7 +109,7 @@ WRAPPED_MAIN
 			return 0 ;
 
 		case opt_housekeep:
-			more_opts.push_back( make_pair( rc, (const char*)0 ) ) ;
+			more_opts.push_back( make_pair( rc, string() ) ) ;
 			break ;
 
 		case opt_index:

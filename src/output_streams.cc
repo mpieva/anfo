@@ -226,7 +226,7 @@ void generic_show_string( const string& s, std::ostream& o, int off = 0 )
 
 extern "C" void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
-	s << string( i, ' ' ) << f->name() << ' ' ;
+	s << string( i, ' ' ) << f->name() << ": " ;
 	generic_show_string( r->GetString( m, f ), s, 33 ) ;
 	s << '\n' ;
 }
