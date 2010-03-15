@@ -167,6 +167,7 @@ class DnaP
 			return p < 0 ? complement(w) : w ;  
 		}
 
+		bool operator! () const { return !p_ ; }
 		operator const void*() const { return (const void*)p_ ; }
 
 		bool is_reversed() const { return p_ < 0 ; }

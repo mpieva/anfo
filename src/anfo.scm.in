@@ -45,6 +45,7 @@
 (define num:       'num:)
 (define origin:    'origin:)
 (define primary:   'primary:)
+(define prior:     'prior:)
 (define quality:   'quality:)
 (define right:     'right:)
 (define score:     'score:)
@@ -63,8 +64,9 @@
 (define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
 
 (define*
-  (duct-tape (label: lbl "contig"))
-  (bracket-stream (prim-duct-tape lbl)))
+  (duct-tape (label: lbl "contig")
+             (prior: pri 0.0))
+  (bracket-stream (prim-duct-tape lbl pri)))
 
 (define* 
   (add-alns (context: ctx 0))
@@ -287,10 +289,10 @@
 	   (apply prim-concat outs))
 	 cont)))))
 
-(define (anfo-run in out)
-  ((anfo-with-input in)
+(define (anfo-run . args) 
+  ((anfo-with-input (car args))
    (lambda (in-stream)
-     ((anfo-with-output out)
+     ((anfo-with-output (apply chain (cdr args)))
       (lambda (out-stream)
 	(prim-anfo-run in-stream out-stream))))))
 

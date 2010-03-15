@@ -221,6 +221,7 @@ void Indexer::put_result( const Result& r )
 	Stream::put_result( r ) ;
 	Policy p = select_policy( conf_, res_.read()  ) ;
 	AlnStats *as = res_.add_aln_stats() ;
+	as->set_tag( index_.metadata().genome_name() ) ;
 
 	int num_raw = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
@@ -290,28 +291,49 @@ static inline bool icompare( const string& a, const string& b )
 void Mapper::put_result( const Result& r )
 {
 	Stream::put_result( r ) ;
-	AlnStats *as = res_.aln_stats_size() ? res_.mutable_aln_stats( res_.aln_stats_size()-1 ) : res_.add_aln_stats() ;
+
+	AlnStats *as = 0 ;
+    for( int i = 0 ; i != res_.aln_stats_size() ; ++i )
+	{
+		if( icompare( res_.aln_stats(i).tag(), genome_->name() )
+				|| icompare( res_.aln_stats(i).tag(), genome_->name() + ".dna"  ) )
+		{
+			as = res_.mutable_aln_stats(i) ;
+		}
+	}
+	
+	if( !as ) {
+		as = res_.add_aln_stats() ;
+		as->set_tag( genome_->name() ) ;
+	}
+
+	Seeds ss ;
+    for( int i = 0 ; i != res_.seeds_size() ; ++i )
+	{
+		if( icompare( res_.seeds(i).genome_name(), genome_->name() )
+				|| icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
+		{
+			ss.Swap( res_.mutable_seeds(i) ) ;
+			res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;
+			res_.mutable_seeds()->RemoveLast() ;
+			break ;
+		}
+	}
 
     // is it already clear that we cannot do anything?
     if( as->has_reason() ) return ;
 
-	const Seeds *ss = 0 ;
-    for( int i = 0 ; !ss && i != res_.seeds_size() ; ++i )
-        if( icompare( res_.seeds(i).genome_name(), genome_->name() )
-                || icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
-            ss = &res_.seeds(i) ;
-   
 	// not seeded means no policy (or logic bug, but let's not go there...)
-	if( !ss ) {
+	if( ss.genome_name().empty() ) {
 		as->set_reason( output::no_policy ) ;
 		return ;
 	}
 
 	// invariant violated, we won't deal with that
-	if( ss->ref_positions_size() != ss->query_positions_size() )
+	if( ss.ref_positions_size() != ss.query_positions_size() )
 		throw "invalid seeds: coordinates must come in pairs" ;
 
-	if( !ss->ref_positions_size() ) {
+	if( !ss.ref_positions_size() ) {
 		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
 		return ;
 	}
@@ -320,8 +342,8 @@ void Mapper::put_result( const Result& r )
 	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
 	std::deque< alignment_type > ol ;
-	for( int i = 0 ; i != ss->ref_positions_size() ; ++i )
-		ol.push_back( alignment_type( *genome_, qs, ss->ref_positions(i), ss->query_positions(i) ) ) ;
+	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
+		ol.push_back( alignment_type( *genome_, qs, ss.ref_positions(i), ss.query_positions(i) ) ) ;
 
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;

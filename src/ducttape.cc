@@ -102,25 +102,26 @@ void DuctTaper::flush_contig()
 		if( cov > i->gapped ) {
 			if( i->is_ins ) push_i( cigar, 1 ) ; else push_m( cigar, 1 ) ;
 
-			Logdom lk_tot = std::accumulate( i->lk, i->lk+10, Logdom::null() ) ;
-			int maxlk = 0 ;
 			for( int j = 0 ; j != 4 ; ++j )
-			{
 				rd.add_seen_bases( i->seen[ external_to_internal_base[j] ] ) ;
-				if( i->lk[j] > i->lk[maxlk] ) maxlk = j ;
-			}
+
+			Logdom lk[10] ;
+			for( int j = 0 ; j !=  4 ; ++j ) lk[j] = i->lk[j] ; // * (1-het_prior_) ;
+			for( int j = 4 ; j != 10 ; ++j ) lk[j] = i->lk[j] ; // * het_prior_ ;
+
+			Logdom lk_tot = std::accumulate(  lk, lk+10, Logdom::null() ) ;
+			Logdom *maxlk = std::max_element( lk, lk+10 ) ;
 
 			rd.add_depth( cov + i->gapped ) ;
-			rd.mutable_sequence()->push_back( "ACGT"[maxlk] ) ;
+			rd.mutable_sequence()->push_back( "ACGTMRWSYK"[maxlk - lk] ) ;
 
 			Logdom q = Logdom::null() ;
-			for( int j = 0 ; j != 4 ; ++j ) if( j != maxlk ) q += i->lk[j] ;
-
+			for( Logdom *j = lk ; j != lk+10 ; ++j )
+			{
+				if( j != maxlk ) q += *j ;
+				rd.mutable_likelihoods(j-lk)->push_back( (*j / *maxlk).to_phred_byte() ) ;
+			}
 			rd.mutable_quality()->push_back( (q / lk_tot).to_phred_byte() ) ;
-
-			for( int j = 0 ; j != 10 ; ++j )
-				rd.mutable_likelihoods(j)->push_back( 
-						(i->lk[j] / i->lk[maxlk]).to_phred_byte() ) ;
 
 		}
 		else push_d( cigar, 1 ) ;
@@ -261,7 +262,7 @@ class AlnIter
 //! to the sum of all the match scores, which requires a preliminary
 //! pass over everything.
 
-void DuctTaper::put_result( const Result& r )
+void DuctTaper::put_result_ancient( const Result& r )
 {
 	const Hit* h = hit_to( r ) ;
 	if( !h ) return ;
@@ -299,10 +300,10 @@ void DuctTaper::put_result( const Result& r )
 	{
 		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
 		{
-			lk_ss_3 *= adna_.ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
-			lk_ds_3 *= adna_.ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+			lk_ss_3 *= adna_.ss_mat[ 1 << (ref?*ref:0) ][ 1 << aln_i.base() ] ;
+			lk_ds_3 *= adna_.ds_mat[ 1 << (ref?*ref:0) ][ 1 << aln_i.base() ] ;
 		}
-		if( aln_i.cigar_op() != Hit::Insert && aln_i.cigar_op() != Hit::SoftClip ) ++ref ;
+		if( aln_i.cigar_op() != Hit::Insert && aln_i.cigar_op() != Hit::SoftClip && ref ) ++ref ;
 		if( aln_i.cigar_op() != Hit::Delete ) lk_ds_3 *= adna_.overhang_ext_penalty ;
 	}
 
@@ -328,12 +329,12 @@ void DuctTaper::put_result( const Result& r )
 					++column->gapped ;
 					break ;
 				}
-				++ref ;
+				if( ref ) ++ref ;
 
-				lk_ss_5 *= adna_.ss_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
-				lk_ds_5 *= adna_.ds_mat[ complement(1 << *ref) ][ complement(1 << aln_i.base()) ] ;
-				lk_ss_3 /= adna_.ss_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
-				lk_ds_3 /= adna_.ds_mat[ 1 << *ref ][ 1 << aln_i.base() ] ;
+				lk_ss_5 *= adna_.ss_mat[ complement(1 << (ref?*ref:0)) ][ complement(1 << aln_i.base()) ] ;
+				lk_ds_5 *= adna_.ds_mat[ complement(1 << (ref?*ref:0)) ][ complement(1 << aln_i.base()) ] ;
+				lk_ss_3 /= adna_.ss_mat[ 1 << (ref?*ref:0) ][ 1 << aln_i.base() ] ;
+				lk_ds_3 /= adna_.ds_mat[ 1 << (ref?*ref:0) ][ 1 << aln_i.base() ] ;
 
 no_match:
 				lk_ds_5 *= adna_.overhang_ext_penalty ;
@@ -418,7 +419,114 @@ no_match:
 			case Hit::Delete:
 				++column->gapped ;
 				++aln_i ;
-				++ref ;
+				if( ref ) ++ref ;
+				break ;
+
+			default: 	// all others are unused
+				throw "unexpected CIGAR operation" ;
+				break ;
+		}
+		if( aln_i != aln_b ) ++column->crossed ;
+	}
+} 
+
+void DuctTaper::put_result( const Result& r )
+{
+	if( hdr_.config().aligner().has_rate_of_ds_deamination()  )
+		put_result_ancient( r ) ;
+	else
+		put_result_recent( r ) ;
+}
+
+void DuctTaper::put_result_recent( const Result& r )
+{
+	const Hit* h = hit_to( r ) ;
+	if( !h ) return ;
+
+	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+	mapq_accum_ += mapq*mapq ;
+
+	if( cur_genome_ != h->genome_name()
+				|| cur_sequence_ != h->sequence()
+				|| h->start_pos() > contig_end_ )
+	{
+		flush_contig() ;
+		cur_genome_ = h->genome_name() ;
+		cur_sequence_ = h->sequence() ;
+		contig_start_ = contig_end_ = h->start_pos() ;
+	}
+	++nreads_ ;
+
+	if( h->start_pos() < contig_start_ ) 
+		throw "ducttaping: input was not sorted" ;
+
+	Accs::iterator column = observed_.begin() ;
+	for( int offs = h->start_pos() - contig_start_ ; offs ; ++column )
+		if( !column->is_ins ) --offs ;
+
+	for( AlnIter aln_b( r.read(), *h ), aln_i( aln_b ), aln_e( r.read(), *h, 1 ) ;
+			aln_i != aln_e ; ++column )
+	{
+		if( column == observed_.end() ) {
+			column = observed_.insert( column, Acc() ) ;
+			++contig_end_ ;
+		}
+
+		switch( aln_i.cigar_op() )
+		{
+			case Hit::SoftClip:
+			case Hit::Insert:
+				if( !column->is_ins ) column = observed_.insert( column, Acc(true, column->crossed ) ) ;
+				goto no_match ;
+
+			case Hit::Match:
+			case Hit::Mismatch:
+				if( column->is_ins ) {
+					++column->gapped ;
+					break ;
+				}
+
+no_match:       if( aln_i.base() != -1 ) {
+					++column->seen[ aln_i.base() ] ;
+
+					Logdom l_mat = 1 - aln_i.qual(), l_mismat = aln_i.qual() / 3 ;
+
+					// lk_base[x] is probability of seeing aln_i.base()
+					// given that an x was in the real sequence.  It is
+					// the products of the probability of x being
+					// modified to y times the probability of y being
+					// seen as aln_i.base() summed over all possible y.
+					// The former comes directly from blended subst
+					// matrices, the latter is l_mat or l_mismat.
+					// Probabilities for dialleles are simply the
+					// average of probabilities for the constituents.
+					
+					Logdom lk_base[4] = { l_mismat, l_mismat, l_mismat, l_mismat } ;
+					lk_base[ aln_i.base() ] = l_mat ;
+
+						
+					// Translation of indices and calculation of het
+					// likelihoods.  A bit irregular, so spelled out in
+					// full.
+					column->lk[0] *= lk_base[0] ; // A
+					column->lk[1] *= lk_base[1] ; // C
+					column->lk[2] *= lk_base[3] ; // G(!)
+					column->lk[3] *= lk_base[2] ; // T(!)
+
+					column->lk[4] *= lerp( 0.5, lk_base[0], lk_base[1] ) ; // AC
+					column->lk[5] *= lerp( 0.5, lk_base[0], lk_base[3] ) ; // AG
+					column->lk[6] *= lerp( 0.5, lk_base[0], lk_base[2] ) ; // AT
+					column->lk[7] *= lerp( 0.5, lk_base[1], lk_base[3] ) ; // CG
+					column->lk[8] *= lerp( 0.5, lk_base[1], lk_base[2] ) ; // CT
+					column->lk[9] *= lerp( 0.5, lk_base[3], lk_base[2] ) ; // GT
+				}
+
+				++aln_i ;
+				break ;
+
+			case Hit::Delete:
+				++column->gapped ;
+				++aln_i ;
 				break ;
 
 			default: 	// all others are unused
@@ -464,6 +572,7 @@ void GlzWriter::put_result( const Result& rr )
 
 		GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
 		DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
+
 		char buf[12] ;
 		int i = 0 ;
 

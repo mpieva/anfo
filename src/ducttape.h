@@ -47,6 +47,7 @@ class DuctTaper : public Stream
 	private:
 		string name_ ;
 		Chan report_ ;
+		Logdom het_prior_ ;
 
 		// tracking of current reference sequence; we need to start a
 		// new contig if one of these changes
@@ -94,14 +95,19 @@ class DuctTaper : public Stream
 		void flush_contig() ;
 
 	public:
-		DuctTaper( const string& name )
-			: name_(name), contig_start_(0), contig_end_(0)
+		DuctTaper( const string& name, double hp = 0 )
+			: name_(name), het_prior_( Logdom::from_float(hp) )
+			, contig_start_(0), contig_end_(0)
 			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
 
 		virtual void put_header( const Header& ) ;
 		virtual void put_result( const Result& ) ;
 		virtual void put_footer( const Footer& ) ;
 		virtual Result fetch_result() ;
+
+	private:
+		void put_result_recent(  const Result& ) ;
+		void put_result_ancient( const Result& ) ;
 } ;
 
 class GlzWriter : public Stream
