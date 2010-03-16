@@ -116,7 +116,7 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 }
 
 void sanitize( Header& ) ;
-void sanitize( Read& ) ;
+void sanitize( Result& ) ;
 void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
@@ -366,6 +366,7 @@ class UniversalReader : public Stream
 
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
+/*
 class AnfoWriter : public Stream
 {
 	private:
@@ -384,6 +385,7 @@ class AnfoWriter : public Stream
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
 		virtual void put_result( const Result& r ) ;
 } ;
+*/
 
 //! \brief new blocked native format
 //! Writes in a format that can be read by stream::ChunkedReader.  The
@@ -403,7 +405,6 @@ class ChunkedWriter : public Stream
 		int64_t wrote_ ;
 		uint8_t method_, level_ ;
 
-		virtual ~ChunkedWriter() ;
 		void flush_buffer( unsigned needed = 0 ) ;
 		void init() ;
 
@@ -427,6 +428,7 @@ class ChunkedWriter : public Stream
 		ChunkedWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >&, int ) ;
 		ChunkedWriter( int fd, int, const char* = "<pipe>" ) ;
 		ChunkedWriter( const char* fname, int ) ;
+		virtual ~ChunkedWriter() ;
 
 		virtual void put_header( const Header& h ) ;
 		virtual void put_result( const Result& r ) ;
@@ -751,7 +753,7 @@ class FastqReader : public Stream
 		void read_next_message() {
             if( read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ ) ) {
                 state_ = have_output ;
-                sanitize( *res_.mutable_read() ) ;
+                sanitize( res_ ) ;
             } else {
                 state_ = end_of_stream ;
 				is_.reset( 0 ) ;
@@ -777,7 +779,7 @@ class SamReader : public Stream
 		void read_next_message() {
             if( read_sam( is_.get(), genome_, res_ ) ) {
                 state_ = have_output ;
-                sanitize( *res_.mutable_read() ) ;
+                sanitize( res_ ) ;
 				if( (++nmsg_ & 0xffff) == 0 ) {
 					stringstream ss ;
 					ss << name_ << ": " << nmsg_ << " records" ;

@@ -121,8 +121,8 @@ class MergeStream : public StreamBundle
 		//!       necessary information.
 #if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return False ; }
-		virtual string type_name() const { return "MergeStream" ; }
 #endif
+		virtual string type_name() const { return "MergeStream" ; }
 } ;
 
 //! \brief merges multiple streams by taking the best hit
@@ -281,7 +281,7 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 	{
 		ContainerStream< deque< Result* >::const_iterator >
 			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
-		AnfoWriter out( fd, tempname.c_str() ) ;
+		ChunkedWriter out( fd, 25, tempname.c_str() ) ;
 		console.output( Console::notice, "SortingStream: Writing to tempfile " + tempname ) ;
 		transfer( sa, out ) ;
 	}
@@ -313,7 +313,8 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 
 		// we must actually make progress, and more than just a
 		// single stream must be merged to avoid quadratic behaviour
-		// (only important in a weird corner case)
+		// (only important in a weird corner case, in which we simply
+        // use one more file descriptor)
 		if( total_inputs > 2 ) {
 			string fname ;
 			int fd = mktempfile( &fname ) ;
@@ -329,7 +330,7 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 						ms.add_stream( i->second[j] ) ;
 					i->second.clear() ;
 				}
-				AnfoWriter out( fd, fname.c_str() ) ;
+				ChunkedWriter out( fd, 25, fname.c_str() ) ;
 				transfer( ms, out ) ;
 			}
 			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
@@ -387,7 +388,7 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
         std::stringstream s ;
         s << "SortingStream: Merging everything to tempfile " << fname ;
         console.output( Console::notice, s.str() ) ;
-        AnfoWriter out( fd, fname.c_str() ) ;
+        ChunkedWriter out( fd, 25, fname.c_str() ) ;
         transfer( *m, out ) ;
         num_open_files_ = 1 ;
         throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;

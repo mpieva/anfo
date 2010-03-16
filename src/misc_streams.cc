@@ -28,7 +28,7 @@ Header MergeStream::fetch_header()
 		if( h.is_sorted_by_name() ) {
 			if( mode_ == unknown ) mode_ = by_name ;
 			else if( mode_ != by_name ) 
-				throw "MergeStream: inconsistent sorting of input" ;
+				throw "MergeStream: inconsistent sorting of input (by_name)" ;
 		}
 		else if( h.is_sorted_by_all_genomes() ) {
 			if( mode_ == unknown ) {
@@ -36,7 +36,7 @@ Header MergeStream::fetch_header()
 				gs_.clear() ;
 			}
 			else if( mode_ != by_coordinate || !gs_.empty() )
-				throw "MergeStream: inconsistent sorting of input" ;
+				throw "MergeStream: inconsistent sorting of input (by_all_genomes)" ;
 		}
 		else if( h.is_sorted_by_coordinate_size() ) {
 			if( mode_ == unknown ) {
@@ -45,7 +45,7 @@ Header MergeStream::fetch_header()
 			}
 			else if( mode_ != by_coordinate || (int)gs_.size() != h.is_sorted_by_coordinate_size()
 					|| !equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) )
-				throw "MergeStream: inconsistent sorting of input" ;
+				throw "MergeStream: inconsistent sorting of input (by_genome)" ;
 		}
 
 		if( streams_[i]->get_state() == have_output )

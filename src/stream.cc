@@ -195,7 +195,7 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 			{
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
-				sanitize( *res_.mutable_read() ) ;
+				sanitize( res_ ) ;
 				return ;
 			}
 			if( tag == mk_msg_tag( 2 ) && ores.ParseFromCodedStream( &cis ) )
@@ -203,7 +203,7 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
 				res_ = upgrade( ores ) ;
-				sanitize( *res_.mutable_read() ) ;
+				sanitize( res_ ) ;
 				return ;
 			}
 			if( tag == mk_msg_tag( 3 ) && foot_.ParseFromCodedStream( &cis ) )
@@ -218,6 +218,7 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 	}
 }
 
+/*
 AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos, const char* fname ) : o_( zos ), name_( fname ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
@@ -249,6 +250,7 @@ void AnfoWriter::put_result( const Result& r )
 		chan_( Console::info, s.str() ) ;
 	}
 }
+*/
 
 void ChunkedWriter::init() 
 {
@@ -553,7 +555,7 @@ void sanitize( Header& hdr )
 //!
 //! \todo Check likelihood arrays and discard them in case of length
 //!       mismatch.
-void sanitize( Read& rd ) 
+void sanitize_read( Read& rd ) 
 {
 	unsigned l = rd.sequence().length() ;
 	if( rd.has_quality() && rd.quality().length() != l ) rd.clear_quality() ;
@@ -562,6 +564,17 @@ void sanitize( Read& rd )
     if( rd.has_description() && rd.description().empty() ) rd.clear_description() ;
 }
 
+void sanitize( Result& r ) 
+{
+    for( int i = 0 ; i != r.hit_size() ; ++i )
+    {
+        string& s = *r.mutable_hit(i)->mutable_genome_name() ;
+        for( size_t j = 0 ; j != s.size() ; ++j )
+            s[j] = tolower( s[j] ) ;
+    }
+    sanitize_read( *r.mutable_read() ) ;
+}
+    
 //! \brief merges two hits by keeping the better one
 void merge_sensibly( Hit& lhs, const Hit& rhs )
 {
@@ -860,7 +873,7 @@ void RmdupStream::put_footer( const Footer& f ) {
 }
 
 inline int RmdupStream::max_score( const Hit* h ) const
-{ return slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ; }
+{ return int( 0.5 + slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ) ; }
 
 //! \brief receives a result record and merges it if appropriate
 //!

@@ -531,6 +531,14 @@ class Metagenome
 		static void *mmap( void *start, size_t length, int prot, int flags, int *fd, off_t offset ) ;
 } ;
 
+static inline bool icompare( const std::string& a, const std::string& b )
+{
+    if( a.size() != b.size() ) return false ;
+    for( size_t i = 0 ; i != a.size() ; ++i )
+        if( tolower( a[i] ) != tolower( b[i] ) ) return false ;
+    return true ;
+}
+
 
 #endif
 

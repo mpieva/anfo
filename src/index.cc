@@ -339,6 +339,14 @@ glob_t Metagenome::glob_path( const std::string& genome )
 	return the_glob ;
 }
 
+static std::string lower_string( const std::string& s ) 
+{
+    std::string r ;
+    for( size_t i = 0 ; i != s.size() ; ++i )
+        r.push_back( tolower( s[i]) ) ;
+    return r ;
+}
+
 GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::string& seq )
 {
 	SeqMap1 &m = the_metagenome.seq_map[ genome ] ;
@@ -365,11 +373,11 @@ GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::st
 
 					console.output( Console::info, "Metagenome: loaded (part of) genome " + g->name() ) ;
 
-					SeqMap1 &m_ = the_metagenome.seq_map[ g->name() ] ;
+					SeqMap1 &m_ = the_metagenome.seq_map[ lower_string( g->name() ) ] ;
 					for( int k = 0 ; k != g->g_.sequence_size() ; ++k )
 						m_[ g->g_.sequence(k).name() ] = g ;
 
-					if( g->name() == genome ) i = m.find( seq ) ;
+					if( icompare( g->name(), genome ) ) i = m.find( seq ) ;
 				}
 			}
 			catch( const std::string& e ) { perr( e ) ; }
