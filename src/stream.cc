@@ -738,6 +738,22 @@ bool OnlyGenome::xform( Result& res )
 bool ScoreFilter::keep( const Hit& h )
 { return slope_ * ( len_from_bin_cigar( h.cigar() ) - intercept_ ) >= h.score() ; }
 
+static int effective_length( const Read& rd )
+{
+    return rd.has_trim_right()
+        ? rd.trim_right() - rd.trim_left()
+        : rd.sequence().length() - rd.trim_left() ;
+}
+
+bool TotalScoreFilter::xform( Result& r )
+{
+    int score = 0 ;
+    for( int i = 0 ; i != r.hit_size() ; ++i )
+        if( contains( gs_, r.hit(i).genome_name() ) )
+            score += r.hit(i).score() ;
+    return slope_ * ( effective_length( r.read() ) - intercept_ ) >= score ;
+}
+
 bool MapqFilter::keep( const Hit& h )
 { return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
 

@@ -271,6 +271,9 @@ WRAP( p_sort_by_name, ( Object mem, Object handles ), (mem,handles) )
 WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
 { return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
 
+WRAP( p_filter_tot_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
+{ return wrap_stream( new TotalScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
+
 WRAP( p_filter_by_qual, ( Object qual ), (qual) )
 { return wrap_stream( new QualFilter( Get_Double( qual ) ) ) ; }
 
@@ -447,6 +450,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_sanitize,         "prim-sanitize",       0, 0, EVAL ) ;
 	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "prim-filter-score",   3, 3, EVAL ) ;
+	Define_Primitive( (P)p_filter_tot_score, "prim-filter-total-score",3,3,EVAL) ;
 	Define_Primitive( (P)p_filter_by_mapq,   "prim-filter-mapq",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_filter_chain, 	 "prim-filter-chain",   3, 3, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_inside_region,    "prim-inside-region",  1, 1, EVAL ) ;  // redesign?

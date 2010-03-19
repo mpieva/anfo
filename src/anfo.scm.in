@@ -104,6 +104,12 @@
   (bracket-stream (prim-filter-score slope intercept genomes)))
 
 (define*
+  (filter-total-score (slope: slope 7.5)
+		(intercept: intercept 20)
+		(genomes: genomes '(hg18 pt2)))
+  (bracket-stream (prim-filter-total-score slope intercept genomes)))
+
+(define*
   (filter-mapq mapq (genomes '()))
   (bracket-stream (prim-filter-mapq mapq genomes)))
 

@@ -541,6 +541,19 @@ class ScoreFilter : public HitFilter
 		virtual bool keep( const Hit& ) ;
 } ;
 
+class TotalScoreFilter : public Filter
+{
+    private:
+        double slope_ ;
+        double intercept_ ;
+        vector< string > gs_ ;
+
+    public:
+		TotalScoreFilter( double s, double i, const vector<string> &gs ) : slope_(s), intercept_(i), gs_(gs) {}
+        virtual bool xform( Result& ) ;
+} ;
+
+        
 //! \brief stream that filters for minimum mapping quality
 //! All alignments of sequences where the difference to the next hit is
 //! too low are deleted.  Filtering can be restricted to some genomes.
