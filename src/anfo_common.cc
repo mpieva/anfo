@@ -77,10 +77,10 @@ Policy select_policy( const Config &c, const Read &r )
 
 string effective_sequence( const Read& rd )
 {
-	return rd.sequence().substr(
-			rd.trim_left(),
-			rd.has_trim_right() ? rd.trim_right() : std::string::npos
-			) ;
+    return rd.sequence().substr(
+            rd.trim_left(),
+            rd.has_trim_right() ? rd.trim_right() - rd.trim_left(): std::string::npos
+            ) ;
 }
 
 void trim_cigar_left( google::protobuf::RepeatedField<uint32_t> &cig, unsigned len )
