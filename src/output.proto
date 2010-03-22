@@ -17,24 +17,24 @@
 package output ;
 
 option optimize_for = SPEED ;
+
 import "config.proto" ;
+import "google/protobuf/descriptor.proto" ;
+
+extend google.protobuf.FieldOptions {
+    // show method for pretty text output
+    optional string show = 31775 ;
+}
 
 message Header {
     // program version string
-    required string version = 1 ;
+    optional string version = 1 ;
 
     // file format version, in case incompatible changes are introduced
     optional uint32 file_version = 8 [ default = 1 ] ;
 
     // copy of the config block used in the run
-    required config.Config config = 2 ;
-
-    // index of first processed input, if input is sliced
-    // multiple starts are possible after merging multiple outputs
-    repeated uint32 sge_slicing_index = 3 ;
-
-    // number of slices if input is sliced
-    optional uint32 sge_slicing_stride = 4 [ default=1 ] ;
+    optional config.Config config = 2 ;
 
     // copy of command line
     repeated string command_line = 5 ;
@@ -48,15 +48,15 @@ message Header {
     // (useful to merge files?)
     optional bool is_sorted_by_name = 15 [default=false] ;
 
-	// indicates whether an output file is sorted by genome coordinate,
-	// and if so, which genomes were used in what order (that is target
-	// sequence name, then earliest matching position, then alignment
-	// length; needed for consensus calling and merging)
+    // indicates whether an output file is sorted by genome coordinate,
+    // and if so, which genomes were used in what order (that is target
+    // sequence name, then earliest matching position, then alignment
+    // length; needed for consensus calling and merging)
     repeated string is_sorted_by_coordinate = 13 ;
 
     // old way to encode sorting, don't use
     optional bool was_sorted_by_coordinate = 14 [default=false] ;
-	optional bool is_sorted_by_all_genomes = 12 [default=false] ;
+    optional bool is_sorted_by_all_genomes = 12 [default=false] ;
 }
 
 // XXX: a few easily accessible statistics could be included here,
@@ -99,7 +99,9 @@ message OldHit {
     required sint32 aln_length = 4 ;
 
     // Score (this is actually a penalty)
-    required sint32 score = 5 ;
+	// This is optional, because the score may not be available after
+	// importing something weird (say, BAM).
+    optional sint32 score = 5 [ default = 0 ] ;
 
     // E-value (because it's customary to have one)
     optional float evalue = 6 ;
@@ -165,9 +167,9 @@ message OldResult {
     // index of first base that's not trimmed from 5' end
     optional uint32 trim_left = 11 [ default = 0 ] ;
 
-	// index of first base that is trimmed from 3' end
-	// Note that the part trimmed from the 5' end still counts for this
-	// index.  If absent, nothing was trimmed from the 3' end.
+    // index of first base that is trimmed from 3' end
+    // Note that the part trimmed from the 5' end still counts for this
+    // index.  If absent, nothing was trimmed from the 3' end.
     optional uint32 trim_right = 12 ;
 
     // Reason we arrived at this result
@@ -218,33 +220,50 @@ message Read {
     required string sequence = 2 ;
 
     // quality scores (Phred scale, raw, without silly offsets)
-	// also: min_lk in the sense iof GLF when applicable
-    optional bytes quality = 14 ;
+    // also: min_lk in the sense of GLF when applicable
+    optional bytes quality = 14 [ (show) = "show_quality" ] ;
 
     // likelihoods of consensus sequence
-	// This is intended to resemble the GL format or at least allow
-	// generation of GLF.  For each position in the sequence, we store
-	// either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
-	// as specified for GLF.  Each entry is as long as the sequence, the
-	// order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
-	// Bytes should be sufficient for storage, since we clamp almost
-	// everything at 254 anyway.
+    // This is intended to resemble the GL format or at least allow
+    // generation of GLF.  For each position in the sequence, we store
+    // either 0, 4 or 10 likelihood ratios (for haploid/diploid genomes)
+    // as specified for GLF.  Each entry is as long as the sequence, the
+    // order of the entries is [AA,CC,GG,TT,AC,AG,AT,CG,CT,GT].  
+    // Bytes should be sufficient for storage, since we clamp almost
+    // everything at 254 anyway.
     repeated bytes likelihoods = 15 ;
 
     // raw counts of what base was seen in a position
     // Not needed or useful for GLF, but useful to retain 'just in
     // case'.  Length must equal 4*(length sequence), treated as 2D
     // array, inner index is [A,C,G,T].
-    repeated uint32 seen_bases = 16 [packed=true] ;
+    repeated uint32 seen_bases = 16 [ packed=true, (show) = "show_seen_bases" ] ;
 
     // total depth at each position
     // Coverage at each position is the sum of bases A,C,G,T and gaps.
     // Length is supposed to equal (length sequence).
-    repeated uint32 depth = 17 [packed=true] ;
+    repeated uint32 depth = 17 [ packed=true, (show) = "show_uint32_array" ] ;
 
     // number of bases trimmed at 5' (at 3') end if trimming was done
     optional uint32 trim_left = 11 ;
     optional uint32 trim_right = 12 ;
+}
+
+// A set of starting points.  The understanding is that each one of them
+// is already "good enough", so we really only need to encode two
+// coordinates, no size and no quality of any kind.
+message Seeds {
+    // genome we seeded on (typ. hg18, pt2, etc.)
+    required string genome_name = 1 ;
+
+    // positions of starting points on the reference
+    repeated uint32 ref_positions = 2 [ packed=true, (show) = "show_uint32_array" ] ;
+
+    // positions of starting points on the query
+    // negative numbers mean to align on the reverse complemented strand
+    repeated int32 query_positions = 3 [ packed=true, (show) = "show_int32_array" ] ;
+
+    optional uint32 repeat_threshold = 5 ;
 }
 
 message Result {
@@ -252,11 +271,13 @@ message Result {
     required Read read = 1 ;
 
     // if this result is the consensus of multiple reads, those reads
-    // can go here
-    repeated Read member = 2 ;
+    // can go here.  if there are too many, just their number can be
+	// stored instead.
+    repeated Read members = 2 ;
+	optional uint32 nmembers = 9 [ default = 0 ] ;
 
     // alignments, if any
-    repeated Hit hit = 3 ;
+    repeated Hit hit = 3 [ (show) = "show_hit" ] ;
 
     // statistics/debug info, if any
     repeated AlnStats aln_stats = 4 ;
@@ -269,6 +290,10 @@ message Result {
 
     // if reads were joined into contigs, their number
     optional int32 num_reads = 7 ;
+
+    // seeds to be communicated between indexer and aligner
+    // for internal use only
+    repeated Seeds seeds = 8 ;
 }
 
 // We store multiple best hits, one per genome (where something like the
@@ -276,7 +301,7 @@ message Result {
 // on the globally 'best' hit, which is simply the best one of the
 // available ones.
 message Hit {
-    // globally unique name of the genome (used when sorting hits be
+    // globally unique name of the genome (used when sorting hits by
     // coordinate, can be used to locate the reference sequence if
     // present; if empty, the sequence name should be globally unique)
     required string genome_name = 1 ;
@@ -305,30 +330,35 @@ message Hit {
     optional float evalue = 6 ;
 
     // Alignment as (binary near-equivalent of) a CIGAR line
-	// The low four bits encode the operation as an enum, the rest
-	// encodes the length.  This way, no real length restriction exists.
-	// This encoding happens to be the same as that used by BAM, with
-	// two extensions: A match of length 0 encodes for the seed center
-	// and the Mismatch operation is equivalent to the Match operation,
-	// but signifies that the sequences actually differ.
-	enum Operation {
-		Match = 0 ;
-		Insert = 1 ;
-		Delete = 2 ;
-		Skip = 3 ; 		// unused
-		SoftClip = 4 ; 	// unused
-		HardClip = 5 ; 	// unused
-		Pad = 6 ;   	// unused
-		Mismatch = 15 ; // not yet used
-	} ;
+    // The low four bits encode the operation as an enum, the rest
+    // encodes the length.  This way, no real length restriction exists.
+    // This encoding happens to be the same as that used by BAM, with
+    // two extensions: A match of length 0 encodes for the seed center
+    // and the Mismatch operation is equivalent to the Match operation,
+    // but signifies that the sequences actually differ.
+    enum Operation {
+        Match = 0 ;
+        Insert = 1 ;
+        Delete = 2 ;
+        Skip = 3 ; 		// unused
+        SoftClip = 4 ; 	// unused
+        HardClip = 5 ; 	// unused
+        Pad = 6 ;   	// unused
+        Mismatch = 15 ; // not yet used
+    } ;
 
-    repeated uint32 cigar = 7 [packed=true] ;
+    repeated uint32 cigar = 7 [ packed = true, (show) = "show_cigar" ] ;
 
     // Difference in bit score to next best hit, to next best on
     // different chromosome, to next on different class of chromosomes,
     // if they exist.  Classes for this purpose are sex chromosomes,
     // autosomes and organelles.
+    // This is the same as MAPQ in sam/bam.  If we're looking at a
+    // pseudo-assembly, it is actually the RMS of the MAPQs of the reads
+    // that were included in it.
     optional sint32 diff_to_next = 8 ;
+
+    // following two aren't actually used yet
     optional sint32 diff_to_next_chromosome = 9 ;
     optional sint32 diff_to_next_chromosome_class = 10 ;
 
@@ -338,10 +368,9 @@ message Hit {
     optional int32 taxid_species = 14 ;
     optional int32 taxid_order = 13 ;
 
-	// used only internally when producing textual output
-	optional string aln_ref = 101 ;
-	optional string aln_qry = 102 ;
-	optional string aln_cns = 103 ;
+    // used only internally when producing textual output
+    optional string aln_ref = 101 [ (show) = "show_noop" ] ;
+    optional string aln_qry = 102 [ (show) = "show_noop" ] ;
 }
 
 // statistics about alignment, collected for debugging purposes
@@ -364,3 +393,4 @@ message AlnStats {
     optional string tag = 15 ;
 }
 
+// vim:expandtab

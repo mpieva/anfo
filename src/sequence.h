@@ -21,6 +21,7 @@
 #include <climits>
 #include <limits>
 #include <istream>
+#include <string>
 #include <vector>
 
 #include <math.h>
@@ -97,8 +98,9 @@ inline Ambicode to_ambicode( char c ) {
 inline char from_ambicode( Ambicode a ) { return "-ACMTWYHGRSVKDBN"[a] ; }
 
 //! \brief Complement an ambiguity code.
-inline Ambicode complement( Ambicode w )
-{ return 0xf & (w << 2 | w >> 2) ; }
+inline Ambicode complement( Ambicode w ) { return 0xf & (w << 2 | w >> 2) ; }
+
+inline char compl_ascii( char x ) { return from_ambicode( complement( to_ambicode( x ) ) ) ; }
 
 //! \brief Reverse-complements a pair of ambiguity codes.
 //! \internal
@@ -165,6 +167,7 @@ class DnaP
 			return p < 0 ? complement(w) : w ;  
 		}
 
+		bool operator! () const { return !p_ ; }
 		operator const void*() const { return (const void*)p_ ; }
 
 		bool is_reversed() const { return p_ < 0 ; }
@@ -377,6 +380,11 @@ class QSequence
 //!     combined with setting solexa_scores.
 //! \return true iff a sequence could be read
 bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r, bool solexa_scores, char origin ) ;
+
+//! \brief reads a sequence from a SAM file
+//! \param zis stream to read from
+//! \return true iff a sequence could be read
+bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, const std::string& genome, output::Result& r ) ;
 
 #endif
 

@@ -66,7 +66,6 @@
 
 #include <popt.h>
 
-#include <cassert>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -221,10 +220,17 @@ class store_word {
 		}
 } ;
 
+struct noop { void operator()( uint32_t ) const {} } ;
+struct put_gap { 
+	google::protobuf::RepeatedField<uint32_t> *gaps_ ;
+	put_gap( google::protobuf::RepeatedField<uint32_t> *gaps ) : gaps_(gaps) {}
+	void operator()( uint32_t g ) const { gaps_->Add(g) ; } 
+} ;
+
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum option_tags { opt_none, opt_version, opt_path } ;
+	enum option_tags { opt_none, opt_version } ;
 
 	const char* output_file = 0 ;
 	const char* description = 0 ;
@@ -233,21 +239,24 @@ WRAPPED_MAIN
 	unsigned wordsize  = 12 ;
 	unsigned cutoff    = std::numeric_limits<unsigned>::max() ;
 	unsigned repeat    = std::numeric_limits<unsigned>::max() ;
-	unsigned stride    = 8 ;
+	unsigned stride    = 4 ;
 	int      verbose   = 0 ;
 	int 	 histogram = 0 ;
+	int      slice     = 0 ;
+	int      slices    = 1 ;
 
 	config::Config mi ;
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Output index to FILE", "FILE" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_file, opt_none,    "Read genome from FILE", "FILE" },
-		{ "genome-dir",  'G', POPT_ARG_STRING, 0,            opt_path,    "Add DIR to genome search path", "DIR" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
 		{ "wordsize",    's', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
 		{ "stride",      'S', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &stride,      opt_none,    "Index every Nth word", "N" },
 		{ "limit",       'l', POPT_ARG_INT,    &cutoff,      opt_none,    "Do not index words more frequent than LIM", "LIM" },
 		{ "repetitive",  'r', POPT_ARG_INT,    &repeat,      opt_none,    "Do not index words that self-overlap N bases", "N" },
+		{ "slice",       'x', POPT_ARG_INT,    &slice,       opt_none,    "Process slice N if creating a split index", "N" },
+		{ "numslice",       'x', POPT_ARG_INT,    &slice,       opt_none,    "Process slice N if creating a split index", "N" },
 		{ "histogram",   'h', POPT_ARG_NONE,   &histogram,   opt_none,    "Produce histogram of word frequencies", 0 },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -260,10 +269,6 @@ WRAPPED_MAIN
 	if( argc <= 1 ) { poptPrintHelp( pc, stderr, 0 ) ; return 1 ; }
 	for( int rc = poptGetNextOpt( pc ) ; rc > 0 ; rc = poptGetNextOpt(pc) ) switch( rc )
 	{
-		case opt_path:
-			*mi.add_genome_path() = poptGetOptArg( pc ) ;
-			break ;
-
 		case opt_version:
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
@@ -275,6 +280,7 @@ WRAPPED_MAIN
 	}
 
 	if( !genome_file ) throw "missing --genome option" ;
+	if( poptGetArg( pc ) ) throw "unexpected non-option argument" ;
 
 	GenomeHolder genome = Metagenome::find_genome( genome_file ) ;
 
@@ -286,7 +292,6 @@ WRAPPED_MAIN
 
 	uint32_t *base = (uint32_t*)malloc( 4 * first_level_len ) ;
 	throw_errno_if_null( base, "allocating first level index" ) ;
-	madvise( base, 4*first_level_len, MADV_WILLNEED ) ;
 
 	// we will scan over the dna twice: once to count occurences of
 	// words, once to actually store pointers.
@@ -294,7 +299,7 @@ WRAPPED_MAIN
 	// First scan: only count words.  We'll have to go over the whole
 	// table again to convert counts into offsets.
 	uint64_t total0 = 0;
-	genome->scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, wordsize, repeat, total0 ) ), "Counting" ) ;
+	genome->scan_words( wordsize, make_dense_word( count_word( base, cutoff, stride, wordsize, repeat, total0 ) ), noop(), slice, slices, "Counting" ) ;
 	std::clog << "Need to store " << total0 << " pointers." << std::endl ;
 
 	// Histogram of word frequencies.
@@ -334,13 +339,22 @@ WRAPPED_MAIN
 		}
 	}
 
-	assert( total0 == total ) ;
+	if( total0 != total ) throw "logic error: totals are not equal" ;
+
 	uint32_t *lists = (uint32_t*)malloc( 4 * total ) ;
 	throw_errno_if_null( lists, "allocating second level index" ) ;
 	madvise( lists, 4 * total, MADV_WILLNEED ) ;
 
+	config::CompactIndex ci ;
+
 	// Second scan: we actually store the offsets now.
-	genome->scan_words( wordsize, make_dense_word( store_word( stride, base, lists, wordsize, repeat ) ), "Indexing" ) ;
+	genome->scan_words(
+			wordsize,
+			make_dense_word( store_word( stride, base, lists, wordsize, repeat ) ),
+			put_gap( ci.mutable_gap() ),
+			slice, slices,
+			"Indexing" ) ;
+	std::clog << "Found " << ci.gap_size() << " gap symbols" << std::endl ;
 
 	// need to fix 0-entries in 1L index
 	uint32_t last = total ;
@@ -351,7 +365,6 @@ WRAPPED_MAIN
 		else last = *p ;
 	}
 
-	config::CompactIndex ci ;
 	ci.set_genome_name( genome_file ) ;
 	ci.set_wordsize( wordsize ) ;
 	ci.set_stride( stride ) ;

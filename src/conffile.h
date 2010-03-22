@@ -62,7 +62,7 @@ inline config::Config get_default_config( const char* config_file = 0 )
 	else if( !access( "anfo.cfg", F_OK ) ) return parse_text_config( "anfo.cfg" ) ;
 	else if( !access( ".anfo.cfg", F_OK ) ) return parse_text_config( ".anfo.cfg" ) ;
 	else {
-		std::string f = getenv( "HOME" ) + std::string( ".anfo.cfg" ) ;
+		std::string f = getenv( "HOME" ) + std::string( "/.anfo.cfg" ) ;
 		if( !access( f.c_str(), F_OK ) ) return parse_text_config( f.c_str() ) ;
 		else throw "no config file found" ;
 	}

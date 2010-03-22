@@ -1,0 +1,4 @@
+- Standalone version (mutithreaded) is broken.
+- Stream processing has an unclear interface.
+- SAM output does not generate MD field and context (XU,XD)
+- select_seeds is fouled up

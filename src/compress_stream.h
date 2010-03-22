@@ -24,7 +24,7 @@
 #include <memory>
 #include <ostream>
 
-#if HAVE_LIBZ
+#if HAVE_LIBZ && HAVE_ZLIB_H
 #include <zlib.h>
 
 //! \brief decompression filter that uses the zlib
@@ -58,9 +58,14 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 				// inflate some; after that we either have output or
 				// need to get more input (or have an error)
 				int r = inflate( &zs_, Z_NO_FLUSH ) ;
-				// when are we finished?  when we get Z_STREAM_END, but
+				// when are we finished?  when the input is fully
+				// consumed.  In case the gzip stream ends with input
+				// left, we simply re-initialize.
 				// we may still have a block to hand out
-				if( r == Z_STREAM_END ) break ;
+				if( r == Z_STREAM_END ) {
+					r = inflateEnd( &zs_ ) ;
+					if( r == Z_OK ) r = inflateInit2( &zs_, 15+16 ) ;
+				}
 				else if( r != Z_OK ) throw zs_.msg ;
 			}
 
@@ -102,10 +107,10 @@ class InflateStream : public google::protobuf::io::ZeroCopyInputStream
 				zs_.zalloc = 0 ;
 				zs_.zfree = 0 ;
 				zs_.opaque = 0 ;
-				if( inflateInit2( &zs_, 15+16 ) != Z_OK ) throw zs_.msg ;
-
 				zs_.next_in = (Bytef*)p ;
 				zs_.avail_in = l ;
+				if( inflateInit2( &zs_, 15+16 ) != Z_OK ) throw zs_.msg ;
+
 				zs_.next_out = obuf_ ;
 				zs_.avail_out = sizeof( obuf_ ) ;
 				next_undelivered_ = obuf_ ;
@@ -202,27 +207,6 @@ class DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual int64_t ByteCount() const { return total_ ; }
 } ;
-
-#else
-// libz is missing
-
-struct InflateStream : public google::protobuf::io::ZeroCopyInputStream
-{
-	InflateStream( google::protobuf::io::ZeroCopyInputStream* ) { throw "no libz available" ; }
-	virtual bool Next( const void**, int* ) { return false ; }
-	virtual void BackUp( int ) {}
-	virtual bool Skip( int ) { return false ; }
-	virtual int64_t ByteCount() const { return 0 ; } 
-} ;
-
-struct DeflateStream : public google::protobuf::io::ZeroCopyOutputStream
-{
-	DeflateStream( google::protobuf::io::ZeroCopyOutputStream*, int lv=0 )  { throw "no libz available" ; }
-	virtual bool Next( void**, int* ) { return false ; }
-	virtual void BackUp( int ) {}
-	virtual int64_t ByteCount() const { return 0 ; }
-} ;
-
 #endif
 
 struct BzipError : public Exception {
@@ -231,7 +215,7 @@ struct BzipError : public Exception {
 	virtual void print_to( std::ostream& s ) const { s << "bzip error " << e_ ; }
 } ;
 
-#if HAVE_LIBBZ2
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
 #include <bzlib.h>
 
 //! \brief decompression filter that uses the libbz2
@@ -404,35 +388,7 @@ class BzipStream : public google::protobuf::io::ZeroCopyOutputStream
 		virtual void BackUp( int count ) { back_up( count ) ; }
 		virtual int64_t ByteCount() const { return ((int64_t)zs_.total_in_hi32 << 32) | zs_.total_in_lo32 ; }
 } ;
-
-#else 
-// bzlib is missing
-struct BunzipStream : public google::protobuf::io::ZeroCopyInputStream
-{
-	BunzipStream( google::protobuf::io::ZeroCopyInputStream* ) { throw "no BZlib available" ; }
-	virtual bool Next( const void**, int* ) { return false ; }
-	virtual void BackUp( int ) {}
-	virtual bool Skip( int ) { return false ; }
-	virtual int64_t ByteCount() const { return 0 ; }
-} ;
-
-struct BzipStream : public google::protobuf::io::ZeroCopyOutputStream
-{
-	BzipStream( google::protobuf::io::ZeroCopyOutputStream* ) { throw "no BZlib available" ; }
-	virtual bool Next( void**, int* ) { return false ; }
-	virtual void BackUp( int ) {}
-	virtual int64_t ByteCount() const { return 0 ; }
-} ;
 #endif
-
-/*
-inline google::protobuf::io::ZeroCopyInputStream *decompress( google::protobuf::io::ZeroCopyInputStream *s )
-{
-	try { return new BunzipStream( s ) ; } catch( ... ) {}
-	try { return new InflateStream( s ) ; } catch( ... ) {}
-	return s ;
-}
-*/
 
 inline google::protobuf::io::FileOutputStream *make_output_stream( const char *name )
 {
@@ -447,14 +403,21 @@ inline google::protobuf::io::FileOutputStream *make_output_stream( const char *n
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_small( google::protobuf::io::ZeroCopyOutputStream *s )
 {
+#if HAVE_BZLIB_H && HAVE_LIBBZ2
 	try { return new BzipStream( s ) ; } catch( ... ) {}
+#endif
+#if HAVE_LIBZ && HAVE_ZLIB_H
 	try { return new DeflateStream( s, Z_BEST_COMPRESSION ) ; } catch( ... ) {}
+#endif
 	return s ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_fast( google::protobuf::io::ZeroCopyOutputStream *s )
 {
-	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) { return s ; }
+#if HAVE_LIBZ && HAVE_ZLIB_H
+	try { return new DeflateStream( s, Z_BEST_SPEED ) ; } catch( ... ) {}
+#endif
+	return s ;
 }
 
 inline google::protobuf::io::ZeroCopyOutputStream *compress_any( bool expensive, google::protobuf::io::ZeroCopyOutputStream *s )

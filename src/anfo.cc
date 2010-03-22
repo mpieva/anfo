@@ -23,6 +23,7 @@
 #include "compress_stream.h"
 #include "conffile.h"
 #include "index.h"
+#include "misc_streams.h"
 #include "stream.h"
 #include "queue.h"
 #include "util.h"
@@ -59,41 +60,22 @@
 using namespace config ;
 using namespace std ;
 using namespace google::protobuf::io ;
+using namespace streams ;
 
 //! \page anfo_standalone Standalone ANFO executable
 //! What's not obvious from the command line help:  ANFO can run in
-//! multiple threads, if you have an SMP machine, that is definitely
+//! multiple threads.  If you have an SMP machine, that is definitely
 //! what you want, but even a single CPU machine can benefit from
-//! multithreading while the index is being fetched to memory.
-//! The -p and -x options can request any number of worker threads for
-//! aligning and indexing, and you get two IO threads in addition.  That
-//! means not requesting multithreading still gives you four threads in
-//! total.
+//! multithreading while the index is being (implicitly) fetched to
+//! memory.  The -p option can request any number of worker
+//! threads for aligning and indexing, and you get a main (control and
+//! IO) thread in addition.
 //!
 //! \todo We want an E-value...
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 
-struct AlignmentWorkload
-{
-	int pmax ;
-	std::deque< alignment_type > ol ;
-	std::auto_ptr< output::Result > r ;
-	std::auto_ptr< QSequence > ps ;
-} ;
-
-struct CommonData
-{
-	Queue<output::Result*, 8> output_queue ;
-	Queue<AlignmentWorkload*, 8> intermed_queue ;
-	Queue<output::Result*, 8> input_queue ;
-	streams::StreamHolder output_stream ;
-	Mapper mapper ;
-
-	CommonData( const Config& conf, const char* fn )
-		: output_stream( new streams::ChunkedWriter( fn, 25 ) ), mapper( conf ) {}
-} ;
-
+/*
 void* run_output_thread( void* p )
 {
 	CommonData *q = (CommonData*)p ;
@@ -110,12 +92,14 @@ void* run_indexer_thread( void* cd_ )
 	CommonData *cd = (CommonData*)cd_ ;
 	while( output::Result *r = cd->input_queue.dequeue() )
 	{
-		std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
-		w->r.reset( r ) ;
-		w->ps.reset( new QSequence() ) ;
-		w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
-		if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
-		else                    cd->output_queue.enqueue( w->r.release() ) ;
+		// std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
+		// w->r.reset( r ) ;
+		// w->ps.reset( new QSequence() ) ;
+		cd->mapper.index_sequence( *r ) ;
+		// w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
+		// if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
+		// else                    cd->output_queue.enqueue( w->r.release() ) ;
+		cd->output_queue.enqueue( r ) ;
 	}
 	cd->input_queue.enqueue(0) ;
 	return 0 ;
@@ -124,15 +108,17 @@ void* run_indexer_thread( void* cd_ )
 void* run_worker_thread( void* cd_ )
 {
 	CommonData *cd = (CommonData*)cd_ ;
-	while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
+	// while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
+	while( output::Result *r = cd->intermed_queue.dequeue() )
 	{
-		cd->mapper.process_sequence( *w->ps, w->pmax, w->ol, *w->r ) ;
-		cd->output_queue.enqueue( w->r.release() ) ;
-		delete w ;
+		cd->mapper.process_sequence( *r ) ;
+		cd->output_queue.enqueue( r ) ;
+		// delete w ;
 	}
 	cd->intermed_queue.enqueue(0) ;
 	return 0 ;
 }
+*/
 
 //! \page finding_alns How to find everything we need
 //! We look for best hits globally and specifically on one genome.  They
@@ -168,32 +154,34 @@ void* run_worker_thread( void* cd_ )
 WRAPPED_MAIN
 {
 	GOOGLE_PROTOBUF_VERIFY_VERSION ;
-	enum option_tags { opt_none, opt_version } ;
+	enum option_tags { opt_none, opt_version, opt_housekeep, opt_index, opt_genome } ;
+
+	std::vector< pair< int, string > > more_opts ;
 
 	const char* config_file = 0 ;
 	const char* output_file = 0 ; 
 	int nthreads = 1 ;
-	int nxthreads = 1 ;
 	int solexa_scale = 0 ;
 	int clobber = 0 ;
 	int fastq_origin = 33 ;
 	int task_id = 0 ;
 	if( const char *t = getenv( "SGE_TASK_ID" ) ) task_id = atoi( t ) -1 ; 
-	if( const char *t = getenv( "NSLOTS" ) ) { nthreads = atoi( t ) ; nxthreads = (3+nthreads) / 4 ; }
-
+	if( const char *t = getenv( "NSLOTS" ) ) nthreads = atoi( t ) ;
 
 	struct poptOption options[] = {
-		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
-		{ "config",      'c', POPT_ARG_STRING, &config_file, opt_none,    "Read config from FILE", "FILE" },
-		{ "threads",     'p', POPT_ARG_INT,    &nthreads,    opt_none,    "Run in N parallel worker threads", "N" },
-		{ "ixthreads",   'x', POPT_ARG_INT,    &nxthreads,   opt_none,    "Run in N parallel indexer threads", "N" },
-		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write output to FILE", "FILE" },
-		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,     opt_none,    "Overwrite existing output file", 0 },
+		{ "version",     'V', POPT_ARG_NONE,   0,                   opt_version,  "Print version number and exit", 0 },
+		{ "config",      'c', POPT_ARG_STRING, &config_file,        opt_none,     "Read config from FILE", "FILE" },
+		{ "output",      'o', POPT_ARG_STRING, &output_file,        opt_none,     "Write output to FILE", "FILE" },
+		{ "housekeeping",'H', POPT_ARG_NONE,   0,                   opt_housekeep,"Perform housekeeping (e.g. trimming)", 0 },
+		{ "index",       'i', POPT_ARG_STRING, 0,			        opt_index,    "Use FILE as index according to config", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, 0,			        opt_genome,   "Use FILE as genome according to config", "FILE" },
+		{ "threads",     'p', POPT_ARG_INT,    &nthreads,           opt_none,     "Run next step in N parallel worker threads", "N" },
+		{ "clobber",     'C', POPT_ARG_NONE,   &clobber,            opt_none,     "Overwrite existing output file", 0 },
 		{ "nommap",       0 , POPT_ARG_NONE,   &Metagenome::nommap, opt_none,     "Don't use mmap(), read() indexes instead", 0 },
+		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,       opt_none,     "Quality scores use Solexa formula", 0 },
+		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,       opt_none,     "Quality 0 encodes as ORI, not 33", "ORI" },
 		{ "quiet",       'q', POPT_ARG_VAL,    &console.loglevel, Console::error, "Suppress most output", 0 },
 		{ "verbose",     'v', POPT_ARG_VAL,    &console.loglevel, Console::info,  "Produce more output", 0 },
-		{ "solexa-scale", 0 , POPT_ARG_NONE,   &solexa_scale,opt_none,    "Quality scores use Solexa formula", 0 },
-		{ "fastq-origin", 0 , POPT_ARG_INT,    &fastq_origin,opt_none,    "Quality 0 encodes as ORI, not 33", "ORI" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -208,6 +196,15 @@ WRAPPED_MAIN
 			std::cout << poptGetInvocationName(pc) << ", revision " << PACKAGE_VERSION << std::endl ;
 			return 0 ;
 
+		case opt_housekeep:
+			more_opts.push_back( make_pair( rc + (nthreads << 4), string() ) ) ;
+			break ;
+
+		case opt_index:
+		case opt_genome:
+			more_opts.push_back( make_pair( rc + (nthreads << 4), poptGetOptArg( pc ) ) ) ;
+			break ;
+
 		default:
 			std::clog << poptGetInvocationName(pc) << ": " << poptStrerror( rc ) 
 				<< ' ' << poptBadOption( pc, 0 ) << std::endl ;
@@ -217,71 +214,87 @@ WRAPPED_MAIN
 	if( !output_file ) throw "no output file" ;
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
-	Config conf = get_default_config( config_file ) ;
-	std::string ofile = expand( output_file, task_id ) ;
-
 	// no-op if output exists and overwriting wasn't asked for
-    if( !clobber && 0 == access( ofile.c_str(), F_OK ) ) return 0 ;
+	std::string of = expand( output_file, task_id ) ;
+    if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
 
-	CommonData common_data( conf, (ofile+".#new#").c_str() ) ;
+	Config conf = get_default_config( config_file ) ;
 
-	deque<string> files ;
-	while( const char* arg = poptGetArg( pc ) ) files.push_back( expand( arg, task_id ) ) ;
-
-	poptFreeContext( pc ) ;
-	if( files.empty() ) files.push_back( "-" ) ; 
-
-	output::Header ohdr ;
-	*ohdr.mutable_config() = conf ;
-	ohdr.set_version( PACKAGE_VERSION ) ;
-
-	for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
-	common_data.output_stream->put_header( ohdr ) ;
-
-	// Running in multiple threads.  The main thread will read the
-	// input and enqueue it, then signal end of input by adding a null
-	// pointer.  It will then wait for the worker threads, signal end of
-	// output, wait for the output process.
-
-	pthread_t output_thread ;
-	pthread_create( &output_thread, 0, run_output_thread, &common_data ) ;
-
-	pthread_t worker_thread[ nthreads ] ;
-	for( int i = 0 ; i != nthreads ; ++i )
-		pthread_create( worker_thread+i, 0, run_worker_thread, &common_data ) ;
-
-	pthread_t indexer_thread[ nxthreads ] ;
-	for( int i = 0 ; i != nxthreads ; ++i )
-		pthread_create( indexer_thread+i, 0, run_indexer_thread, &common_data ) ;
-
-	for( size_t total_count = 0 ; !exit_with && !files.empty() ; files.pop_front() )
+	Holder< StreamBundle > comp = new Compose() ;
 	{
-		Holder< streams::Stream > inp( 
-				streams::make_input_stream( files.front().c_str(), solexa_scale, fastq_origin ) ) ;
-
-		for( ; !exit_with && inp->get_state() == streams::Stream::have_output ; ++total_count )
-			common_data.input_queue.enqueue( new output::Result( inp->fetch_result() ) ) ;
+		Holder< StreamBundle > ins = new ConcatStream() ;
+		if( poptPeekArg( pc ) ) 
+		{
+			while( const char* arg = poptGetArg( pc ) )
+				ins->add_stream( new UniversalReader(
+							expand( arg, task_id ), 0, solexa_scale, fastq_origin ) ) ;
+		}
+		else
+		{
+			ins->add_stream( new UniversalReader(
+						"-", 0, solexa_scale, fastq_origin ) ) ;
+		}
+		comp->add_stream( ins ) ;
 	}
-	
-	// no more input, wait for indexer(s)
-	common_data.input_queue.enqueue( 0 ) ;
-	for( int i = 0 ; i != nxthreads ; ++i )
-		pthread_join( indexer_thread[i], 0 ) ;
+	poptFreeContext( pc ) ;
 
-	// done with indexes... wait for the worker(s)
-	common_data.intermed_queue.enqueue( 0 ) ;
-	for( int i = 0 ; i != nthreads ; ++i )
-		pthread_join( worker_thread[i], 0 ) ;
+	for( size_t i = 0 ; i != more_opts.size() ; ++i )
+    {
+		if( (more_opts[i].first & 0xf) == opt_housekeep )
+		{
+            comp->add_stream( new Housekeeper( conf ) ) ;
+		}
+		else if( (more_opts[i].first & 0xf)  == opt_genome )
+        {
+            if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
 
-	// end output and wait for it to finish
-	common_data.output_queue.enqueue( 0 ) ;
-	pthread_join( output_thread, 0 ) ;
+			if( (more_opts[i].first >> 4) > 1 ) {
+				vector< StreamHolder > v ;
+				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+					v.push_back( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
+				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
+			}
+			else
+				comp->add_stream( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
+        }
+        else
+        {
+			if( (more_opts[i].first >> 4) > 1 ) {
+				vector< StreamHolder > v ;
+				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+					v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
+				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
+			}
+			else
+				comp->add_stream( new Indexer( conf, more_opts[i].second ) ) ;
+        }
+    }
 
-	clog << endl ;
-	output::Footer ofoot ;
-	ofoot.set_exit_code( exit_with ) ;
-	common_data.output_stream->put_footer( ofoot ) ;
-	if( !exit_with ) std::rename( (ofile+".#new#").c_str(), ofile.c_str() ) ;
+    of.append( ".#new#" ) ;
+	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
+
+	{
+		output::Header ohdr ;
+		*ohdr.mutable_config() = conf ;
+		ohdr.set_version( PACKAGE_VERSION ) ;
+		for( const char **arg = argv ; arg != argv+argc ; ++arg ) *ohdr.add_command_line() = *arg ;
+		if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
+		if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
+		comp->put_header( ohdr ) ; 
+	}
+
+	outs->put_header( comp->fetch_header() ) ;
+	while( !exit_with && comp->get_state() == Stream::have_output && outs->get_state() == Stream::need_input )
+		outs->put_result( comp->fetch_result() ) ;
+
+	{
+		output::Footer ofoot = comp->fetch_footer() ;
+		exit_with |= ofoot.exit_code() ;
+		ofoot.set_exit_code( exit_with ) ;
+		outs->put_footer( ofoot ) ;
+	}
+		
+	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
 	return 0 ;
 }
 

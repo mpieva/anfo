@@ -4,6 +4,7 @@
 #include "stream.h"
 
 #include <deque>
+#include <map>
 
 namespace streams {
 
@@ -99,6 +100,11 @@ struct by_seqid {
 //! What to compare on is read from the input streams' header.  If they
 //! are unsorted, we fail.  Else we check that they are sorted in the
 //! same way and merge accordingly.
+//!
+//! \note All input streams must necessarily be opened at the same time.
+//!       In principle, we could merge smaller chunks into temporary
+//!       files to avoid hitting the file descriptor limit, but there
+//!       hasn't been a practical need to do that yet.
 class MergeStream : public StreamBundle
 {
 	private:
@@ -108,64 +114,27 @@ class MergeStream : public StreamBundle
 
 	public:
 		MergeStream() : mode_( unknown ) {}
-
-		virtual void add_stream( StreamHolder s )
-		{
-			Header h = s->fetch_header() ;
-			if( streams_.empty() ) hdr_ = h ;
-			else merge_sensibly( hdr_, h ) ;
-
-			if( h.is_sorted_by_name() ) {
-				if( mode_ == unknown ) mode_ = by_name ;
-				else if( mode_ != by_name ) 
-					throw "MergeStream: inconsistent sorting of input" ;
-			}
-			else if( h.is_sorted_by_all_genomes() ) {
-				if( mode_ == unknown ) {
-					mode_ = by_coordinate ;
-					gs_.clear() ;
-				}
-				else if( mode_ != by_coordinate || !gs_.empty() )
-					throw "MergeStream: inconsistent sorting of input" ;
-			}
-			else if( h.is_sorted_by_coordinate_size() ) {
-				if( mode_ == unknown ) {
-					mode_ = by_coordinate ;
-					gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
-				}
-				else if( mode_ != by_coordinate || (int)gs_.size() != h.is_sorted_by_coordinate_size()
-						|| !equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) )
-					throw "MergeStream: inconsistent sorting of input" ;
-			}
-
-			if( s->get_state() == have_output )
-			{
-				rs_.push_back( s->fetch_result() ) ;
-				streams_.push_back( s ) ;
-				state_ = have_output ;
-			}
-			else
-			{
-				if( state_ == invalid ) state_ = end_of_stream ;
-				merge_sensibly( foot_, s->fetch_footer() ) ;
-			}
-		}
-
-		virtual Header fetch_header()
-		{
-			if( mode_ == unknown ) throw "MergeStream: don't know what to merge on" ;
-			return hdr_ ;
-		}
+		virtual Header fetch_header() ;
 		virtual Result fetch_result() ;
+
+		//! \todo totally broken, need to think about how to keep the
+		//!       necessary information.
+#if HAVE_ELK_SCHEME_H
+		virtual Object get_summary() const { return False ; }
+#endif
+		virtual string type_name() const { return "MergeStream" ; }
 } ;
 
 //! \brief merges multiple streams by taking the best hit
 //! If asked for a result, this class takes results from each of the
 //! streams in turn, until one sequence has received an entry from each.
 //! This sequence is then delivered.  Everything works fine, as long as
-//! the sequence names come in in roughly the same order.  Else it still
-//! works, but eats memory.
-class BestHitStream : public StreamBundle
+//! the sequence names come in in roughly the same order and every name
+//! is contained in every input.  Else it still works, but eats memory.
+//! This is best used to merge chunks of work done by independent
+//! processes where the order of records hasn't been disturbed too much
+//! (multithreading and the implied slight shuffle is fine).
+class NearSortedJoin : public StreamBundle
 {
 	private:
 		typedef map< string, pair< size_t, Result > > Buffer ;
@@ -175,29 +144,9 @@ class BestHitStream : public StreamBundle
 		Chan progress_ ;
 
 	public:
-		BestHitStream() : nread_(0), nwritten_(0), nstreams_(0) {}
+		NearSortedJoin() : nread_(0), nwritten_(0), nstreams_(0) {}
 
-		//! \brief reads a stream's header and adds the stream as input
-		virtual void add_stream( StreamHolder s ) {
-			merge_sensibly( hdr_, s->fetch_header() ) ;
-			++nstreams_ ;
-			if( s->get_state() == have_output )
-			{
-				streams_.push_back( s ) ;
-				state_ = have_output ;
-			}
-			else
-			{
-				if( state_ == invalid ) state_ = end_of_stream ;
-				merge_sensibly( foot_, s->fetch_footer() ) ;
-			}
-			cur_input_ = streams_.begin() ;
-		}
-
-		//! \brief checks if enough inputs are known.
-		bool enough_inputs() const ;
-
-		//! \brief reports final results for one sequence.
+		virtual Header fetch_header() ;
 		virtual Result fetch_result() ;
 } ;
 
@@ -236,6 +185,7 @@ template< typename I > class ContainerStream : public Stream
 			if( cur_ == end_ ) state_ = end_of_stream ;
 			return r ;
 		}
+		virtual string type_name() const { return "ContainerStream" ; }
 } ;
 
 extern unsigned SortingStream__ninstances ;
@@ -267,11 +217,13 @@ template <class Comp> class SortingStream : public Stream
 		//! times a file has already been merged with others, the value
 		//! is just a set of streams.
 		MergeableQueues mergeable_queues_ ;
-		Holder< MergeStream > final_stream_ ;
+		Holder< Stream > final_stream_ ;
 
-		int64_t total_scratch_size_ ;
+		uint64_t total_scratch_size_ ;
 
-		unsigned max_que_size_, max_arr_size_ ;
+		unsigned max_que_size_ ;
+        unsigned num_open_files_ ;
+		unsigned max_arr_size_ ;
 		Comp comp_ ;
 
 		//! \brief quicksort the scratch area
@@ -296,8 +248,9 @@ template <class Comp> class SortingStream : public Stream
 		}
 
 	public:
-		SortingStream( unsigned as = 256*1024*1024, unsigned qs = 256, Comp comp = Comp() )
-			: final_stream_( new MergeStream ), total_scratch_size_(0), max_que_size_( qs ), max_arr_size_( as ), comp_( comp )
+		SortingStream( unsigned as = 256, unsigned qs = 256, Comp comp = Comp() ) :
+            final_stream_(), total_scratch_size_(0), max_que_size_(qs),
+            num_open_files_(0), max_arr_size_( as), comp_( comp )
 		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
 
 		virtual void put_header( const Header& h ) { Stream::put_header( h ) ; comp_.tag_header( hdr_ ) ; }
@@ -305,7 +258,7 @@ template <class Comp> class SortingStream : public Stream
 		virtual void put_result( const Result& r ) {
 			scratch_space_.push_back( new Result( r ) ) ;
 			total_scratch_size_ += scratch_space_.back()->SpaceUsed() ;
-			if( total_scratch_size_ >= max_arr_size_ ) flush_scratch() ;
+			if( (total_scratch_size_ >> 20) >= max_arr_size_ ) flush_scratch() ;
 		}
 
 		virtual Result fetch_result()
@@ -315,6 +268,9 @@ template <class Comp> class SortingStream : public Stream
 			return r ;
 		}
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_->fetch_footer() ) ; return foot_ ; }
+#if HAVE_ELK_SCHEME_H
+		virtual Object get_summary() const { return final_stream_->get_summary() ; }
+#endif
 } ;
 
 template < typename Comp > void SortingStream<Comp>::flush_scratch()
@@ -325,12 +281,14 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 	{
 		ContainerStream< deque< Result* >::const_iterator >
 			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
-		AnfoWriter out( fd, tempname.c_str() ) ;
+		ChunkedWriter out( fd, 25, tempname.c_str() ) ;
 		console.output( Console::notice, "SortingStream: Writing to tempfile " + tempname ) ;
 		transfer( sa, out ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
-	enqueue_stream( make_input_stream( fd, tempname.c_str() ), 1 ) ;
+	google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
+	is->SetCloseOnDelete( true ) ;
+	enqueue_stream( new UniversalReader( tempname, is ), 1 ) ;
 
 	for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 	scratch_space_.clear() ;
@@ -339,11 +297,9 @@ template < typename Comp > void SortingStream<Comp>::flush_scratch()
 
 template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::StreamHolder s, int level ) 
 {
-	Header h = s->fetch_header() ;
-	assert( comp_.is_sorted( h ) ) ;
 	mergeable_queues_[ level ].push_back( s ) ;
 
-	if( AnfoReader::num_open_files() > max_que_size_ ) {
+	if( ++num_open_files_ > max_que_size_ ) {
 		// get the biggest bin, we'll merge everything below that
 		unsigned max_bin = 0 ;
 		for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ;
@@ -357,7 +313,8 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 
 		// we must actually make progress, and more than just a
 		// single stream must be merged to avoid quadratic behaviour
-		// (only important in a weird corner case)
+		// (only important in a weird corner case, in which we simply
+        // use one more file descriptor)
 		if( total_inputs > 2 ) {
 			string fname ;
 			int fd = mktempfile( &fname ) ;
@@ -368,15 +325,18 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 				streams::MergeStream ms ;
 				for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
 				{
+                    num_open_files_ -= i->second.size() ;
 					for( size_t j = 0 ; j != i->second.size() ; ++j )
 						ms.add_stream( i->second[j] ) ;
 					i->second.clear() ;
 				}
-				AnfoWriter out( fd, fname.c_str() ) ;
+				ChunkedWriter out( fd, 25, fname.c_str() ) ;
 				transfer( ms, out ) ;
 			}
 			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
-			enqueue_stream( make_input_stream( fd, fname.c_str() ), max_bin + 1 ) ;
+			google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
+			is->SetCloseOnDelete( true ) ;
+			enqueue_stream( new UniversalReader( fname, is ), max_bin + 1 ) ;
 		}
 	}
 }
@@ -395,38 +355,49 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 	// temporary storage.  (Also, if the temporay space is empty, we
 	// *always* add the ContainerStream, otherwise we get strange
 	// effects if the output turns out to be empty.)
-
+    Holder< MergeStream > m( new MergeStream ) ;
 	if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
 		flush_scratch() ; 
 	else {
 		console.output( Console::notice, "SortingStream: final sort" ) ;
 		sort_scratch() ;
-		final_stream_->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
+		m->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
 					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
 	}
 
 	// add any streams that have piled up
 	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
 		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
-			final_stream_->add_stream( *j ) ;
+			m->add_stream( *j ) ;
 	mergeable_queues_.clear() ;
-	console.output( Console::notice, "SortingStream: merging everything to output" ) ;
-	
-	final_stream_->fetch_header() ;
-	state_ = final_stream_->get_state() ;
+	m->fetch_header() ;
+
+    if( SortingStream__ninstances == 1 )
+    {
+        // we're alone.  delegate directly to MergeStream
+        console.output( Console::notice, "SortingStream: merging everything to output" ) ;
+        state_ = m->get_state() ;
+        final_stream_ = m ;
+    }
+    else
+    {
+        // not alone.  We'll conserve file handles by merging everything
+        // into a temporary file and opening that.
+        string fname ;
+        int fd = mktempfile( &fname ) ;
+        std::stringstream s ;
+        s << "SortingStream: Merging everything to tempfile " << fname ;
+        console.output( Console::notice, s.str() ) ;
+        ChunkedWriter out( fd, 25, fname.c_str() ) ;
+        transfer( *m, out ) ;
+        num_open_files_ = 1 ;
+        throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
+        google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
+        is->SetCloseOnDelete( true ) ;
+        final_stream_ = new UniversalReader( fname, is ) ; 
+    }
 }
 
-
-class MegaMergeStream : public ConcatStream
-{
-	private:
-		map< int, Holder< BestHitStream > > stream_per_slice_ ;
-
-	public:
-		MegaMergeStream() {}
-		virtual void add_stream( StreamHolder ) ;
-		virtual Header fetch_header() ;
-} ;
 
 class RepairHeaderStream : public Stream
 {
@@ -453,34 +424,109 @@ class Compose : public StreamBundle
 		virtual state get_state() ;
 
 		virtual void put_header( const Header&   ) ;
-		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; }
+		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; get_state() ; }
 		virtual void put_footer( const Footer& f ) { streams_.front()->put_footer( f ) ; get_state() ; }
 
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() { return streams_.back()->fetch_result() ; }
 		virtual Footer fetch_footer() { return streams_.back()->fetch_footer() ; }
+		virtual string type_name() const { return "Compose" ; }
 } ;
 
+#if HAVE_ELK_SCHEME_H
 class StatStream : public Stream
 {
 	private:
-		string fn_ ;
-		string name_ ;
-
 		unsigned total_, mapped_, mapped_u_, different_ ;
 		uint64_t bases_, bases_gc_, bases_m_, bases_gc_m_ ;
 		uint64_t bases_squared_, bases_m_squared_ ; 
 
-		void printout( ostream&, bool ) ;
-
 	public:
-		StatStream( const string& fn )
-			: fn_(fn), total_(0), mapped_(0), mapped_u_(0), different_(0)
+		StatStream()
+			: total_(0), mapped_(0), mapped_u_(0), different_(0)
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
 		    , bases_squared_(0), bases_m_squared_(0) {}
 
 		virtual void put_result( const Result& ) ;
-		virtual void put_footer( const Footer& ) ;
+		virtual Object get_summary() const ;
+} ;
+
+//! \brief calculates divergence
+//! Divergence is calculated by the Green Triangulation method.  Two
+//! genomes are needed (primary and secondary) and alignments to both of
+//! them.  Differences are counted (all equal, either sequence
+//! different, all different), then error corrected (math stolen from
+//! dropin_AHA.pl) and turned into divergence of the last common
+//! ancestor, expressed as fraction of total divergence between primary
+//! and secondary genome.
+
+class DivergenceStream : public Stream
+{
+	private:
+		string primary_genome_, secondary_genome_ ;
+		int chop_ ;
+        bool ancient_ ;
+		int64_t b1, b2, b3, b4, b5 ;
+
+	public:
+		DivergenceStream( const string& primary, const string& secondary, int chop )
+			: primary_genome_( primary ), secondary_genome_( secondary ), chop_( chop )
+			, b1(0), b2(0), b3(0), b4(0), b5(0) {}
+
+		virtual void put_header( const Header& ) ;
+		virtual void put_result( const Result& ) ;
+		virtual Object get_summary() const ;
+} ;
+
+class MismatchStats : public Stream
+{
+	private:
+		int mat_[4][4] ;
+
+	public:
+		MismatchStats() { memset( mat_, 0, sizeof( mat_ ) ) ; }
+		virtual void put_result( const Result& ) ;
+		virtual Object get_summary() const ;
+} ;
+#endif
+
+//! \brief checks for hits to homologous regions
+//! This filter reads a UCSC Chain file and stores the "homologous"
+//! ranges.  A record passes the filter iff it has hits to both genomes
+//! that make up the chain and both hits are inside the two regions of
+//! the same chain.  This should be equivalent to the "traditional"
+//! sequence of two liftovers and check for agreement.
+//!
+//! \todo I swear, one of those days I'll implement a symbol table for
+//!       those repeated chromosome names.
+class AgreesWithChain : public Filter
+{
+	private:
+		string left_genome_, right_genome_ ;
+
+		struct Entry ;
+		typedef map< unsigned, Entry > Chains ;	// =^= left_start
+		typedef map< string, Chains > Map1 ;	// =^= left_chr
+
+		// Chains have a hierarchical structure: below any chain, there
+		// can be a collection of more.  We have one such top-level
+		// collection per chromosome.
+		struct Entry {
+			unsigned left_end ;
+			unsigned right_start ;
+			unsigned right_end : 31 ;
+			unsigned strand : 1 ;
+			string right_chr ;
+			Chains nested ;
+		} ;
+
+		Map1 map_ ;
+
+		static Chains::iterator find_any_most_specific_overlap( 
+				unsigned start, unsigned end, Chains *chains ) ;
+	public:
+		AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& s ) ;
+		virtual bool xform( Result& ) ;
 } ;
 
 class RegionFilter : public HitFilter

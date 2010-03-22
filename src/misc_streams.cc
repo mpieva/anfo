@@ -17,11 +17,58 @@ namespace streams {
 using namespace google::protobuf ;
 using namespace google::protobuf::io ;
 
+Header MergeStream::fetch_header()
+{
+	state_ = end_of_stream ;
+	for( size_t i = 0 ; i != streams_.size() ; )
+	{
+		Header h = streams_[i]->fetch_header() ;
+		merge_sensibly( hdr_, h ) ;
+
+		if( h.is_sorted_by_name() ) {
+			if( mode_ == unknown ) mode_ = by_name ;
+			else if( mode_ != by_name ) 
+				throw "MergeStream: inconsistent sorting of input (by_name)" ;
+		}
+		else if( h.is_sorted_by_all_genomes() ) {
+			if( mode_ == unknown ) {
+				mode_ = by_coordinate ;
+				gs_.clear() ;
+			}
+			else if( mode_ != by_coordinate || !gs_.empty() )
+				throw "MergeStream: inconsistent sorting of input (by_all_genomes)" ;
+		}
+		else if( h.is_sorted_by_coordinate_size() ) {
+			if( mode_ == unknown ) {
+				mode_ = by_coordinate ;
+				gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
+			}
+			else if( mode_ != by_coordinate || (int)gs_.size() != h.is_sorted_by_coordinate_size()
+					|| !equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) )
+				throw "MergeStream: inconsistent sorting of input (by_genome)" ;
+		}
+
+		if( streams_[i]->get_state() == have_output )
+		{
+			rs_.push_back( streams_[i]->fetch_result() ) ;
+			state_ = have_output ;
+			++i ;
+		}
+		else
+		{
+			merge_sensibly( foot_, streams_[i]->fetch_footer() ) ;
+			streams_.erase( streams_.begin() + i ) ;
+		}
+	}
+	return hdr_ ;
+}
+
+//! \todo uses linear search, but a heap would be more appropriate
 Result MergeStream::fetch_result() 
 {
-	assert( state_ == have_output ) ;
-	assert( rs_.size() == streams_.size() ) ;
-	assert( streams_.size() != 0 ) ;
+	if( state_ != have_output ) throw "logic error: MergeStream::fetch_result called in wrong stream state" ;
+	if( rs_.size() != streams_.size() ) throw "logic error: # of records does not equal # of streams in MergeStream::fetch_result" ;
+	if( !streams_.size() ) throw "logic error: no streams left in MergeStream::fetch_result" ;
 
 	int min_idx = 0 ;
 	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
@@ -29,46 +76,63 @@ Result MergeStream::fetch_result()
 				|| ( mode_ == by_name && by_seqid()( &rs_[ i ], &rs_[ min_idx ] ) ) )
 			min_idx = i ;
 
-	Result res = rs_[ min_idx ] ;
-	Stream &sm = *streams_[ min_idx ] ;
-	if( sm.get_state() == have_output )
+	string min_name = rs_[ min_idx ].read().seqid() ;
+	Result res ;
+	for( size_t i = 0 ; i != rs_.size() ; )
 	{
-		rs_[ min_idx ] = sm.fetch_result() ; 
-	}
-	else
-	{
-		merge_sensibly( foot_, sm.fetch_footer() ) ;
-		streams_.erase( streams_.begin() + min_idx ) ;
-		rs_.erase( rs_.begin() + min_idx ) ;
-		if( rs_.empty() ) state_ = end_of_stream ;
+		if( rs_[i].read().seqid() == min_name )
+		{
+			if( res.IsInitialized() ) merge_sensibly( res, rs_[i] ) ;
+			else res = rs_[i] ;
+
+			Stream &sm = *streams_[i] ;
+			if( sm.get_state() == have_output ) rs_[i++] = sm.fetch_result() ; 
+			else
+			{
+				merge_sensibly( foot_, sm.fetch_footer() ) ;
+				streams_.erase( streams_.begin() + i ) ;
+				rs_.erase( rs_.begin() + i ) ;
+				if( rs_.empty() ) state_ = end_of_stream ;
+			}
+		}
+        else ++i ;
 	}
 	return res ;
 }
 
-//! Checks if at least as many inputs are known as needed.  It assumes
-//! only one genome index was used and takes the number of slices
-//! declared for it.  (This is mostly useful in MegaMergeStream to clean
-//! up the mess left by a heavily sliced grid job.  Try to avoid using
-//! this 'feature'.)
-bool BestHitStream::enough_inputs() const
+Header NearSortedJoin::fetch_header()
 {
-	if( hdr_.config().policy_size() == 0 ||
-			hdr_.config().policy(0).use_compact_index_size() == 0 ) return false ;
-	if( !hdr_.config().policy(0).use_compact_index(0).has_number_of_slices() ) return true ;
-	return nstreams_ >= hdr_.config().policy(0).use_compact_index(0).number_of_slices() ;
+	state_ = end_of_stream ;
+	for( size_t i = 0 ; i != streams_.size() ; )
+	{
+		merge_sensibly( hdr_, streams_[i]->fetch_header() ) ;
+		++nstreams_ ;
+		if( streams_[i]->get_state() == have_output )
+		{
+			state_ = have_output ;
+			++i ;
+		}
+		else
+		{
+			merge_sensibly( foot_, streams_[i]->fetch_footer() ) ;
+			streams_.erase( streams_.begin() + i ) ;
+		}
+	}
+	cur_input_ = streams_.begin() ;
+	return hdr_ ;
 }
 
 //! Enough information is read until one sequence has been reported on
 //! by each input stream.  Everything else is buffered if necessary.
 //! This works fine as long as the inputs come in in roughly the same
 //! order and are complete.
-Result BestHitStream::fetch_result()
+Result NearSortedJoin::fetch_result()
 {
 	while( !streams_.empty() ) {
 		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
 
 		Stream &s = **cur_input_ ;
-		assert( s.get_state() == have_output ) ;
+		if( s.get_state() != have_output ) throw "logic error: NearSortedJoin::fetch_result wasn't provided with input" ;
 
 		Result r = s.fetch_result() ;
 		if( s.get_state() == end_of_stream )
@@ -77,6 +141,17 @@ Result BestHitStream::fetch_result()
 			cur_input_ = streams_.erase( cur_input_ ) ;
 		}
 		else ++cur_input_ ;
+
+        if( buffer_.size() >= 1000000 ) throw "input must be complete and nearly sorted the same way for join to work" ;
+
+        if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
+        {
+            stringstream s ;
+            s << "NearSortedJoin: " << nread_ << "in "
+                << nwritten_ << "out "
+                << buffer_.size() << "buf" ;
+            progress_( Console::info, s.str() ) ;
+        }
 
 		pair< size_t, Result > &p = buffer_[ r.read().seqid() ] ;
 		++nread_ ;
@@ -93,15 +168,6 @@ Result BestHitStream::fetch_result()
 
 			if( buffer_.empty() && streams_.empty() )
 				state_ = end_of_stream ;
-
-			if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
-			{
-				stringstream s ;
-				s << "BestHitStream: " << nread_ << "in "
-				<< nwritten_ << "out "
-				<< buffer_.size() << "buf" ;
-				progress_( Console::info, s.str() ) ;
-			}
 			return r1 ;
 		}
 	}
@@ -114,40 +180,6 @@ Result BestHitStream::fetch_result()
 }
 
 unsigned SortingStream__ninstances = 0 ;
-
-void MegaMergeStream::add_stream( StreamHolder s ) 
-{
-	Header h = s->fetch_header() ;
-	if( h.has_sge_slicing_stride() )
-	{
-		Holder< BestHitStream > bhs = stream_per_slice_[ h.sge_slicing_index(0) ] ;
-		if( !bhs ) bhs = new BestHitStream ;
-		bhs->add_stream( s ) ;
-
-		if( bhs->enough_inputs() ) {
-			std::stringstream s ;
-			s << "MegaMergeStream: got everything for slice " << h.sge_slicing_index(0) ;
-			console.output( Console::info, s.str() ) ;
-			stream_per_slice_.erase( h.sge_slicing_index(0) ) ;
-			ConcatStream::add_stream( bhs ) ;
-		}
-	}
-	else ConcatStream::add_stream( s ) ;
-}
-
-Header MegaMergeStream::fetch_header()
-{
-	if( !stream_per_slice_.empty() ) 
-		console.output( Console::warning, "MegaMergeStream: input appears to be incomplete" ) ;
-
-	for( map< int, Holder< BestHitStream > >::iterator
-			l = stream_per_slice_.begin(),
-			r = stream_per_slice_.end() ; l != r ; ++l )
-		ConcatStream::add_stream( l->second ) ;
-
-	return ConcatStream::fetch_header() ;
-}
-
 
 void RepairHeaderStream::put_header( const Header& h ) 
 {
@@ -257,50 +289,13 @@ Stream::state Compose::get_state()
 	}
 }
 
-//! \brief prints statistics
-//! The fields are:
-//! -# some read name (as an audit trail)
-//! -# total number of reads
-//! -# number of mapped reads
-//! -# number of uniquely mapped reads
-//! -# number of unique sequences mapped uniquely
-//! -# GC content in raw data
-//! -# GC content in mapped data
-//! -# total number of bases (== first moment of length dist.)
-//! -# sum of squared lengths (== second moment of length dist.)
-//! -# number of mapped bases (== first moment of mapped length dist.)
-//! -# sum of squared lengths of mapped reads (== second moment of
-//!    mapped length dist.)
-//! 
-//! Note that given first (m1) and second moment (m2) of a sample of size
-//! n, the average is simply
-//! \f[ m1 / n \f] 
-//! and the variance is
-//! \f[ (m2 - m1^2 / n) / (n-1) \f]
-//! Also, the mean of the weighted contig length (the median of this
-//! value would be the N50) is 
-//! \f[ m2 / m1 \f]
-
-void StatStream::printout( ostream& s, bool h )
-{
-	s << (h?"name\t#total\t#mapped\t#mapuniq\t#distinct\t"
-		    "GCraw\tGCmapped\trawbases\trawbases^2\t"
-			"mapbases\tmapbases^2\n":"")
-	  << name_ << '\t' << total_ << '\t' 							// arbitrary name, reads
-	  << mapped_ << '\t' << mapped_u_ << '\t' 						// mapped reads, uniquely mapped reads
-	  << different_ << '\t'
-      << 100*(float)bases_gc_ / (float)bases_ << '\t'				// GC content
-	  << 100*(float)bases_gc_m_ / (float)bases_m_ << '\t'			// GC content, mapped only
-	  << bases_  << '\t' << bases_squared_ << '\t'					// number of bases & 2nd moment
-	  << bases_m_ << '\t' << bases_m_squared_ << endl ;             // number of mapped bases & 2nd moment
-} 
-
+#if HAVE_ELK_SCHEME_H
 void StatStream::put_result( const Result& r )
 {
 	unsigned bases = r.read().sequence().size() ;
 	unsigned gc = count( r.read().sequence().begin(), r.read().sequence().end(), 'G' )
 		        + count( r.read().sequence().begin(), r.read().sequence().end(), 'C' ) ;
-	unsigned count = std::max( r.member_size(), 1 ) ;
+	unsigned count = std::max( r.members_size() + r.nmembers(), 1U ) ;
 	total_ += count ;
 	bases_ += bases ;
 	bases_gc_ += gc ;
@@ -317,25 +312,166 @@ void StatStream::put_result( const Result& r )
 			++different_ ;
 		}
 	}
-	if( name_.empty() ) name_ = r.read().seqid() ;
 }
 
-void StatStream::put_footer( const Footer& f )
+static inline Object Cons2U( uint64_t x, Object l )
+{ return Cons( Make_Unsigned( x & ~(~0LL << 31) ), Cons( Make_Unsigned( x >> 31 ), l ) ) ; }
+
+static inline Object ConsU( unsigned x, Object l )
+{ return Cons( Make_Unsigned( x ), l ) ; }
+
+Object StatStream::get_summary() const
 {
-	Stream::put_footer( f ) ;
-	if( fn_.empty() || fn_ == "-" ) printout( cout, true ) ;
-	else if( fn_ == "+-" ) printout( cout, false ) ;
-	else if( fn_[0] == '+' ) 
+	Object r = Null ;
+	r = Cons2U( bases_m_squared_, r ) ;
+	r = Cons2U( bases_m_, r ) ;
+	r = Cons2U( bases_squared_, r ) ;
+	r = Cons2U( bases_, r ) ;
+	r = Cons2U( bases_gc_m_, r ) ;
+	r = Cons2U( bases_gc_, r ) ;
+	r = ConsU( different_, r ) ;
+	r = ConsU( mapped_u_, r ) ;
+	r = ConsU( mapped_, r ) ;
+	r = ConsU( total_, r ) ;
+	return r ;
+}
+
+void MismatchStats::put_result( const Result& r )
+{
+	for( int i = 0 ; i != r.hit_size() ; ++i )
 	{
-		ofstream s( fn_.substr(1).c_str(), ios_base::app ) ;
-		printout( s, false ) ;
-	}
-	else 
-	{
-		ofstream s( fn_.c_str(), ios_base::trunc ) ;
-		printout( s, true ) ;
+		const Hit& h = r.hit(i) ;
+		if( !h.has_aln_ref() || !h.has_aln_qry() ) 
+			throw "MismatchStats needs reconstructed alignments" ;
+
+		for( size_t j = 0 ; j != h.aln_ref().size() && j != h.aln_qry().size() ; ++j )
+		{
+			char a = h.aln_ref()[j], b = h.aln_qry()[j] ;
+			int u = a == 'A' ? 0 : a == 'C' ? 1 : a == 'G' ? 2 : a == 'T' ? 3 : -1 ;
+			int v = b == 'A' ? 0 : b == 'C' ? 1 : b == 'G' ? 2 : b == 'T' ? 3 : -1 ;
+			if( u >= 0 && v >= 0 ) ++mat_[u][v] ;
+		}
 	}
 }
+
+Object MismatchStats::get_summary() const
+{
+	GC_Node ;
+	Object r = Make_Vector( 4, False ) ;
+	GC_Link( r ) ;
+	for( int i = 0 ; i != 4 ; ++i )
+	{
+		Object s = Make_Vector( 4, False ) ;
+		for( int j = 0 ; j != 4 ; ++j )
+			VECTOR(s)->data[j] = Make_Integer( mat_[i][j] ) ;
+		VECTOR(r)->data[i] = s ;
+	}
+	GC_Unlink ;
+	return r ;
+}
+
+void DivergenceStream::put_header( const Header& h )
+{
+    Stream::put_header( h ) ;
+    ancient_ = h.config().has_aligner() && h.config().aligner().has_mean_overhang_length() ;
+}
+
+// Excludes gaps, Ns, and nonsensical symbols
+inline static bool good( char x ) { return x == 'A' || x == 'C' || x == 'G' || x == 'T' ; }
+
+// Excludes transitions that may have been confounded by deamination.
+// Idea is the same as in contamination checker: "If you see a C you can
+// trust that you see a C."  (Excluding all transitions doesn't change
+// the results.)
+inline static bool fine( char x, char y, char z )
+{
+    if( x == 'C' && y == 'T' && z == 'T' ) return false ;
+    if( x == 'T' && y == 'T' && z == 'C' ) return false ;
+    if( x == 'G' && y == 'A' && z == 'A' ) return false ;
+    if( x == 'A' && y == 'A' && z == 'G' ) return false ;
+    return true ;
+}
+
+void DivergenceStream::put_result( const Result& r ) 
+{
+	const Hit *pri = hit_to( r, primary_genome_ ) ;
+	const Hit *sec = hit_to( r, secondary_genome_ ) ;
+	if( pri && sec )
+	{
+		if( !pri->has_aln_ref() || !pri->has_aln_qry() ||
+				!sec->has_aln_ref() || !sec->has_aln_qry() )
+			throw "Divergence: need reconstructed alignments" ;
+
+		string::const_iterator pri_ref = pri->aln_ref().begin(),
+					pri_qry = pri->aln_qry().begin(),
+					pri_qry_end = pri->aln_qry().end(),
+					sec_ref = sec->aln_ref().begin(),
+					sec_qry = sec->aln_qry().begin(),
+					sec_qry_end = sec->aln_qry().end() ;
+
+		for( int skip = 0 ; skip != chop_ && pri_qry != pri_qry_end ; )
+		{
+			if( *pri_qry != '-' ) ++skip ;
+			++pri_qry, ++pri_ref ;
+		}
+
+		for( int skip = 0 ; skip != chop_ && pri_qry != pri_qry_end ; )
+		{
+			--pri_qry_end ;
+			if( *pri_qry_end != '-' ) ++skip ;
+		}
+
+		for( int skip = 0 ; skip != chop_ && sec_qry != sec_qry_end ; )
+		{
+			if( *sec_qry != '-' ) ++skip ;
+			++sec_qry, ++sec_ref ;
+		}
+
+		for( int skip = 0 ; skip != chop_ && sec_qry != sec_qry_end ; )
+		{
+			--sec_qry_end ;
+			if( *sec_qry_end != '-' ) ++skip ;
+		}
+
+
+		for(;;)
+		{
+			while( pri_qry != pri_qry_end && *pri_qry == '-' ) ++pri_qry, ++pri_ref ;
+			while( sec_qry != sec_qry_end && *sec_qry == '-' ) ++sec_qry, ++sec_ref ;
+			if( pri_qry == pri_qry_end ) break ;
+			if( sec_qry == sec_qry_end ) break ;
+
+			char p = *pri_ref, s = *sec_ref, q = *pri_qry ;
+			if( q != *sec_qry ) throw "disagreement in alignments (or ugly bug)" ;
+
+			if( good(p) && good(s) && good(q) && (!ancient_ || fine(p,q,s)) ) {
+				if( q == p && q == s ) ++b1 ;
+				else if( q == p && q != s ) ++b2 ;
+				else if( q != s && p == s ) ++b3 ;
+				else if( q == s && q != p ) ++b4 ;
+				else ++b5 ;
+			}
+
+			++pri_ref ;
+			++pri_qry ;
+			++sec_ref ;
+			++sec_qry ;
+		}
+	}
+}
+
+Object DivergenceStream::get_summary() const
+{
+	Object bb = Make_Vector( 5, False ) ;
+	Object* b = VECTOR(bb)->data ;
+	b[0] = Make_Flonum( b1 ) ;
+	b[1] = Make_Flonum( b2 ) ;
+	b[2] = Make_Flonum( b3 ) ;
+	b[3] = Make_Flonum( b4 ) ;
+	b[4] = Make_Flonum( b5 ) ;
+	return bb ;
+}
+#endif
 
 RegionFilter::Regions3 RegionFilter::all_regions ;
 
@@ -363,12 +499,10 @@ RegionFilter::RegionFilter( const pair< istream*, string >& p )
 void Sanitizer::put_header( const Header& h )
 {
 	Filter::put_header( h ) ;
-	hdr_.clear_sge_slicing_index() ;
-	hdr_.clear_sge_slicing_stride() ;
 	hdr_.clear_command_line() ;
 	hdr_.clear_sge_job_id() ;
 	hdr_.clear_sge_task_id() ;
-	hdr_.mutable_config()->clear_genome_path() ;
+	hdr_.DiscardUnknownFields() ;
 }
 
 bool Sanitizer::xform( Result& r )
@@ -376,6 +510,113 @@ bool Sanitizer::xform( Result& r )
 	r.clear_aln_stats() ;
 	return true ;
 }
+
+AgreesWithChain::AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& p ) 
+	: left_genome_( l ), right_genome_( r ), map_()
+{
+    console.output( Console::notice, "reading " + p.second ) ;
+	string line, score, key, tName, qName, tStrand, qStrand ;
+	unsigned tSize, tStart, tEnd, qSize, qStart, qEnd, sum = 0 ;
+	while( getline( *p.first, line ) ) 
+	{
+		stringstream ss( line ) ;
+		// read a line, assuming (and then checking) that it is a chain
+		// header
+		if( ss >> key >> score >> tName >> tSize >> tStrand >> tStart
+				>> tEnd >> qName >> qSize >> qStrand >> qStart >> qEnd 
+				&& key == "chain" )
+		{
+			Chains& chains = map_[ tName ] ;
+			Chains::iterator i = find_any_most_specific_overlap( tStart, tEnd, &chains ) ;
+
+			// got an overlapping chain?  it better be enclosing!
+			if( i != chains.end() && ( i->first > tStart || i->second.left_end < tEnd ) )
+            {
+                stringstream ss ;
+                ss << "Chain on " << tName << " doesn't nest properly.  Parent: "
+                    << i->first << ".." << i->second.left_end
+                    << ", nest:" << tStart << ".." << tEnd ;
+                console.output( Console::warning, ss.str() ) ;
+            }
+                
+			Entry &e = ( i == chains.end() ? chains : i->second.nested )[ tStart ] ;
+
+			e.left_end = tEnd ;
+			e.right_start = qStart ;
+			e.right_end = qEnd ;
+			e.right_chr = qName ;
+			e.strand = (qStrand == "+") != (tStrand == "+") ;
+            ++sum ;
+		}
+	}
+	delete p.first ;
+    stringstream ss ;
+    ss << sum << " chains" ;
+    console.output( Console::notice, ss.str() ) ;
+}
+
+
+AgreesWithChain::Chains::iterator AgreesWithChain::find_any_most_specific_overlap( 
+		unsigned start, unsigned end, Chains *chains )
+{
+	Chains::iterator best = chains->end() ;
+	for(;;)
+	{
+		// first chain that starts at or to the right of end (this one
+		// doesn't overlap, but the one _before_ it might)
+		Chains::iterator i = chains->lower_bound( end ) ;
+		if( i == chains->begin() ) return best ;
+
+		Entry* e = &(--i)->second ;
+		// no overlap? return parent.
+		if( start >= e->left_end || i->first >= end ) return best ;
+
+		// continue with nested chains, making current entry the best
+		best = i ;
+		chains = &e->nested ;
+	}
+}
+
+// Idea is to find the most specific chain that overlaps a read, then
+// make sure the read is contained in it.
+bool AgreesWithChain::xform( Result& r ) 
+{
+	const Hit* lh = hit_to( r, left_genome_ ) ;
+	const Hit* rh = hit_to( r, right_genome_ ) ;
+	if( !lh || !rh ) return false ;
+
+	// find chain hierarchy for correct chromosome
+	Map1::iterator i1 = map_.find( lh->sequence() ) ;
+	if( i1 == map_.end() ) {
+        cerr << "chromosome not found" << endl ;
+        return false ;
+    }
+
+	// find most specific chain that overlaps left hit
+	Chains::iterator i2 = find_any_most_specific_overlap( 
+			lh->start_pos(),
+			lh->start_pos() + abs(lh->aln_length()),
+			&i1->second ) ;
+	if( i2 == i1->second.end() ) return false ;
+	
+	// check if found chain contains both hits
+	if(
+			lh->start_pos() < i2->first ||
+			lh->start_pos() + abs( lh->aln_length() ) > i2->second.left_end ||
+			rh->start_pos() < i2->second.right_start ||
+			rh->start_pos() + abs( rh->aln_length() ) > i2->second.right_end ||
+			rh->sequence() != i2->second.right_chr 
+	  ) return false ;
+
+	// check strand
+	if( ((rh->aln_length() < 0) != (lh->aln_length() < 0)) != i2->second.strand ) return false ;
+
+	// Now both hits are covered by a single, most specific chain.
+	// (Note: currently, hitting anywhere in the chain is fine; this
+	// should probably be made somewhat more precise)
+	return true ;
+}
+
 
 } ; // namespace
 

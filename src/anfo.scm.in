@@ -1,44 +1,311 @@
 ; ELK extension for Anfo
 ;
-; Loads the Anfo library and provides a few wrappers/ convenience
-; functions.
+; Loads the Anfo library and provides a wrappers/ convenience functions.
+; TODO:  decide whether output streams should return anything.
+;        bind missing "calculating" streams.
+;        take the returning of results out of the C code (mostly...)
+
+(require 'srfi-89)
 
 (load "__LIBDIR__/libanfo.la")
 
-(define (require-hit . args)
- (cond
-  ((null? args) (prim-require-hit '() '()))
-  ((null? (cdr args)) (prim-require-hit (car args) '()))
-  (else (prim-require-hit . args))))
+(define *default-compression*    99)
+(define *default-handles-limit* 128)
+(define *default-mem-limit*     512)
+(define *default-origin*         33)
+(define *default-solexa-scale*   #f)
 
-(define (require-bht . args)
- (cond
-  ((null? args) (prim-require-bht '() '()))
-  ((null? (cdr args)) (prim-require-bht (car args) '()))
-  (else (prim-require-bht . args))))
+; sets sensible verbosity, but also makes sure that libanfo was actually loaded
+(set-verbosity! 'warning)
 
-(define (ignore-hit . args)
- (cond
-  ((null? (cdr args)) (prim-ignore-hit (car args) '()))
-  (else (prim-ignore-hit . args))))
+; invokes continuation on stream, extracts a result, frees the stream
+; The stream is always freed, even on non-local exit.  The result is
+; only extracted in the normal control flow.
+(define (bracket-stream stream)
+  (lambda (cont)
+    (dynamic-wind
+      (lambda () #f)
+      (lambda () (let ((rs (cont stream))
+		       (r0 (get-summary stream)))
+		   (if r0 (cons r0 rs) rs)))
+      (lambda () (prim-delete-stream stream)))))
 
-(define (filter-multiplicity . args)
- (cond
-  ((null? args) (prim-filter-multi 2))
-  (else (prim-filter-multi . args))))
+(define chop:      'chop:)
+(define compress:  'compress:)
+(define context:   'context:)
+(define editor:    'editor:)
+(define genome:    'genome:)
+(define genomes:   'genomes:)
+(define handles:   'handles:)
+(define intercept: 'intercept:)
+(define label:     'label:)
+(define left:      'left:)
+(define mem:       'mem:)
+(define name:      'name:)
+(define num:       'num:)
+(define origin:    'origin:)
+(define primary:   'primary:)
+(define prior:     'prior:)
+(define quality:   'quality:)
+(define right:     'right:)
+(define score:     'score:)
+(define secondary: 'secondary:)
+(define sequences: 'sequences:)
+(define slope:     'slope:)
+(define solexa:    'solexa:)
 
-(define (edit-header . args)
- (cond
-  ((not (null? args)) (prim-edit-header . args))
-  (else (prim-edit-header #f))))
+(define (write-fasta    file) (bracket-stream (prim-write-fasta    file)))
+(define (write-fastq    file) (bracket-stream (prim-write-fastq    file)))
+(define (write-glz      file) (bracket-stream (prim-write-glz      file)))
+(define (write-sam      file) (bracket-stream (prim-write-sam      file)))
+(define (write-table    file) (bracket-stream (prim-write-table    file)))
+(define (write-text     file) (bracket-stream (prim-write-text     file)))
+(define (write-threealn file) (bracket-stream (prim-write-threealn file)))
+(define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
 
-(define (duct-tape . args)
- (cond
-  ((null? args) (prim-duct-tape #f))
-  (else (prim-duct-tape . args))))
+(define*
+  (duct-tape (label: lbl "contig")
+             (prior: pri 0.0))
+  (bracket-stream (prim-duct-tape lbl pri)))
 
-(define (add-alns . args)
- (cond
-  ((null? args) (prim-add-alns 0))
-  (else (prim-add-alns . args))))
+(define* 
+  (add-alns (context: ctx 0))
+  (bracket-stream (prim-add-alns ctx)))
+
+(define*
+  (read-file in 
+	     (solexa: sol *default-solexa-scale*)
+	     (origin: ori *default-origin*)
+	     (genome: gen "")
+	     (name:   nam #f))
+  (bracket-stream (prim-read-file in sol ori gen nam)))
+
+(define (filter-chain left right file) (bracket-stream (prim-filter-chain left right file)))
+(define (filter-length len) (bracket-stream (prim-filter-length len)))
+(define (filter-qual qual) (bracket-stream (prim-filter-qual qual)))
+(define (inside-region file) (bracket-stream (prim-inside-region file)))
+(define (mask-qual qual) (bracket-stream (prim-mask-qual qual)))
+(define (outside-region file) (bracket-stream (prim-outside-region file)))
+(define (sanitize) (bracket-stream (prim-sanitize)))
+(define (subsample rate) (bracket-stream (prim-subsample rate)))
+
+(define*
+  (filter-multi (num: num 2)) 
+  (bracket-stream (prim-filter-multi num)))
+
+(define*
+  (edit-header (editor: editor #f))
+  (bracket-stream (prim-edit-header editor)))
+
+(define*
+  (filter-score (slope: slope 7.5)
+		(intercept: intercept 20)
+		(genomes: genomes '()))
+  (bracket-stream (prim-filter-score slope intercept genomes)))
+
+(define*
+  (filter-total-score (slope: slope 7.5)
+		(intercept: intercept 20)
+		(genomes: genomes '(hg18 pt2)))
+  (bracket-stream (prim-filter-total-score slope intercept genomes)))
+
+(define*
+  (filter-mapq mapq (genomes '()))
+  (bracket-stream (prim-filter-mapq mapq genomes)))
+
+(define*
+  (require-best-hit (genomes: g '()) (sequences: s '()))
+  (bracket-stream (prim-require-bht g s)))
+
+(define*
+  (require-hit (genomes: g '()) (sequences: s '()))
+  (bracket-stream (prim-require-hit g s)))
+
+(define*
+  (ignore-hit (genomes: g '()) (sequences: s '()))
+  (bracket-stream (prim-ignore-hit g s)))
+
+(define*
+  (only-genomes (genomes '()))
+  (bracket-stream (prim-only-genomes genomes)))
+
+(define*
+  (sort-pos genomes 
+			(mem: m *default-mem-limit*) 
+			(handles: h *default-handles-limit*))
+  (bracket-stream (prim-sort-pos m h genomes)))
+
+(define*
+  (sort-name (mem: m *default-mem-limit*) 
+			 (handles: h *default-handles-limit*))
+  (bracket-stream (prim-sort-name m h)))
+
+(define*
+  (rmdup (slope: slope 7.5)
+		 (intercept: intercept 20)
+		 (quality: qual 40))
+  (bracket-stream (prim-rmdup slope intercept qual)))
+
+(define*
+  (trim (left: left '())
+        (right: right '())
+		(score: score 4))
+  (bracket-stream (prim-trim left right score)))
+
+(define (stats)
+  (let* ((p (lambda (lo hi) (+ lo (* hi 65536 32768))))
+	 (fun (lambda (total mapped mapped_u different 
+			     bases_gc_lo bases_gc_hi 
+			     bases_gc_m_lo bases_gc_m_hi 
+			     bases_lo bases_hi 
+			     bases_2_lo bases_2_hi
+			     bases_m_lo bases_m_hi
+			     bases_m2_lo bases_m2_hi)
+		`(( total . ,total )
+		  ( mapped . ,mapped )
+		  ( mapuniq . ,mapped_u )
+		  ( distinct . ,different )
+		  ( gc-raw . ,(* 100 (/ (p bases_gc_lo bases_gc_hi) (p bases_lo bases_hi))))
+		  ( gc-mapped . ,(* 100 (/ (p bases_gc_m_lo bases_gc_m_hi) (p bases_m_lo bases_m_hi))))
+		  ( bases . ,(p bases_lo bases_hi))
+		  ( bases-m2 . ,(p bases_2_lo bases_2_hi))
+		  ( mapbases . ,(p bases_m_lo bases_m_hi))
+		  ( mapbases-m2 . ,(p bases_m2_lo bases_m2_hi))))))
+    (fmap (lambda (args) (apply fun args)) 
+	  (bracket-stream (prim-stats)))))
+
+(define (mismatches) (bracket-stream (prim-mismatches)))
+
+(define (vector-dot v w)
+  (let loop ((s 0) (l (vector->list v)) (r (vector->list w)))
+    (if (or (null? l) (null? r))
+      s
+      (loop (+ s (* (car l) (car r)))
+	    (cdr l) (cdr r)))))
+
+(define (vector-mul v x)
+  (apply vector (map (lambda (y) (* y x)) (vector->list v))))
+
+(define (mat-times-vector m v)
+  (apply vector (map (lambda (w) (vector-dot w v)) (vector->list m))))
+
+(define*
+  (divergence (primary: p)
+	      (secondary: s)
+	      (chop: c))
+  (let ((fun 
+	  (lambda (b) 
+	    (let* ((d1 (vector-dot b '#(3 -1 3 -1 -1)))
+		   (e  (/ (* (- (vector-ref b 2)
+				(vector-ref b 3))
+			     3)
+			  d1))
+		   (d  (- (* 4 e)
+			  3))
+		   (a  (vector-mul
+			 (mat-times-vector
+			   `#( #( ,(- e 3)        0             ,e        0              0 )
+			       #(        0 ,(- e 3)              0       ,e             ,e )
+			       #( ,(* 3 e)        0 ,(- (* 3 e) 3)        0              0 )
+			       #(        0       ,e              0 ,(- e 3)             ,e )
+			       #(        0 ,(* 2 e)              0 ,(* 2 e) ,(- (* 2 e) 3) ) )
+			   b)
+			 (/ 1 d))))
+	    `(( error-rate . ,e )
+	      ( corrected-div . ,(/ (* 2 (vector-ref a 3)) (+ (vector-ref a 1) (vector-ref a 3))))
+	      ( corrected-counts . ,a )
+	      ( raw-div . ,(/ (* 2 (vector-ref b 3)) (+ (vector-ref b 1) (vector-ref b 3))))
+	      ( raw-counts . ,b ))))))
+    (fmap fun (bracket-stream (prim-divergence p s c)))))
+
+(define*
+  (write-file out
+	      (compress: comp *default-compression*))
+  (bracket-stream (prim-write-native out comp)))
+
+(define write-native write-file)
+
+(define (anfo-with-input in)
+  (cond
+    ((procedure? in) in)
+    (else (bracket-stream (prim-read-file in *default-solexa-scale* *default-origin*)))))
+
+(define (anfo-with-output out)
+  (cond
+    ((procedure? out) out)
+    ((string? out) (bracket-stream (prim-write-native out *default-compression*)))
+    (else (error 'anfo-with-output "object does not denote an output stream: ~s" out))))
+
+(define (anfo-with-many-inputs args cont) (anfo-with-many anfo-with-input args cont))
+(define (anfo-with-many-outputs args cont) (anfo-with-many anfo-with-output args cont))
+(define (anfo-with-many-filters args cont) (anfo-with-many (lambda (x) x) args cont))
+
+(define (anfo-with-many fun args cont)
+  (if (null? args)
+    (cont '())
+    ((fun (car args))
+     (lambda (s)
+       (anfo-with-many
+	 fun
+	 (cdr args)
+	 (lambda (ss) (cont (cons s ss))))))))
+
+(define (tee . args)
+  (lambda (cont)
+    (anfo-with-many-outputs 
+      args
+      (lambda (outs)
+	((bracket-stream 
+	   (apply prim-tee outs))
+	 cont)))))
+
+(define (chain . args)
+  (lambda (cont)
+    (anfo-with-many-filters
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-chain outs))
+	 cont)))))
+
+(define (merge . args)
+  (lambda (cont)
+    (anfo-with-many-inputs
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-merge outs))
+	 cont)))))
+
+(define (join . args)
+  (lambda (cont)
+    (anfo-with-many-inputs
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-join outs))
+	 cont)))))
+
+(define (concat . args)
+  (lambda (cont)
+    (anfo-with-many-inputs
+      args
+      (lambda (outs)
+	((bracket-stream
+	   (apply prim-concat outs))
+	 cont)))))
+
+(define (anfo-run . args) 
+  ((anfo-with-input (car args))
+   (lambda (in-stream)
+     ((anfo-with-output (apply chain (cdr args)))
+      (lambda (out-stream)
+	(prim-anfo-run in-stream out-stream))))))
+
+(define (fmap fun stream)
+ (lambda (cont)
+  (let ((rs (stream cont)))
+    (cons (fun (car rs)) (cdr rs)))))
+
+(provide 'anfo)
 

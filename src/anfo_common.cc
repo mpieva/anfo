@@ -41,7 +41,7 @@ string expand( const string& s, int x )
     char u = 'a' + (x%26), v = 'a' + (x/26) ;
     string r ;
     size_t i = 0 ;
-    for( ; i+1 != s.size() ; ++i )
+    for( ; i+1 < s.size() ; ++i )
     {
         if( s[i] == '%' && s[i+1] == '%' ) {
             r.push_back( v ) ;
@@ -50,51 +50,111 @@ string expand( const string& s, int x )
         }
         else r.push_back( s[i] ) ;
     }
-    r.push_back( s[i] ) ;
+    if( i < s.size() ) r.push_back( s[i] ) ;
     return r ;
 }
 
+namespace streams {
+
+//! \brief selects a policy appropriate for a given read
+//! This simply checks whether a read is within a given length bin and
+//! matches a name pattern, if given.  All policies found this way are
+//! merged.  Checking for too many Ns was considered, but isn't actually
+//! worthwhile since Ns don't contribute to seeds anyway.
 Policy select_policy( const Config &c, const Read &r )
 {
-	Policy p ;
-	for( int i = 0 ; i != c.policy_size() ; ++i )
-	{
-		const Policy &pi = c.policy(i) ;
-		if( ( !pi.has_minlength() || pi.minlength() <= r.sequence().length() ) &&
-			( !pi.has_maxlength() || pi.maxlength() >= r.sequence().length() ) &&
-			( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), r.seqid().c_str(), 0 ) ) )
-			p.MergeFrom( pi ) ;
-	}
-	return p ;
+    Policy p ;
+    for( int i = 0 ; i != c.policy_size() ; ++i )
+    {
+        const Policy &pi = c.policy(i) ;
+        if( ( !pi.has_minlength() || pi.minlength() <= r.sequence().length() ) &&
+                ( !pi.has_maxlength() || pi.maxlength() >= r.sequence().length() ) &&
+                ( !pi.has_name_pattern() || 0 == fnmatch( pi.name_pattern().c_str(), r.seqid().c_str(), 0 ) ) )
+            p.MergeFrom( pi ) ;
+    }
+    return p ;
 }
 
-Mapper::Mapper( const config::Config &config ) : mi(config)
+string effective_sequence( const Read& rd )
 {
-	if( !mi.has_aligner() ) throw "no aligner configuration---cannot start." ;
-	if( !mi.policy_size() ) throw "no policies---nothing to do." ;
+    return rd.sequence().substr(
+            rd.trim_left(),
+            rd.has_trim_right() ? rd.trim_right() - rd.trim_left(): std::string::npos
+            ) ;
+}
 
-    for( int i = mi.genome_path_size() ; i != 0 ; --i )
-        Metagenome::add_path( mi.genome_path(i-1) ) ;
-
-	simple_adna::pb = adna_parblock( mi.aligner() ) ;
-	for( int i = 0 ; i != mi.policy_size() ; ++i )
+void trim_cigar_left( google::protobuf::RepeatedField<uint32_t> &cig, unsigned len )
+{
+	for( int p = 0 ; p != cig.size() ; ++p )
 	{
-		for( int j = 0 ; j != mi.policy(i).use_compact_index_size() ; ++j )
+		switch( cigar_op( cig.Get( p ) ) )
 		{
-			CompactIndexSpec &ixs = *mi.mutable_policy(i)->mutable_use_compact_index(j) ;
-			FixedIndex &ix = indices[ ixs.name() ] ;
-			if( !ix ) {
-				FixedIndex( ixs.name(), mi, MADV_WILLNEED ).swap( ix ) ;
-				const string& genome_name = ix.ci_.genome_name() ; 
-				Metagenome::find_genome( genome_name ) ;
-			}
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Insert:
+			case Hit::SoftClip:
+				if( cigar_len( cig.Get( p ) ) > len )
+				{
+					cig.Set( p, mk_cigar(
+								cigar_op( cig.Get( p ) ),
+								cigar_len( cig.Get( p ) ) - len ) ) ;
+					// remove beginning and get out
+					if( !p ) return ;
+					int q = 0 ;
+					while( p != cig.size() ) cig.Set( q++, cig.Get( p++ ) ) ;
+					while( q != cig.size() ) cig.RemoveLast() ;
+					return ;
+				}
+				else len -= cigar_len( cig.Get( p ) ) ;
+				break ;
+
+			case Hit::Delete:
+			case Hit::Skip:
+			case Hit::Pad:
+			case Hit::HardClip:
+				break ;
 		}
 	}
+	// nothing left if we get here
+	cig.Clear() ;
 }
 
-int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignment_type >& ol )
+void trim_cigar_right( google::protobuf::RepeatedField<uint32_t> &cig, unsigned len )
 {
-	static const int minscore = 4 ;
+	for( int p = cig.size() ; p ; --p )
+	{
+		switch( cigar_op( cig.Get( p-1 ) ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Insert:
+			case Hit::SoftClip:
+				if( cigar_len( cig.Get( p-1 ) ) > len )
+				{
+					cig.Set( p-1, mk_cigar(
+								cigar_op( cig.Get( p-1 ) ),
+								cigar_len( cig.Get( p-1 ) ) - len ) ) ;
+					// remove beginning and get out
+					while( p != cig.size() ) cig.RemoveLast() ;
+					return ;
+				}
+				else len -= cigar_len( cig.Get( p-1 ) ) ;
+				break ;
+
+			case Hit::Delete:
+			case Hit::Skip:
+			case Hit::Pad:
+			case Hit::HardClip:
+				break ;
+		}
+	}
+	// nothing left if we get here
+	cig.Clear() ;
+}
+
+void Housekeeper::put_result( const Result& rs )
+{
+	Stream::put_result( rs ) ;
 
 	// trim adapters, set trim points
 	// How does this work?  We create an overlap alignment, then
@@ -103,155 +163,244 @@ int Mapper::index_sequence( output::Result &r, QSequence &qs, std::deque< alignm
 	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
 	// score is good enough, we trim.
 
-	const output::Read &rd = r.read() ;
+	const output::Read &rd = res_.read() ;
 	const string &seq = rd.sequence() ;
 
-	if( mi.trim_right_size() || mi.trim_left_size() ) 
-	{
-		unsigned n = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
-		while( n && ( seq[n-1] == 'n' || seq[n-1] == 'N') ) --n ;
-		r.mutable_read()->set_trim_right( n ) ;
-	}
+	unsigned r0 = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
+	unsigned l0 = rd.trim_left() ;
+	unsigned r = r0, l = l0 ;
 
-	for( int i = 0 ; i != mi.trim_right_size() ; ++i )
-	{
-		int ymax, score = overlap_align(
-				seq.rbegin() + ( rd.has_trim_right() ? seq.length() - rd.trim_right() : 0 ), seq.rend(),
-				mi.trim_right(i).rbegin(), mi.trim_right(i).rend(), &ymax ) ;
-		if( score >= minscore && ymax > 0 )
-			r.mutable_read()->set_trim_right(
-					(rd.has_trim_right() ? rd.trim_right() : seq.length()) - ymax ) ;
-	}
+	// first step: always trim trailing Ns (often caused by 454
+	// failed quality trimming)
+	while( r && ( seq[r-1] == 'n' || seq[r-1] == 'N') ) --r ;
 
-	for( int i = 0 ; i != mi.trim_left_size() ; ++i )
+	for( size_t i = 0 ; i != trim_right_.size() ; ++i )
 	{
 		int ymax, score = overlap_align(
-				seq.begin() + rd.trim_left(), seq.end(),
-				mi.trim_left(i).begin(), mi.trim_left(i).end(), &ymax ) ;
-		if( score >= minscore && ymax > 0 )
-			r.mutable_read()->set_trim_left( rd.trim_left() + ymax ) ;
+				seq.rbegin() + ( seq.length() - r ), seq.rend(),
+				trim_right_[i].rbegin(), trim_right_[i].rend(), &ymax ) ;
+		if( score >= minscore_ && ymax > 0 ) r -= ymax ;
 	}
 
-	Policy p = select_policy( mi, r.read() ) ;
-	QSequence( rd ).swap( qs ) ;
+	for( size_t i = 0 ; i != trim_left_.size() ; ++i )
+	{
+		int ymax, score = overlap_align(
+				seq.begin() + l, seq.end(),
+				trim_left_[i].begin(), trim_left_[i].end(), &ymax ) ;
+		if( score >= minscore_ && ymax > 0 ) l += ymax ;
+	}
 
-	int num_raw = 0, num_comb = 0, num_clumps = 0, num_useless = 0 ;
+	if( l > l0 )
+	{
+		for( int i = 0 ; i != res_.hit_size() ; ++i )
+			trim_cigar_left( *res_.mutable_hit(i)->mutable_cigar(), l-l0 ) ;
+		res_.mutable_read()->set_trim_right( l ) ;
+	}
+	if( r < r0 ) 
+	{
+		for( int i = 0 ; i != res_.hit_size() ; ++i )
+			trim_cigar_right( *res_.mutable_hit(i)->mutable_cigar(), r-r0 ) ;
+		res_.mutable_read()->set_trim_right( r ) ;
+	}
+}
+
+Indexer::Indexer( const config::Config &config, const string& index_name ) :
+	conf_( config ), index_name_( index_name ), index_( index_name )
+{
+	if( !conf_.policy_size() ) throw "no policies---nothing to do." ;
+}
+
+void Indexer::put_header( const Header& h )
+{
+	Stream::put_header( h ) ;
+	hdr_.mutable_config()->mutable_policy()->MergeFrom( conf_.policy() ) ;
+}
+
+void Indexer::put_result( const Result& r )
+{
+	Stream::put_result( r ) ;
+	Policy p = select_policy( conf_, res_.read()  ) ;
+	AlnStats *as = res_.add_aln_stats() ;
+	as->set_tag( index_.metadata().genome_name() ) ;
+
+	int num_raw = 0, num_clumps = 0, num_useless = 0 ;
 	for( int i = 0 ; i != p.use_compact_index_size() ; ++i )
 	{
 		const CompactIndexSpec &cis = p.use_compact_index(i) ;
-		const FixedIndex &ix = indices[ cis.name() ] ;
-		GenomeHolder g = Metagenome::find_genome( ix.ci_.genome_name() ) ;
-		assert( ix ) ; assert( g->get_base() ) ;
+		if( cis.name() == index_name_ || cis.name() + ".idx" == index_name_ ) {
+            FixedIndex::LookupParams params ;
+			params.cutoff = cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ;
+			params.allow_mismatches = cis.allow_near_perfect() ;
+			params.wordsize = cis.has_wordsize() ? cis.wordsize() : index_.metadata().wordsize() ;
+			params.stride = cis.has_stride() ? cis.stride() : index_.metadata().stride() ;
 
-		vector<Seed> seeds ;
-		num_raw += ix.lookupS( 
-				seq.substr( rd.trim_left(), rd.has_trim_right() ? rd.trim_right() : std::string::npos ),
-				seeds, cis.allow_near_perfect(), &num_useless,
-				cis.has_cutoff() ? cis.cutoff() : numeric_limits<uint32_t>::max() ) ;
-		num_comb += seeds.size() ;
-		select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), g->get_contig_map() ) ;
-		num_clumps += seeds.size() ;
+			assert( params.wordsize <= index_.metadata().wordsize() ) ;
+			assert( index_.metadata().stride() % params.stride == 0 ) ;
 
-		g->add_ref() ; // XXX dirty hack
-		setup_alignments( *g, qs, seeds.begin(), seeds.end(), ol ) ;
+			Seeds *ss = 0 ;
+			for( int i = 0 ; !ss && i != res_.seeds_size() ; ++i )
+				if( res_.seeds(i).genome_name() == index_.metadata().genome_name() )
+					ss = res_.mutable_seeds(i) ;
+			if( !ss ) 
+            {
+                ss = res_.add_seeds() ;
+                ss->set_genome_name( index_.metadata().genome_name() ) ;
+            }
+
+			PreSeeds seeds ;
+			num_raw += index_.lookupS(
+					effective_sequence( res_.read() ), seeds, params, &num_useless ) ;
+					
+			num_clumps += cis.allow_near_perfect() 
+				? combine_seeds( seeds, p.min_seed_len(), ss )
+				: select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), index_.gaps(), ss ) ;
+
+            if( p.has_repeat_threshold() && (unsigned)ss->ref_positions_size() >= p.repeat_threshold() )
+            {
+                ss->clear_ref_positions() ;
+                ss->clear_query_positions() ;
+                as->set_reason( output::too_many_seeds ) ;
+            }
+		}
 	}
-	AlnStats *as = r.add_aln_stats() ;
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
-	as->set_num_grown_seeds( num_comb ) ;
 	as->set_num_clumps( num_clumps ) ;
-	if( p.has_tag() ) as->set_tag( p.tag() ) ;
-
-	if( !p.has_max_penalty_per_nuc() )
-	{
-		as->set_reason( output::no_policy ) ;
-		return INT_MAX ;
-	}
-	else if( ol.empty() ) 
-	{
-		as->set_reason( num_useless ? output::repeats_only : output::no_seeds ) ;
-		return INT_MAX ;
-	}
-	else if( p.has_repeat_threshold() && ol.size() >= p.repeat_threshold() )
-	{
-		as->set_reason( output::too_many_seeds ) ;
-		return INT_MAX ;
-	}
-	else return p.max_penalty_per_nuc() ;
 }
 
-void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, std::deque< alignment_type > &ol, output::Result &r )
+Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
+	conf_(config), genome_( Metagenome::find_genome( genome_name ) )
 {
-	uint32_t o, c, tt, max_penalty = (uint32_t)( max_penalty_per_nuc * ps.length() ) ;
+	simple_adna::pb = adna_parblock( conf_ ) ;
+}
+
+void Mapper::put_header( const Header& h )
+{
+	Stream::put_header( h ) ;
+	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
+}
+
+void Mapper::put_result( const Result& r )
+{
+	Stream::put_result( r ) ;
+
+	AlnStats *as = 0 ;
+    for( int i = 0 ; i != res_.aln_stats_size() ; ++i )
+	{
+		if( icompare( res_.aln_stats(i).tag(), genome_->name() )
+				|| icompare( res_.aln_stats(i).tag(), genome_->name() + ".dna"  ) )
+		{
+			as = res_.mutable_aln_stats(i) ;
+		}
+	}
+	
+	if( !as ) {
+		as = res_.add_aln_stats() ;
+		as->set_tag( genome_->name() ) ;
+	}
+
+	Seeds ss ;
+    for( int i = 0 ; i != res_.seeds_size() ; ++i )
+	{
+		if( icompare( res_.seeds(i).genome_name(), genome_->name() )
+				|| icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
+		{
+			ss.Swap( res_.mutable_seeds(i) ) ;
+            if( i != res_.seeds_size()-1 ) res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;
+            if( res_.seeds_size() > 1 ) res_.mutable_seeds()->RemoveLast() ;
+            else res_.clear_seeds() ;
+			break ;
+		}
+	}
+
+    // is it already clear that we cannot do anything?
+    if( as->has_reason() ) return ;
+
+	// not seeded means no policy (or logic bug, but let's not go there...)
+	if( ss.genome_name().empty() ) {
+		as->set_reason( output::no_policy ) ;
+		return ;
+	}
+
+	// invariant violated, we won't deal with that
+	if( ss.ref_positions_size() != ss.query_positions_size() )
+		throw "invalid seeds: coordinates must come in pairs" ;
+
+	if( !ss.ref_positions_size() ) {
+		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
+		return ;
+	}
+
+	QSequence qs( res_.read() ) ;
+	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
+
+	std::deque< alignment_type > ol ;
+	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
+		ol.push_back( alignment_type( *genome_, qs, ss.ref_positions(i), ss.query_positions(i) ) ) ;
+
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
 
-	AlnStats *as = r.mutable_aln_stats( r.aln_stats_size()-1 ) ;
 	as->set_open_nodes_after_alignment( o ) ;
 	as->set_closed_nodes_after_alignment( c ) ;
 	as->set_tracked_closed_nodes_after_alignment( tt ) ;
-	if( !best )
-	{
+
+	if( !best ) {
 		as->set_reason( output::bad_alignment ) ;
+		return ;
 	}
-	else
-	{
-		int penalty = best.penalty ;
 
-		deque< pair< alignment_type, const alignment_type* > > ol_ ;
-		reset( best ) ;
-		greedy( best ) ;
-		(enter_bt<alignment_type>( ol_ ))( best ) ;
-		DnaP minpos, maxpos ;
-		std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
-		int32_t len = maxpos - minpos - 1 ;
+	int penalty = best.penalty ;
 
-		output::Hit *h = r.add_hit() ;
+	deque< pair< alignment_type, const alignment_type* > > ol_ ;
+	reset( best ) ;
+	greedy( best ) ;
+	(enter_bt<alignment_type>( ol_ ))( best ) ;
+	DnaP minpos, maxpos ;
+	std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
+	int32_t len = maxpos - minpos - 1 ;
 
-		uint32_t start_pos ;
-		const Sequence *sequ ;
-		const Genome *genome ;
+	output::Hit *h = res_.add_hit() ;
 
-		if( !Metagenome::translate_to_genome_coords( minpos+1, start_pos, &sequ, &genome ) )
-			throw "Not supposed to happen:  invalid alignment coordinates" ;
-		
-		if( genome->has_name() ) h->set_genome_name( genome->name() ) ;
-		h->set_sequence( sequ->name() ) ;
-		if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
-		else if( genome->has_taxid() ) h->set_taxid( genome->taxid() ) ;
+	uint32_t start_pos ;
+    const config::Sequence *sequ = genome_->translate_back( minpos+1, start_pos ) ;
+	if( !sequ ) throw "Not supposed to happen:  invalid alignment coordinates" ;
 
-		h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
-		h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-		h->set_score( penalty ) ;
-		std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
+	if( genome_->g_.has_name() ) h->set_genome_name( genome_->g_.name() ) ;
+	h->set_sequence( sequ->name() ) ;
+	if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
+	else if( genome_->g_.has_taxid() ) h->set_taxid( genome_->g_.taxid() ) ;
 
-		// XXX: h->set_evalue
+	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
+	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
+	h->set_score( penalty ) ;
+	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
-		//! \todo Find second best hit and similar stuff.
-		//! We want the distance to the next best hit; also,
-		//! unless already found, we want the best hit to some
-		//! selected genome(s).
+	// XXX: h->set_evalue
 
-		// XXX set diff_to_next_species, diff_to_next_order
-		// XXX find another best hit (genome only)
+	//! \todo Find second best hit and similar stuff.
+	//! We want the distance to the next best hit; also,
+	//! unless already found, we want the best hit to some
+	//! selected genome(s).
 
-		// get rid of overlaps of that first alignment, then look
-		// for the next one
-		// XXX this is cumbersome... need a better PQueue impl...
-		// XXX make distance configurable
-		ol.erase( 
-				std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
-				ol.end() ) ;
-		make_heap( ol.begin(), ol.end() ) ;
+	// XXX set diff_to_next_species, diff_to_next_order
 
-		// search long enough to make sensible mapping quality possible
-		uint32_t max_penalty_2 = 254 + penalty ;
-		alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
-		as->set_open_nodes_after_alignment( o ) ;
-		as->set_closed_nodes_after_alignment( c ) ;
-		as->set_tracked_closed_nodes_after_alignment( tt ) ;
-		if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
-	}
+	// get rid of overlaps of that first alignment, then look
+	// for the next one
+	// XXX this is cumbersome... need a better PQueue impl... or a
+	// better algorithm
+	ol.erase( 
+			std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
+			ol.end() ) ;
+	make_heap( ol.begin(), ol.end() ) ;
+
+	// search long enough to make sensible mapping quality possible
+	uint32_t max_penalty_2 = conf_.max_mapq() + penalty ;
+	alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
+	as->set_open_nodes_after_alignment( o ) ;
+	as->set_closed_nodes_after_alignment( c ) ;
+	as->set_tracked_closed_nodes_after_alignment( tt ) ;
+	if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
 }
 
 //! \page finding_alns How to find everything we need
@@ -285,3 +434,4 @@ void Mapper::process_sequence( const QSequence &ps, double max_penalty_per_nuc, 
 //!
 //! \todo Actually implement search for multiple alignments in its full generality...
 
+} ; // namespace 
