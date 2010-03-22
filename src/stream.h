@@ -201,17 +201,30 @@ class Stream
 {
 	public:
 		int refcount_ ;
-		enum state { invalid, end_of_stream, need_input, have_output } ;
+		
+		// State machine:
+		// invalid: general way out, no operations valid
+		// need_header: put_header is allowed
+		// need_input: put_result and put_footer are allowed
+		// have header: fetch_header is allowed
+		// have_output: fetch_result is allowed
+		// can_io: put_result, put_footer, fetch_result are allowed
+		// end_of_stream: fetch_footer is allowed
+		//
+		// Maybe we also need a state where processing happens, but we
+		// can neither accept input nor provide output right now?
+
+		enum state { invalid, need_header, need_input, have_header,
+			         have_output, can_io, end_of_stream } ;
 
 		static void cleanup( Stream* p ) { delete p ; }
 
 	protected:
 		// internal state---not strictly necessary here, but used almost
 		// everywhere and therefore simply convenient
-		Header hdr_ ;
-		Result res_ ;
-		Footer foot_ ;
-		state state_ ;
+		// XXX Result res_ ;
+		// XXX Footer foot_ ;
+		// XXX state state_ ;
 
 		virtual ~Stream() {} 				// want control over instantiation
 
@@ -220,54 +233,49 @@ class Stream
 		void operator = ( const Stream& ) ;	// must not copy
 
 	public:
-		Stream() : refcount_(0), state_( end_of_stream ) {}
+		Stream() : refcount_(0) {} // XXX , state_( end_of_stream ) {}
 
 		//! \brief returns stream state
-		//! The state determines which methods may be called: get_header
-		//! can be called unless the satet is \c invalid, get_result can
-		//! be called in state have_output, put_result only in
-		//! need_input, get_footer only in end_of_stream.  put_footer
-		//! can only be called in need_input and it will signal the end
-		//! of the input stream (if there is such a thing).  put_header
-		//! can only be called in state invalid, it may change the state
-		//! to either need_input or have_output.  Particular streams may
-		//! need special initialization before the state bacomes
-		//! something other than invalid.
-		virtual state get_state() { return state_ ; }
+		state get_state() const { return priv_get_state() ; }
 
 		//! \brief returns the header
-		//! The header can be requested any time, unless the stream is
-		//! in the invalid state.
-		virtual Header fetch_header() { return hdr_ ; }
+		auto_ptr< Header > fetch_header() {
+			assert( get_state() == have_header ) ;
+			return priv_fetch_header() ;
+		}
 
 		//! \brief reads the next result
 		//! Every result can only be read once, internal iterator style.
-		//! If the stream state is have_output, this method returns the
-		//! next result.  Otherwise the behavior is undefined.
-		virtual Result fetch_result() { state_ = need_input ; return res_ ; }
+		auto_ptr< Result > fetch_result() {
+			assert( get_state() == have_output || get_state() == can_io ) ;
+			return priv_fetch_result() ;
+		}
 
 		//! \brief returns the footer
-		//! Only after all results have been consumed is the footer
-		//! available.  If anything goes wrong internally, the LSB
-		//! should be set in \c exit_code.
-		virtual Footer fetch_footer() { return foot_ ; }
+		//! The footer can be requested again, if necessary.
+		auto_ptr< Footer > fetch_footer()
+		{
+			assert( get_state() == end_of_stream ) ;
+			return priv_fetch_footer() ;
+		}
 
-		//! \brief sets the stream header
-		//! Output streams and stream filters need the header to become
-		//! valid streams.
-		virtual void put_header( const Header& h ) { hdr_ = h ; state_ = need_input ; }
+		void put_header( auto_ptr< Header > h )
+		{
+			assert( get_state() == need_header ) ;
+			priv_put_header( h ) ;
+		}
 
-		//! \brief outputs one result
-		//! This method can only be called in state need_input, and it
-		//! will insert a result record into the stream.  Else the
-		//! behaviour is undefined.
-		virtual void put_result( const Result& r ) { res_ = r ; state_ = have_output ; }
+		void put_result( auto_ptr< Result > r )
+		{
+			assert( get_state() == need_input || get_state() == can_io ) ;
+			priv_put_result( r ) ;
+		}
 
-		//! \brief sets the footer
-		//! This method can only be called in state need_input, and it
-		//! signals that no more input is available.  A filter will then
-		//! flush internal buffers and signal end_of_stream.
-		virtual void put_footer( const Footer& f ) { foot_ = f ; state_ = end_of_stream ; }
+		void put_footer( auto_ptr< Footer > f )
+		{
+			assert( get_state() == need_input || get_state() == can_io ) ;
+			priv_put_footer( f ) ;
+		}
 
 		//! \brief get the 'summary' of having processed this stream
 		//! This functionality is dependent on Elk being present:  since
@@ -277,11 +285,20 @@ class Stream
 #if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return False ; }
 #endif
-		virtual string type_name() const { return "Stream" ; }
+		virtual string type_name() const = 0 ;
 
 	protected:
 		// doesn't belong here, but it's convenient
-		void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
+		// void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
+
+	private:
+		virtual state priv_get_state() const = 0 ;
+		virtual auto_ptr< Header > priv_fetch_header() = 0 ;
+		virtual auto_ptr< Result > priv_fetch_result() = 0 ;
+		virtual auto_ptr< Footer > priv_fetch_footer() = 0 ;
+		virtual void priv_put_header( auto_ptr< Header >& ) = 0 ;
+		virtual void priv_put_result( auto_ptr< Result >& ) = 0 ;
+		virtual void priv_put_footer( auto_ptr< Footer >& ) = 0 ;
 } ;
 
 typedef ::Holder<Stream> StreamHolder ;
@@ -289,6 +306,7 @@ typedef ::Holder<Stream> StreamHolder ;
 int transfer( Stream& in, Stream& out ) ;
 
 //! \brief base class of streams that read from many streams
+/*
 class StreamBundle : public Stream
 {
 	protected:
@@ -299,6 +317,7 @@ class StreamBundle : public Stream
 	public:
 		void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
 } ;
+*/
 
 struct ParseError : public Exception {
 	std::string msg_ ;
@@ -324,18 +343,18 @@ class AnfoReader : public Stream
 		virtual string type_name() const { return "AnfoReader(" + name_ + ")" ; }
 } ;
 
-// \brief reader for all supported formats
-// Here we take care not to open files before the header is requested.
-// This is necessary to allow merging thousands of files without
-// directly running into a filedescriptor limit.
-// To this end, the UniversalReader can be initialized with or without a
-// stream object.  If the stream exists, we take care not to read from
-// it until the header is needed, and the name given serves just for
-// informational purposes.  If no stream exists, we create a
-// FileInputStream from the name (which must be a filename, obviously)
-// when the header is requested.  At this point we also inspect the
-// stream to determine its format and create the appropriate filters to
-// decode it.
+//! \brief reader for all supported formats
+//! Here we take care not to open files before the header is requested.
+//! This is necessary to allow merging thousands of files without
+//! directly running into a filedescriptor limit.
+//! To this end, the UniversalReader can be initialized with or without a
+//! stream object.  If the stream exists, we take care not to read from
+//! it until the header is needed, and the name given serves just for
+//! informational purposes.  If no stream exists, we create a
+//! FileInputStream from the name (which must be a filename, obviously)
+//! when the header is requested.  At this point we also inspect the
+//! stream to determine its format and create the appropriate filters to
+//! decode it.
 class UniversalReader : public Stream
 {
 	private:
@@ -356,17 +375,17 @@ class UniversalReader : public Stream
 				const string& genome = ""
 				) ;
 
-		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
-		virtual Header fetch_header() ;
-		virtual Result fetch_result() { if( get_state() == have_output ) return str_->fetch_result() ; throw "calling sequence violated" ; }
-		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
+		virtual state get_state() { return str_ ? str_->get_state() : have_header ; }
+		virtual auto_ptr< Header > priv_fetch_header() ;
+		virtual auto_ptr< Result > priv_fetch_result() { return str_->fetch_result() ; }
+		virtual auto_ptr< Footer > priv_fetch_footer() { return str_->fetch_footer() ; }
 		virtual string type_name() const { return "UniversalReader(" + name_ + ")" ; }
 } ;
 
 
+#if 0
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
-/*
 class AnfoWriter : public Stream
 {
 	private:
@@ -375,17 +394,19 @@ class AnfoWriter : public Stream
 		Chan chan_ ;
 		std::string name_ ;
 		int64_t wrote_ ;
+		state state_ ;
 
 	public:
 		AnfoWriter( google::protobuf::io::ZeroCopyOutputStream*, const char* = "<pipe>" ) ;
 		AnfoWriter( int fd, const char* = "<pipe>", bool expensive = false ) ;
 		AnfoWriter( const char* fname, bool expensive = false ) ;
 
-		virtual void put_header( const Header& h ) { write_delimited_message( o_, 1, h ) ; Stream::put_header( h ) ; } 
-		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
-		virtual void put_result( const Result& r ) ;
+		virtual state get_state() { return state_ ; }
+		virtual void priv_put_header( auto_ptr< Header >& h ) { write_delimited_message( o_, 1, *h ) ; Stream::put_header( h ) ; } 
+		virtual void priv_put_footer( auto_ptr< Footer >& f ) { write_delimited_message( o_, 3, *f ) ; Stream::put_footer( f ) ; }
+		virtual void priv_put_result( auto_ptr< Result >& r ) ;
 } ;
-*/
+#endif
 
 //! \brief new blocked native format
 //! Writes in a format that can be read by stream::ChunkedReader.  The
@@ -404,6 +425,7 @@ class ChunkedWriter : public Stream
 		std::string name_ ;
 		int64_t wrote_ ;
 		uint8_t method_, level_ ;
+		state state_ ;
 
 		void flush_buffer( unsigned needed = 0 ) ;
 		void init() ;
@@ -425,14 +447,16 @@ class ChunkedWriter : public Stream
 			return 1 ;					// fast fastlz or none 
 		}
 
+
 		ChunkedWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >&, int ) ;
 		ChunkedWriter( int fd, int, const char* = "<pipe>" ) ;
 		ChunkedWriter( const char* fname, int ) ;
 		virtual ~ChunkedWriter() ;
 
-		virtual void put_header( const Header& h ) ;
-		virtual void put_result( const Result& r ) ;
-		virtual void put_footer( const Footer& f ) ;
+		virtual state get_state() const { return state_ ; }
+		virtual void priv_put_header( auto_ptr< Header >& ) ;
+		virtual void priv_put_result( auto_ptr< Result >& ) ;
+		virtual void priv_put_footer( auto_ptr< Footer >& ) ;
 		virtual string type_name() const { return "ChunkedWriter(" + name_ + ")" ; }
 } ;
 
@@ -443,33 +467,66 @@ class ChunkedReader : public Stream
 		std::vector< char > buf_ ;											// in-memory buffer
 		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
 		std::string name_ ;
+		state state_ ;
 
 		bool get_next_chunk() ;
 
 	public: 
 		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
-		virtual Result fetch_result() ;
+
+		virtual state get_state() const { return state_ ; }
+		virtual auto_ptr< Header > priv_fetch_header() ;
+		virtual auto_ptr< Result > priv_fetch_result() ;
+		virtual auto_ptr< Footer > priv_fetch_footer() ;
 
 		//! \internal
 		virtual string type_name() const { return "ChunkedReader(" + name_ + ")" ; }
 } ;
 
 //! \brief filters that drop or modify isolated records
-//! Think "mapMaybe".
-//! \todo Maybe some stats could be gathered into some sort of a result.
+//! Think "mapMaybe".  Counts how many records were dropped.
 
 class Filter : public Stream
 {
+	private:
+		auto_ptr< Header > hdr_ ;
+		auto_ptr< Result > res_ ; 
+		auto_ptr< Footer > fot_ ;
+		int filtered_ ;
+		state state_ ;
+
 	public:
+		Filter() : filtered_(0), state_( need_header ) {}
+
+		virtual state get_state() const { return state_ ; }
+		virtual auto_ptr< Header > priv_fetch_header() { state_ = need_input ; return hdr_ ; }
+		virtual auto_ptr< Result > priv_fetch_result() { state_ = need_input ; return res_ ; }
+		virtual auto_ptr< Footer > priv_fetch_footer() { state_ = invalid ; return fot_ ; }
+		virtual void priv_put_header( auto_ptr< Header > h ) { state_ = have_header ; hdr_ = h ; }
+		virtual void priv_put_footer( auto_ptr< Footer > f ) { state_ = end_of_stream ; fot_ = f ; }
+
+		virtual void priv_put_result( auto_ptr< Result > r ) {
+			if( xform( *r ) ) {
+				state_ = have_output ; 
+				res_ = r ; 
+			}
+			else
+			{
+				++filtered_ ;
+			}
+		}
+
 		virtual bool xform( Result& ) = 0 ;
-		virtual void put_result( const Result& res ) { res_ = res ; if( xform( res_ ) ) state_ = have_output ; }
+#if HAVE_ELK_SCHEME_H
+		virtual Object get_summary() const { return Make_Integer( filtered_ ) ; }
+#endif
 } ;
 
 //! \brief filters that drop some alignments
 //! Filtering only applies to hits to the specified genome(s), or to all
 //! hits if no genomes are specified.  Other hits pass through.
 //! \todo Maybe some stats could be gathered into some sort of a result.
-class HitFilter : public Stream
+class HitFilter : public Filter
 {
 	private:
 		vector<string> gs_ ;
@@ -478,14 +535,17 @@ class HitFilter : public Stream
 		HitFilter() {}
 		HitFilter( const vector<string> &gs ) : gs_(gs) {}
 
-		virtual void put_header( const Header& h ) {
-			Stream::put_header( h ) ;
-			hdr_.clear_is_sorted_by_coordinate() ;
-			hdr_.clear_is_sorted_by_all_genomes() ;
+		virtual void priv_put_header( auto_ptr< Header > h ) {
+			h->clear_is_sorted_by_coordinate() ;
+			h->clear_is_sorted_by_all_genomes() ;
+			Filter::priv_put_header( h ) ;
 		}
 
+		virtual bool xform( Result& ) ;
 		virtual bool keep( const Hit& ) = 0 ;
-		virtual void put_result( const Result& res ) ; 
+#if HAVE_ELK_SCHEME_H
+		virtual Object get_summary() const { return Void ; }
+#endif
 } ;
 
 namespace {
@@ -510,14 +570,11 @@ class IgnoreHit : public HitFilter
 
 //! \brief deletes hits to uninteresting genomes
 //! Hits to the specified genomes pass through, all others are dropped.
-class OnlyGenome : public Filter
+class OnlyGenome : public HitFilter
 {
-	private:
-		vector< string > gs_ ;
-
 	public:
-		OnlyGenome( const vector< string > &gs ) : Filter(), gs_( gs ) {}
-		virtual bool xform( Result& r ) ;
+		OnlyGenome( const vector< string > &gs ) : HitFilter( gs ) {}
+		virtual bool keep( const Hit& ) ;
 } ;
 
 //! \brief stream that filters for a given score
@@ -568,7 +625,7 @@ class MapqFilter : public HitFilter
 		virtual bool keep( const Hit& ) ;
 } ;
 
-//! \brief filter for some average quality
+//! \brief filter for some average sequence quality
 class QualFilter : public Filter
 {
 	private:
@@ -579,10 +636,7 @@ class QualFilter : public Filter
 		virtual bool xform( Result& ) ;
 } ;
 
-//! \brief stream that filters for minimum sequence length
-//! All alignments of sequences that are too short are deleted, relying
-//! on down stream filters to completely get rid of the sequences
-//! themselves.
+//! \brief filter for minimum sequence length
 class LengthFilter : public Filter
 {
 	private:
@@ -608,7 +662,7 @@ class RequireHit : public Filter
 
 //! \brief a stream that removes sequences without a specific best hit
 //! This is intended to shrink a file by removing junk that didn't
-//! align to the expected genome.
+//! align best to the expected genome.
 class RequireBestHit : public Filter
 {
 	private:
@@ -619,6 +673,10 @@ class RequireBestHit : public Filter
 		virtual bool xform( Result& ) ;
 } ;
 
+//! \brief subsamples a given fraction
+//! Random subsampling, currently using the libc random generator.
+//! Don't use this for anything serious, you'd want a better RNG in that
+//! case.
 class Subsample : public Filter
 {
 	private:
@@ -628,6 +686,7 @@ class Subsample : public Filter
 		Subsample( float f ) : f_(f) {}
 		virtual bool xform( Result& ) ;
 } ;
+
 //! \brief filters for minimum multiplicity
 //! Only results that stem from duplicate removal with a minimum
 //! multiplicity are retained.  Intended for the analysis of libraries
@@ -708,7 +767,7 @@ class QualMasker : public Filter
 	of the base caller.
  */
 
-class RmdupStream : public Stream
+class RmdupStream : public Filter
 {
 	private:
 		output::Result cur_ ;
@@ -733,12 +792,12 @@ class RmdupStream : public Stream
 		//! \param q (Assumed) quality of the polymerase.
 		RmdupStream( double s, double i, int q ) : slope_(s), intercept_(i), maxq_( std::min(q,127) ) {}
 
-		virtual void put_header( const Header& h )
+		virtual void priv_put_header( auto_ptr< Header > h )
 		{
-			if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+			if( !h->has_is_sorted_by_all_genomes() && !h->is_sorted_by_coordinate_size() )
 				throw "RmdupStream: need sorted stream to remove duplicates" ;
-			gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
-			Stream::put_header( h ) ;
+			gs_.assign( h->is_sorted_by_coordinate().begin(), h->is_sorted_by_coordinate().end() ) ;
+			Filter::priv_put_header( h ) ;
 		}
 
 		virtual void put_result( const Result& ) ;
@@ -747,41 +806,99 @@ class RmdupStream : public Stream
 } ;
 
 //! \brief a stream that concatenates its input streams
+//! The headers cannot be merged (runs the risk of holding too many open
+//! files), so we simply return the first stream's header.  Results are
+//! delivered in turn, footers are kept and merged.  Results are
+//! gathered into a list.
 //! The headers and footers are merged sensibly (plain merge with removal of
 //! redundant information), then the results are simply concatenated.
-class ConcatStream : public StreamBundle
+class ConcatStream : public Stream
 {
+	private:
+		deque< StreamHolder > streams_ ;
+		auto_ptr< Footer > fot_ ;
+
 	public:
-		virtual Header fetch_header() ;
-		virtual Result fetch_result() ;
+		template< typename Iter > ConcatStream( Iter begin, Iter end ) : streams_( begin, end ) {}
+
+		virtual state get_state() { 
+			return streams_.empty() ? fot_.get() ? end_of_stream : invalid : streams_.front()->get_state() ;
+		}
+
+		virtual auto_ptr< Header > priv_fetch_header() ;
+		virtual auto_ptr< Result > priv_fetch_result() ;
+		virtual auto_ptr< Footer > priv_fetch_footer() ;
 } ;
 
-class FastqReader : public Stream
+class SimpleInputStream : public Stream
+{
+	private:
+		auto_ptr< Result > res_ ;
+		state state_ ;
+
+	public:
+		SimpleInputStream() : state_( have_header ) {}
+
+		virtual state get_state() const { return state_ ; }
+
+		virtual void priv_put_header( auto_ptr< Header > ) { throw "cannot happen" ; }
+		virtual void priv_put_result( auto_ptr< Result > ) { throw "cannot happen" ; }
+		virtual void priv_put_footer( auto_ptr< Footer > ) { throw "cannot happen" ; }
+
+		virtual auto_ptr< Header > priv_fetch_header() {
+			auto_ptr< Header > h = read_header() ;
+			res_ = read_next_message() ;
+			if( res_.get() ) sanitize( *res_ ) ;
+			state_ = res_.get() ? have_output : end_of_stream ;
+			return h ;
+		}
+
+		virtual auto_ptr< Result > priv_fetch_result() {
+			auto_ptr< Result > r = res_ ;
+			res_ = read_next_message() ;
+			state_ = res_.get() ? have_output : end_of_stream ;
+			return r ;
+		}
+
+		virtual auto_ptr< Footer > priv_fetch_footer() {
+			state_ = invalid ;
+			return read_footer() ;
+		}
+
+	private:
+		virtual auto_ptr< Header > read_header() = 0 ;
+		virtual auto_ptr< Result > read_next_message() = 0 ;
+		virtual auto_ptr< Footer > read_footer() = 0 ;
+} ;
+
+class FastqReader : public SimpleInputStream
 {
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
 		bool sol_scores_ ;
 		char origin_ ;
 
-		void read_next_message() {
-            if( read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ ) ) {
-                state_ = have_output ;
-                sanitize( res_ ) ;
-            } else {
-                state_ = end_of_stream ;
+		virtual auto_ptr< Result > read_next_message() {
+			auto_ptr< Result > r( new Result ) ;
+            if( !read_fastq( is_.get(), *r->mutable_read(), sol_scores_, origin_ ) )
+			{
+				r.reset( 0 ) ;
 				is_.reset( 0 ) ;
-            }
+			}
+			return r ;
 		}
+
+		virtual auto_ptr< Header > read_header() { return auto_ptr< Header >( new Header() ) ; } 
+		virtual auto_ptr< Footer > read_footer() { return auto_ptr< Footer >( new Footer() ) ; } 
 
 	public: 
 		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) :
 			is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
 
-		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 		virtual string type_name() const { return "FastqReader" ; }
 } ;
 
-class SamReader : public Stream
+class SamReader : public SimpleInputStream
 {
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
@@ -789,29 +906,33 @@ class SamReader : public Stream
 		Chan progress_ ;
 		int nmsg_ ;
 
-		void read_next_message() {
-            if( read_sam( is_.get(), genome_, res_ ) ) {
-                state_ = have_output ;
-                sanitize( res_ ) ;
+		virtual auto_ptr< Result > read_next_message() {
+			auto_ptr< Result > r( new Result ) ;
+            if( read_sam( is_.get(), genome_, *r ) ) {
 				if( (++nmsg_ & 0xffff) == 0 ) {
 					stringstream ss ;
 					ss << name_ << ": " << nmsg_ << " records" ;
 					progress_( Console::info, ss.str() ) ;
 				}
             } else {
-                state_ = end_of_stream ;
+				r.reset( 0 ) ;
 				is_.reset( 0 ) ;
 				progress_.close() ;
-				foot_.set_exit_code( 0 ) ;
             }
+			return r ;
 		}
+
+		virtual auto_ptr< Header > read_header() {
+			auto_ptr< Header > h( new Header() ) ;
+			h->add_is_sorted_by_coordinate( "" ) ;	// XXX should actually be checked!
+			return h ;
+		} 
+		virtual auto_ptr< Footer > read_footer() { return auto_ptr< Footer >( new Footer() ) ; } 
 
 	public: 
 		SamReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& n, const string& g ) :
 			is_( is ), name_( n ), genome_( g ), nmsg_(0) { read_next_message() ; }
 
-		virtual Header fetch_header() { hdr_.add_is_sorted_by_coordinate( "" ) ; return Stream::fetch_header() ; }
-		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 		virtual string type_name() const { return "SamReader" ; }
 } ;
 

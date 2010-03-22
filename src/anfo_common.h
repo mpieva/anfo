@@ -49,7 +49,7 @@ namespace streams {
 //! This is for "housekeeping" that needs to be done before indexing
 //! and alignment, most notably adapter/artefact trimming.
 
-class Housekeeper : public Stream
+class Housekeeper : public Filter
 {
 	private:
 		const int minscore_ ;
@@ -66,7 +66,7 @@ class Housekeeper : public Stream
 		Housekeeper( vector<string> left, vector<string> right, int minscore )
 			: minscore_( minscore_ ), trim_left_( left ), trim_right_( right ) {}
 
-		virtual void put_result( const Result& ) ;
+		virtual bool xform( Result& ) ;
 } ;
 
 //! \brief configured Indexer
@@ -74,7 +74,7 @@ class Housekeeper : public Stream
 //! and if appropriate, will do an index lookup.  Constructed seeds are
 //! stored and passed on.  The policy is taken from a config file and
 //! stored in the header.
-class Indexer : public Stream
+class Indexer : public Filter
 {
 	private:
 		config::Config conf_ ;
@@ -84,15 +84,15 @@ class Indexer : public Stream
 	public:
 		Indexer( const config::Config &config, const std::string& index_name ) ;
 
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
+		virtual void priv_put_header( auto_ptr< Header > ) ;
+		virtual bool xform( Result& ) ;
 } ;
 
 //! \brief configured mapper
 //! Knows about one genome and an aligner configuration.  Looks at each
 //! record, takes the seed collection for its genome and aligns.  Seeds
 //! are removed, the result is added and passed on.
-class Mapper : public Stream
+class Mapper : public Filter
 {
 	private:
 		config::Aligner conf_ ;
@@ -101,8 +101,8 @@ class Mapper : public Stream
 	public:
 		Mapper( const config::Aligner &config, const std::string& genome_name ) ;
 
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
+		virtual void priv_put_header( auto_ptr< Header > ) ;
+		virtual bool xform( auto_ptr< Result > ) ;
 } ;
 
 } ; // namespace streams

@@ -39,8 +39,6 @@ namespace streams {
 //! \todo What to do at edges?  Sometimes reads will overlap the ends of
 //!       contigs, and in principle, we might want to call a consensus
 //!       there, too.  Probably nothing at all...
-//! \todo What about indels?  How to deal with the shifting coordinates
-//!       if our consensus actually contains indels?
 
 class DuctTaper : public Stream
 {
@@ -48,6 +46,9 @@ class DuctTaper : public Stream
 		string name_ ;
 		Chan report_ ;
 		Logdom het_prior_ ;
+
+		state state_ ;
+		auto_ptr< Header > hdr_ ;
 
 		// tracking of current reference sequence; we need to start a
 		// new contig if one of these changes
@@ -97,17 +98,21 @@ class DuctTaper : public Stream
 	public:
 		DuctTaper( const string& name, double hp = 0 )
 			: name_(name), het_prior_( Logdom::from_float(hp) )
+			, state_( need_header )
 			, contig_start_(0), contig_end_(0)
 			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
 
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
-		virtual void put_footer( const Footer& ) ;
-		virtual Result fetch_result() ;
+		virtual state get_state() ;
+		virtual void priv_put_header( auto_ptr< Header > ) ;
+		virtual void priv_put_result( auto_ptr< Result > ) ;
+		virtual void priv_put_footer( auto_ptr< Footer > ) ;
+		virtual auto_ptr< Header > fetch_header() ;
+		virtual auto_ptr< Result > fetch_result() ;
+		virtual auto_ptr< Footer > fetch_footer() ;
 
 	private:
-		void put_result_recent(  const Result& ) ;
-		void put_result_ancient( const Result& ) ;
+		void put_result_recent(  auto_ptr< Result > ) ;
+		void put_result_ancient( auto_ptr< Result > ) ;
 } ;
 
 class GlzWriter : public Stream
@@ -121,6 +126,7 @@ class GlzWriter : public Stream
 		virtual void put_result( const Result& ) ;
 } ;
 
+#if 0
 //! \brief writes consensuus in text format
 //! Format as agreed upon internally:  
 //! > "hg18" chromosome ±start
@@ -143,6 +149,7 @@ class ThreeAlnWriter : public Stream
 		ThreeAlnWriter( const pair< ostream*, string > &p ) : out_( p.first ), name_( p.second ) {}
 		virtual void put_result( const Result& ) ;
 } ;
+#endif
 
 } // namespace
 

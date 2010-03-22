@@ -444,18 +444,19 @@ inline char qual_to_sam( uint8_t q ) { return 33 + std::min( q, (uint8_t)93 ) ; 
 
 SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result )
 {
-	if (!result.read().has_seqid()) return no_seqid ;
-	if (!result.read().has_sequence()) return no_seq ;
+	const output::Read &rd = result.read() ;
+	if (!rd.has_seqid()) return no_seqid ;
+	if (!rd.has_sequence()) return no_seq ;
 
 	for( int i = 0 ; i != result.hit_size() ; ++i )
 	{
 		const output::Hit &hit = result.hit(0) ;
 
-		if( len_from_bin_cigar( hit.cigar() ) != result.read().sequence().length() ) return bad_cigar ;
+		if( len_from_bin_cigar( hit.cigar() ) != rd.sequence().length() ) return bad_cigar ;
 
 		int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
 
-		*out_ << /*QNAME*/  result.read().seqid() << '\t'
+		*out_ << /*QNAME*/  rd.seqid() << '\t'
 			<< /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
 			<< /*RNAME*/   hit.sequence() << '\t'
 			<< /*POS*/     1 + hit.start_pos() << '\t'
@@ -466,11 +467,11 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 			decode_binCigar( *out_, hit.cigar().begin(),  hit.cigar().end() ) ; /*CIGAR*/ 
 			// We don't have paired end reads (or don't deal with them)
 			*out_ << "\t*\t0\t0\t" // MRNM, MPOS, ISIZE
-				<< /*SEQ*/ result.read().sequence() << '\t' ;
+				<< /*SEQ*/ rd.sequence() << '\t' ;
 
-			if( result.read().has_quality() ) /*QUAL*/   
-				for (size_t i = 0 ; i != result.read().quality().size() ; ++i )
-					*out_ << qual_to_sam( result.read().quality()[i] ) ;
+			if( rd.has_quality() ) /*QUAL*/   
+				for (size_t i = 0 ; i != rd.quality().size() ; ++i )
+					*out_ << qual_to_sam( rd.quality()[i] ) ;
 			else
 				*out_ << '*' ;
 		}
@@ -480,7 +481,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 			decode_binCigar( *out_, mk_rev_iter( hit.cigar().end() ), mk_rev_iter( hit.cigar().begin() ) ) ; /*CIGAR*/ 
 			// We don't have paired end reads (or don't deal with them)
 			*out_ << "\t*\t0\t0\t" ; // MRNM, MPOS, ISIZE
-			const std::string& s = result.read().sequence() ;
+			const std::string& s = rd.sequence() ;
 			for( size_t i = s.size() ; i != 0 ; --i )
 				switch( s[i-1] )
 				{
@@ -493,37 +494,37 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 				}
 
 			*out_ << '\t' ;
-			if( result.read().has_quality() ) /*QUAL*/   
-				for (size_t i = result.read().quality().size() ; i != 0 ; --i )
-					*out_ << qual_to_sam( result.read().quality()[i-1] ) ;
+			if( rd.has_quality() ) /*QUAL*/   
+				for (size_t i = rd.quality().size() ; i != 0 ; --i )
+					*out_ << qual_to_sam( rd.quality()[i-1] ) ;
 			else
 				*out_ << '*' ;
 		}
 
 		/*[TAGS]*/ /* score is actually phred likelihood */
 		if( hit.has_score() ) *out_ << "\tUQ:i:" << hit.score() ;
-		*out_ << '\n' ;
 	}
 
 	if( result.hit_size() == 0 )
 	{
 		// special treatment of unaligned sequence
-		*out_ << /*QNAME*/  result.read().seqid() << '\t'
+		*out_ << /*QNAME*/  rd.seqid() << '\t'
 			<< /*FLAG */ bam_funmap
 			<< "\t*\t0\t0\t*\t*\t0\t0\t" // RNAME, POS, MAPQ, CIGAR, MRNM, MPOS, ISIZE
-			<< /*SEQ*/ result.read().sequence() << '\t' ;
+			<< /*SEQ*/ rd.sequence() << '\t' ;
 
-		if( result.read().has_quality() ) /*QUAL*/   
-			for (size_t i = 0 ; i != result.read().quality().size() ; ++i )
-				*out_ << qual_to_sam( result.read().quality()[i] ) ;
+		if( rd.has_quality() ) /*QUAL*/   
+			for (size_t i = 0 ; i != rd.quality().size() ; ++i )
+				*out_ << qual_to_sam( rd.quality()[i] ) ;
 		else
 			*out_ << '*' ;
-
-		/*[TAGS]*/
-		*out_ << "\n" ;
-		return no_hit ;
 	}
-	else return goodness ;
+
+	/*[TAGS]*/
+	if( result.members_size() || result.nmembers() )
+		*out_ << "\tXD:i:" <<  result.members_size() + result.nmembers() ;
+	*out_ << '\n' ;
+	return result.hit_size() ? goodness : no_hit ;
 }
 
 const char *SamWriter::descr[] = { "were converted", "had no hit", "had multiple hits", "missed the sequence id"

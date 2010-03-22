@@ -152,10 +152,8 @@ void trim_cigar_right( google::protobuf::RepeatedField<uint32_t> &cig, unsigned 
 	cig.Clear() ;
 }
 
-void Housekeeper::put_result( const Result& rs )
+bool Housekeeper::xform( Result& rs )
 {
-	Stream::put_result( rs ) ;
-
 	// trim adapters, set trim points
 	// How does this work?  We create an overlap alignment, then
 	// calculate an alignment score from the number of differences.  The
@@ -163,7 +161,7 @@ void Housekeeper::put_result( const Result& rs )
 	// Gaps score (mat-mis)/2 to allow for the simple algorithm.  If the
 	// score is good enough, we trim.
 
-	const output::Read &rd = res_.read() ;
+	const output::Read &rd = rs.read() ;
 	const string &seq = rd.sequence() ;
 
 	unsigned r0 = rd.has_trim_right() ? rd.trim_right() : seq.length() ; 
@@ -192,16 +190,17 @@ void Housekeeper::put_result( const Result& rs )
 
 	if( l > l0 )
 	{
-		for( int i = 0 ; i != res_.hit_size() ; ++i )
-			trim_cigar_left( *res_.mutable_hit(i)->mutable_cigar(), l-l0 ) ;
-		res_.mutable_read()->set_trim_right( l ) ;
+		for( int i = 0 ; i != rs.hit_size() ; ++i )
+			trim_cigar_left( *rs.mutable_hit(i)->mutable_cigar(), l-l0 ) ;
+		rs.mutable_read()->set_trim_right( l ) ;
 	}
 	if( r < r0 ) 
 	{
-		for( int i = 0 ; i != res_.hit_size() ; ++i )
-			trim_cigar_right( *res_.mutable_hit(i)->mutable_cigar(), r-r0 ) ;
-		res_.mutable_read()->set_trim_right( r ) ;
+		for( int i = 0 ; i != rs.hit_size() ; ++i )
+			trim_cigar_right( *rs.mutable_hit(i)->mutable_cigar(), r-r0 ) ;
+		rs.mutable_read()->set_trim_right( r ) ;
 	}
+	return true ;
 }
 
 Indexer::Indexer( const config::Config &config, const string& index_name ) :
@@ -210,17 +209,16 @@ Indexer::Indexer( const config::Config &config, const string& index_name ) :
 	if( !conf_.policy_size() ) throw "no policies---nothing to do." ;
 }
 
-void Indexer::put_header( const Header& h )
+void Indexer::priv_put_header( auto_ptr< Header > h )
 {
-	Stream::put_header( h ) ;
-	hdr_.mutable_config()->mutable_policy()->MergeFrom( conf_.policy() ) ;
+	h->mutable_config()->mutable_policy()->MergeFrom( conf_.policy() ) ;
+	Filter::priv_put_header( h ) ;
 }
 
-void Indexer::put_result( const Result& r )
+bool Indexer::xform( Result& r )
 {
-	Stream::put_result( r ) ;
-	Policy p = select_policy( conf_, res_.read()  ) ;
-	AlnStats *as = res_.add_aln_stats() ;
+	Policy p = select_policy( conf_, r.read()  ) ;
+	AlnStats *as = r.add_aln_stats() ;
 	as->set_tag( index_.metadata().genome_name() ) ;
 
 	int num_raw = 0, num_clumps = 0, num_useless = 0 ;
@@ -238,18 +236,18 @@ void Indexer::put_result( const Result& r )
 			assert( index_.metadata().stride() % params.stride == 0 ) ;
 
 			Seeds *ss = 0 ;
-			for( int i = 0 ; !ss && i != res_.seeds_size() ; ++i )
-				if( res_.seeds(i).genome_name() == index_.metadata().genome_name() )
-					ss = res_.mutable_seeds(i) ;
+			for( int i = 0 ; !ss && i != r.seeds_size() ; ++i )
+				if( r.seeds(i).genome_name() == index_.metadata().genome_name() )
+					ss = r.mutable_seeds(i) ;
 			if( !ss ) 
             {
-                ss = res_.add_seeds() ;
+                ss = r.add_seeds() ;
                 ss->set_genome_name( index_.metadata().genome_name() ) ;
             }
 
 			PreSeeds seeds ;
 			num_raw += index_.lookupS(
-					effective_sequence( res_.read() ), seeds, params, &num_useless ) ;
+					effective_sequence( r.read() ), seeds, params, &num_useless ) ;
 					
 			num_clumps += cis.allow_near_perfect() 
 				? combine_seeds( seeds, p.min_seed_len(), ss )
@@ -266,6 +264,7 @@ void Indexer::put_result( const Result& r )
 	as->set_num_raw_seeds( num_raw ) ;
 	as->set_num_useless( num_useless ) ;
 	as->set_num_clumps( num_clumps ) ;
+	return true ;
 }
 
 Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
@@ -274,36 +273,34 @@ Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
 	simple_adna::pb = adna_parblock( conf_ ) ;
 }
 
-void Mapper::put_header( const Header& h )
+void Mapper::priv_put_header( auto_ptr< Header > h )
 {
-	Stream::put_header( h ) ;
-	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
+	h->mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
+	Filter::priv_put_header( h ) ;
 }
 
-void Mapper::put_result( const Result& r )
+bool Mapper::xform( auto_ptr< Result > r )
 {
-	Stream::put_result( r ) ;
-
 	AlnStats *as = 0 ;
-    for( int i = 0 ; i != res_.aln_stats_size() ; ++i )
+    for( int i = 0 ; i != r->aln_stats_size() ; ++i )
 	{
-		if( icompare( res_.aln_stats(i).tag(), genome_->name() )
-				|| icompare( res_.aln_stats(i).tag(), genome_->name() + ".dna"  ) )
+		if( icompare( r->aln_stats(i).tag(), genome_->name() )
+				|| icompare( r->aln_stats(i).tag(), genome_->name() + ".dna"  ) )
 		{
-			as = res_.mutable_aln_stats(i) ;
+			as = r->mutable_aln_stats(i) ;
 		}
 	}
 	
 	if( !as ) {
-		as = res_.add_aln_stats() ;
+		as = r->add_aln_stats() ;
 		as->set_tag( genome_->name() ) ;
 	}
 
 	Seeds ss ;
-    for( int i = 0 ; i != res_.seeds_size() ; ++i )
+    for( int i = 0 ; i != r->seeds_size() ; ++i )
 	{
-		if( icompare( res_.seeds(i).genome_name(), genome_->name() )
-				|| icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
+		if( icompare( r->seeds(i).genome_name(), genome_->name() )
+				|| icompare( r->seeds(i).genome_name(), genome_->name() + ".dna"  ) )
 		{
 			ss.Swap( res_.mutable_seeds(i) ) ;
             if( i != res_.seeds_size()-1 ) res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;
@@ -314,12 +311,12 @@ void Mapper::put_result( const Result& r )
 	}
 
     // is it already clear that we cannot do anything?
-    if( as->has_reason() ) return ;
+    if( as->has_reason() ) return true ;
 
 	// not seeded means no policy (or logic bug, but let's not go there...)
 	if( ss.genome_name().empty() ) {
 		as->set_reason( output::no_policy ) ;
-		return ;
+		return true ;
 	}
 
 	// invariant violated, we won't deal with that
@@ -328,10 +325,10 @@ void Mapper::put_result( const Result& r )
 
 	if( !ss.ref_positions_size() ) {
 		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
-		return ;
+		return true ;
 	}
 
-	QSequence qs( res_.read() ) ;
+	QSequence qs( r->read() ) ;
 	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
 	std::deque< alignment_type > ol ;
@@ -347,7 +344,7 @@ void Mapper::put_result( const Result& r )
 
 	if( !best ) {
 		as->set_reason( output::bad_alignment ) ;
-		return ;
+		return true ;
 	}
 
 	int penalty = best.penalty ;
@@ -360,7 +357,7 @@ void Mapper::put_result( const Result& r )
 	std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
 	int32_t len = maxpos - minpos - 1 ;
 
-	output::Hit *h = res_.add_hit() ;
+	output::Hit *h = r->add_hit() ;
 
 	uint32_t start_pos ;
     const config::Sequence *sequ = genome_->translate_back( minpos+1, start_pos ) ;
@@ -401,6 +398,7 @@ void Mapper::put_result( const Result& r )
 	as->set_closed_nodes_after_alignment( c ) ;
 	as->set_tracked_closed_nodes_after_alignment( tt ) ;
 	if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
+	return true ;
 }
 
 //! \page finding_alns How to find everything we need

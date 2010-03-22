@@ -31,13 +31,13 @@
 
 namespace streams {
 
-void DuctTaper::put_header( const Header& h ) 
+void DuctTaper::priv_put_header( auto_ptr< Header > h ) 
 {
-	if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+	if( !h->is_sorted_by_all_genomes() && !h->is_sorted_by_coordinate_size() )
 		throw "need sorted input for duct taping" ;
 
+	adna_ = adna_parblock( h->config().aligner() ) ;
 	hdr_ = h ;
-	adna_ = adna_parblock( h.config().aligner() ) ;
 	state_ = need_input ;
 }
 
@@ -59,7 +59,7 @@ void DuctTaper::put_header( const Header& h )
 //! likelihood value is zero (there should be at least one).
 //!
 //! \todo If an indel is seen, there sould be a quality score for it.
-//!       However, there's neither a good way to encode said quality or
+//!       However, there's neither a good way to encode said quality nor
 //!       a good way to calculate or even define it...
 
 void DuctTaper::flush_contig()

@@ -191,8 +191,8 @@
 
 (define*
   (divergence (primary: p)
-	      (secondary: s)
-	      (chop: c))
+			  (secondary: s)
+			  (chop: c))
   (let ((fun 
 	  (lambda (b) 
 	    (let* ((d1 (vector-dot b '#(3 -1 3 -1 -1)))
