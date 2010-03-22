@@ -19,6 +19,7 @@
 #endif
 
 #include "compress_stream.h"
+#include "misc_streams.h"
 #include "stream.h"
 #include "util.h"
 
@@ -798,18 +799,13 @@ bool Subsample::xform( Result& )
 	return f_ >= drand48() ;
 }
 
-namespace {
-	inline int eff_length( const Read& r )
-	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
-} ;
-
 bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) const
 {
 	const output::Hit *l = hit_to( lhs, gs_.begin(), gs_.end() ), *r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
-
-	return l && r && eff_length( lhs.read() ) == eff_length( rhs.read() ) 
-		&& l->genome_name() == r->genome_name() && l->sequence() == r->sequence()
-		&& l->start_pos() == r->start_pos() && l->aln_length() == r->aln_length() ;
+	by_genome_coordinate comp ;
+	return l && r && 
+		!comp.compare( l, r, lhs.read(), rhs.read() ) &&
+		!comp.compare( r, l, rhs.read(), lhs.read() ) ;
 }
 
 //! \todo How do we deal with ambiguity codes?  What's the meaning of

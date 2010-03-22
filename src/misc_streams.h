@@ -10,6 +10,9 @@ namespace streams {
 
 	using namespace std ;
 
+	inline int eff_length( const Read& r )
+	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
+
 //! \brief compares hits by smallest genome coordinate
 //! Comparison is first done lexically on the subject name, then on the
 //! smallest coordinate that's part of the alignment, then on the
@@ -21,6 +24,7 @@ struct by_genome_coordinate {
 
 	by_genome_coordinate( const string &g ) : gs_() { gs_.push_back( g ) ; }
 	by_genome_coordinate( const vector<string> &gs ) : gs_(gs) {}
+	by_genome_coordinate() : gs_() {}
 
 	bool operator() ( const Result *a, const Result *b ) {
 		if( gs_.empty() ) return compare( *a, *b ) ;
@@ -35,16 +39,23 @@ struct by_genome_coordinate {
 	bool compare( const Result &a, const Result &b )
 	{
 		const Hit *u = hit_to( a ), *v = hit_to( b ) ;
+
+		return compare( u, v, a.read(), b.read() ) ;
+	}
+
+	bool compare( const Hit* u, const Hit* v, const Read& a, const Read& b )
+	{
 		if( u && !v ) return true ;
 		if( !u ) return false ;
-
 		if( u->genome_name() < v->genome_name() ) return true ;
 		if( v->genome_name() < u->genome_name() ) return false ;
 		if( u->sequence() < v->sequence() ) return true ;
 		if( v->sequence() < u->sequence() ) return false ;
 		if( u->start_pos() < v->start_pos() ) return true ;
 		if( v->start_pos() < u->start_pos() ) return false ;
-		return u->aln_length() < v->aln_length() ;
+		if( u->aln_length() < v->aln_length() ) return true ;
+		if( v->aln_length() < u->aln_length() ) return false ;
+		return eff_length( a ) < eff_length( b ) ;
 	}
 
 	bool compare( const Result &a, const Result &b, const string& g )
@@ -52,12 +63,7 @@ struct by_genome_coordinate {
 		const Hit *u = hit_to( a, g ), *v = hit_to( b, g ) ;
 		if( u && !v ) return true ;
 		if( !u ) return false ;
-
-		if( u->sequence() < v->sequence() ) return true ;
-		if( v->sequence() < u->sequence() ) return false ;
-		if( u->start_pos() < v->start_pos() ) return true ;
-		if( v->start_pos() < u->start_pos() ) return false ;
-		return u->aln_length() < v->aln_length() ;
+		return compare( u, v, a.read(), b.read() ) ;
 	}
 
 	void tag_header( output::Header& h ) {
