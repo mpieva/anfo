@@ -306,8 +306,9 @@ void Mapper::put_result( const Result& r )
 				|| icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
 		{
 			ss.Swap( res_.mutable_seeds(i) ) ;
-			res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;
-			res_.mutable_seeds()->RemoveLast() ;
+            if( i != res_.seeds_size()-1 ) res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;
+            if( res_.seeds_size() > 1 ) res_.mutable_seeds()->RemoveLast() ;
+            else res_.clear_seeds() ;
 			break ;
 		}
 	}
@@ -339,7 +340,6 @@ void Mapper::put_result( const Result& r )
 
 	alignment_type::ClosedSet cl ;
 	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
-	res_.mutable_seeds()->RemoveLast() ;
 
 	as->set_open_nodes_after_alignment( o ) ;
 	as->set_closed_nodes_after_alignment( c ) ;
