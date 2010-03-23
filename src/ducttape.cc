@@ -106,8 +106,8 @@ void DuctTaper::flush_contig()
 				rd.add_seen_bases( i->seen[ external_to_internal_base[j] ] ) ;
 
 			Logdom lk[10] ;
-			for( int j = 0 ; j !=  4 ; ++j ) lk[j] = i->lk[j] ; // * (1-het_prior_) ;
-			for( int j = 4 ; j != 10 ; ++j ) lk[j] = i->lk[j] ; // * het_prior_ ;
+			for( int j = 0 ; j !=  4 ; ++j ) lk[j] = i->lk[j] * (1-het_prior_) ;
+			for( int j = 4 ; j != 10 ; ++j ) lk[j] = i->lk[j] * het_prior_ ;
 
 			Logdom lk_tot = std::accumulate(  lk, lk+10, Logdom::null() ) ;
 			Logdom *maxlk = std::max_element( lk, lk+10 ) ;

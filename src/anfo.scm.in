@@ -311,3 +311,5 @@
 
 (provide 'anfo)
 
+(autoload 'pp 'pp.scm)
+
