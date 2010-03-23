@@ -389,11 +389,7 @@ GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::st
 		}
 		globfree( &the_glob ) ;
 	}
-
-	if( i == m.end() )
-		throw "could not find " + genome + ( genome.empty() ? "" : ":" ) + seq ;
-
-	return i->second ;
+	return i == m.end() ? GenomeHolder() : i->second ;
 }
 
 GenomeHolder Metagenome::find_genome( const std::string& genome )

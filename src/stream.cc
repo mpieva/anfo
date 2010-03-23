@@ -1119,10 +1119,22 @@ namespace {
 			if( !l || *q != *sig ) return false ;
 		return true ;
 	}
+	bool is_crap( const void *p, int l ) 
+	{
+		return l >= 4 && *((const uint32_t*)p) == 0 ;
+	}
 	bool is_fastq( const void *p, int l ) 
 	{
 		const uint8_t* q = (const uint8_t*)p ;
 		return l >= 3 && (*q == '>' || *q == '@') && isprint( q[1] ) && !magic( p, l, "@HD" ) ;
+	}
+	bool is_sam( const void *p, int l ) 
+	{
+		const uint8_t* q = (const uint8_t*)p ;
+		if( l < 8 ) return false ;
+		for( int i = 0 ; i != 8 ; ++i )
+			if( !isprint( q[i] ) ) return false ;
+		return true ;
 	}
 
 	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin, const string& genome )
@@ -1147,6 +1159,8 @@ namespace {
 		}
 		if( magic( p, l, "BAM\x01" ) ) {
 			console.output( Console::info, name + ": BAM file" ) ;
+			if( genome.empty() )
+				console.output( Console::warning, name + ": no genome set for BAM parsing" ) ;
 			return new BamReader( is, name, genome ) ;
 		}
 		if( magic( p, l, "BZh" ) )
@@ -1169,13 +1183,23 @@ namespace {
 			throw "found GZip'ed file, but have no zlib support" ;
 #endif
 		}
+		if( is_crap( p, l ) )
+		{
+			throw name + ": corrupt file" ;
+		}
 		if( is_fastq( p, l ) ) 
 		{
-			console.output( Console::info, name + ": FastA or FastQ" ) ;
+			console.output( Console::info, name + ": probably FastA or FastQ" ) ;
 			return new FastqReader( is, solexa_scores, origin ) ;
 		}
-		console.output( Console::notice, name + ": unknown, will parse as SAM" ) ;
-		return new SamReader( is, name, genome ) ;
+		if( is_sam( p, l ) ) 
+		{
+			console.output( Console::notice, name + ": unknown, probably SAM" ) ;
+			if( genome.empty() )
+				console.output( Console::warning, name + ": no genome set for SAM parsing" ) ;
+			return new SamReader( is, name, genome ) ;
+		}
+		throw name + ": weird unrecognized file" ;
 	}
 } ;
 

@@ -157,9 +157,10 @@ class GenTextAlignment : public Filter
 {
 	private:
 		int context_ ;
+		bool strict_ ;
 
 	public:
-		GenTextAlignment( int context ) : context_( context ) {}
+		GenTextAlignment( int context, bool strict ) : context_( context ), strict_( strict ) {}
 		virtual bool xform( Result& ) ;
 } ;
 

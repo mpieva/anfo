@@ -252,7 +252,7 @@ void desc_rmdup( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_add_alns( const ParamBlock& p )
-{ return new GenTextAlignment( parse_int( p.arg, 0 ) ) ; }
+{ return new GenTextAlignment( parse_int( p.arg, 0 ), false ) ; }
 
 void desc_add_alns( ostream& ss, const ParamBlock& p )
 { ss << "add textual alignments with " << parse_int( p.arg, 0 ) << "nt of context." ; }

@@ -53,6 +53,7 @@
 (define sequences: 'sequences:)
 (define slope:     'slope:)
 (define solexa:    'solexa:)
+(define strict:    'strict:)
 
 (define (write-fasta    file) (bracket-stream (prim-write-fasta    file)))
 (define (write-fastq    file) (bracket-stream (prim-write-fastq    file)))
@@ -69,8 +70,9 @@
   (bracket-stream (prim-duct-tape lbl pri)))
 
 (define* 
-  (add-alns (context: ctx 0))
-  (bracket-stream (prim-add-alns ctx)))
+  (add-alns (context: ctx 0)
+            (strict: str #f))
+  (bracket-stream (prim-add-alns ctx str)))
 
 (define*
   (read-file in 
