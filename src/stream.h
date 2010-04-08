@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <deque>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -181,6 +182,9 @@ inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, outp
 inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }
 inline void push_i( std::vector<unsigned>& s, unsigned i ) { push_op( s, i, output::Hit::Insert ) ; }
 inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, output::Hit::Delete ) ; }
+
+inline int effective_length( const Read& rd )
+{ return (rd.has_trim_right() ? rd.trim_right() : rd.sequence().length()) - rd.trim_left() ; }
 
 //! @}
 
@@ -586,10 +590,21 @@ class QualFilter : public Filter
 class LengthFilter : public Filter
 {
 	private:
-		int minlength_ ;
+		int minlength_, maxlength_ ;
 
 	public:
-		LengthFilter( int l ) : minlength_(l) {}
+		LengthFilter( int l = 0, int h = std::numeric_limits<int>::max() )
+			: minlength_(l), maxlength_(h) {}
+		virtual bool xform( Result& ) ;
+} ;
+
+class GcFilter : public Filter
+{
+	private:
+		int mingc_, maxgc_ ;
+
+	public:
+		GcFilter( int l = 0, int h = 100 ) : mingc_(l), maxgc_(h) {}
 		virtual bool xform( Result& ) ;
 } ;
 

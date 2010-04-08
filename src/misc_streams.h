@@ -497,11 +497,15 @@ class MismatchStats : public Stream
 #endif
 
 //! \brief checks for hits to homologous regions
-//! This filter reads a UCSC Chain file and stores the "homologous"
-//! ranges.  A record passes the filter iff it has hits to both genomes
-//! that make up the chain and both hits are inside the two regions of
-//! the same chain.  This should be equivalent to the "traditional"
-//! sequence of two liftovers and check for agreement.
+//! This filter reads two UCSC Chain files, breaks them down into
+//! blocks, discards overlapping blocks (so the mapping becomes 1:1),
+//! then discard blocks from the first chain that wouldn't map back
+//! according to the second chain.
+//! 
+//! The filter proper verifies that the alignment to the first genome is
+//! mostly covered by blocks, then maps them and verifies that they
+//! cover the alignment to the second genome.  A flag is set if either
+//! alignment is missing or either test fails.
 //!
 //! \todo I swear, one of those days I'll implement a symbol table for
 //!       those repeated chromosome names.
@@ -531,6 +535,12 @@ class AgreesWithChain : public Filter
 		static Chains::iterator find_any_most_specific_overlap( 
 				unsigned start, unsigned end, Chains *chains ) ;
 	public:
+		//! \brief constructs chain filter
+		//! \param p primary genome (e.g. hg18)
+		//! \param s secondary genome (e.g. pt2)
+		//! \param c chain from \c p to \c s (this means \c p is target,
+		//!          \c s is query), in the form of 
+		//! \param d chain from \c s to \c p
 		AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& s ) ;
 		virtual bool xform( Result& ) ;
 } ;

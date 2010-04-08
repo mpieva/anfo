@@ -142,7 +142,7 @@ Result NearSortedJoin::fetch_result()
 		}
 		else ++cur_input_ ;
 
-        if( buffer_.size() >= 1000000 ) throw "input must be complete and nearly sorted the same way for join to work" ;
+        if( buffer_.size() >= 100000 ) throw "input must be complete and nearly sorted the same way for join to work" ;
 
         if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
         {
@@ -414,25 +414,21 @@ void DivergenceStream::put_result( const Result& r )
 			if( *pri_qry != '-' ) ++skip ;
 			++pri_qry, ++pri_ref ;
 		}
-
 		for( int skip = 0 ; skip != chop_ && pri_qry != pri_qry_end ; )
 		{
 			--pri_qry_end ;
 			if( *pri_qry_end != '-' ) ++skip ;
 		}
-
 		for( int skip = 0 ; skip != chop_ && sec_qry != sec_qry_end ; )
 		{
 			if( *sec_qry != '-' ) ++skip ;
 			++sec_qry, ++sec_ref ;
 		}
-
 		for( int skip = 0 ; skip != chop_ && sec_qry != sec_qry_end ; )
 		{
 			--sec_qry_end ;
 			if( *sec_qry_end != '-' ) ++skip ;
 		}
-
 
 		for(;;)
 		{
@@ -514,45 +510,6 @@ bool Sanitizer::xform( Result& r )
 AgreesWithChain::AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& p ) 
 	: left_genome_( l ), right_genome_( r ), map_()
 {
-    console.output( Console::notice, "reading " + p.second ) ;
-	string line, score, key, tName, qName, tStrand, qStrand ;
-	unsigned tSize, tStart, tEnd, qSize, qStart, qEnd, sum = 0 ;
-	while( getline( *p.first, line ) ) 
-	{
-		stringstream ss( line ) ;
-		// read a line, assuming (and then checking) that it is a chain
-		// header
-		if( ss >> key >> score >> tName >> tSize >> tStrand >> tStart
-				>> tEnd >> qName >> qSize >> qStrand >> qStart >> qEnd 
-				&& key == "chain" )
-		{
-			Chains& chains = map_[ tName ] ;
-			Chains::iterator i = find_any_most_specific_overlap( tStart, tEnd, &chains ) ;
-
-			// got an overlapping chain?  it better be enclosing!
-			if( i != chains.end() && ( i->first > tStart || i->second.left_end < tEnd ) )
-            {
-                stringstream ss ;
-                ss << "Chain on " << tName << " doesn't nest properly.  Parent: "
-                    << i->first << ".." << i->second.left_end
-                    << ", nest:" << tStart << ".." << tEnd ;
-                console.output( Console::warning, ss.str() ) ;
-            }
-                
-			Entry &e = ( i == chains.end() ? chains : i->second.nested )[ tStart ] ;
-
-			e.left_end = tEnd ;
-			e.right_start = qStart ;
-			e.right_end = qEnd ;
-			e.right_chr = qName ;
-			e.strand = (qStrand == "+") != (tStrand == "+") ;
-            ++sum ;
-		}
-	}
-	delete p.first ;
-    stringstream ss ;
-    ss << sum << " chains" ;
-    console.output( Console::notice, ss.str() ) ;
 }
 
 

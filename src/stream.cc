@@ -347,7 +347,7 @@ void ChunkedWriter::put_footer( const Footer& f )
 
 	stringstream ss ;
 	ss << name_ << ": footer chunk starts at " << footer_start ;
-	console.output( Console::notice, ss.str() ) ;
+	console.output( Console::debug, ss.str() ) ;
 }
 
 void ChunkedWriter::put_result( const Result& r )
@@ -739,13 +739,6 @@ bool OnlyGenome::xform( Result& res )
 bool ScoreFilter::keep( const Hit& h )
 { return slope_ * ( len_from_bin_cigar( h.cigar() ) - intercept_ ) >= h.score() ; }
 
-static int effective_length( const Read& rd )
-{
-    return rd.has_trim_right()
-        ? rd.trim_right() - rd.trim_left()
-        : rd.sequence().length() - rd.trim_left() ;
-}
-
 bool TotalScoreFilter::xform( Result& r )
 {
     int score = 0 ;
@@ -771,9 +764,18 @@ bool QualFilter::xform( Result& h )
 
 bool LengthFilter::xform( Result& r )
 {
-	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
-	if( r.hit_size() && len < minlength_ ) r.clear_hit() ;
+	int len = effective_length( r.read() ) ;
+	if( len < minlength_ || len > maxlength_ ) r.clear_hit() ;
 	return true ;
+}
+
+bool GcFilter::xform( Result& r )
+{
+	const Read& rr = r.read() ;
+	int u = rr.trim_left(), v = rr.has_trim_right() ? rr.trim_right() : rr.sequence().size() ;
+	string::const_iterator s = rr.sequence().begin() ;
+	int gc = 100 * (count( s+u, s+v, 'C' ) + count( s+u, s+v, 'G' )) / (v-u) ;
+	return mingc_ <= gc && gc <= maxgc_ ;
 }
 
 namespace {
@@ -1146,19 +1148,19 @@ namespace {
 		is->BackUp( l ) ;
 
 		if( magic( p, l, "ANFO" ) ) {
-			console.output( Console::info, name + ": linear ANFO file" ) ;
+			console.output( Console::debug, name + ": linear ANFO file" ) ;
 			return new AnfoReader( is, name ) ;
 		}
 		if( magic( p, l, "ANF1" ) ) {
-			console.output( Console::info, name + ": chunked ANFO file" ) ;
+			console.output( Console::debug, name + ": chunked ANFO file" ) ;
 			return new ChunkedReader( is, name ) ;
 		}
 		if( magic( p, l, ".sff" ) ) {
-			console.output( Console::info, name + ": SFF file" ) ;
+			console.output( Console::debug, name + ": SFF file" ) ;
 			return new SffReader( is, name ) ;
 		}
 		if( magic( p, l, "BAM\x01" ) ) {
-			console.output( Console::info, name + ": BAM file" ) ;
+			console.output( Console::debug, name + ": BAM file" ) ;
 			if( genome.empty() )
 				console.output( Console::warning, name + ": no genome set for BAM parsing" ) ;
 			return new BamReader( is, name, genome ) ;
@@ -1166,7 +1168,7 @@ namespace {
 		if( magic( p, l, "BZh" ) )
 		{
 #if HAVE_LIBBZ2 && HAVE_BZLIB_H
-			console.output( Console::info, name + ": BZip compressed" ) ;
+			console.output( Console::debug, name + ": BZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
 			return make_input_stream_( bs, name, solexa_scores, origin, genome ) ;
 #else
@@ -1176,7 +1178,7 @@ namespace {
 		if( magic( p, l, "\x1f\x8b" ) )
 		{
 #if HAVE_LIBZ && HAVE_ZLIB_H
-			console.output( Console::info, name + ": GZip compressed" ) ;
+			console.output( Console::debug, name + ": GZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
 			return make_input_stream_( zs, name, solexa_scores, origin, genome ) ;
 #else
@@ -1189,7 +1191,7 @@ namespace {
 		}
 		if( is_fastq( p, l ) ) 
 		{
-			console.output( Console::info, name + ": probably FastA or FastQ" ) ;
+			console.output( Console::debug, name + ": probably FastA or FastQ" ) ;
 			return new FastqReader( is, solexa_scores, origin ) ;
 		}
 		if( is_sam( p, l ) ) 

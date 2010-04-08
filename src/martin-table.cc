@@ -72,6 +72,7 @@ struct SnpRec {
 	SnpRec1 hsa, ptr ;
 	string sequence ;		// for indels: the original sequence
 	string more_flags ;
+	string more_stuff ;
 	char out_base ;
 } ;
 
@@ -86,7 +87,7 @@ void decode_flags( const string& f, SnpRec& r )
 	r.more_flags = f ; 
 }
 
-template< typename C > istream& read_martin_table_snp( istream& s, C& d, const char* fn )
+template< typename C > istream& read_martin_table_snp( istream& s, C& d, const char* fn, string& header )
 {
 	Chan ch ;
 
@@ -94,7 +95,7 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 	string flags, hsa_chr, ptr_chr ;
 	const int inf = numeric_limits<int>::max() ;
 	int x = s.get() ;
-	if( x == '#' ) s.ignore( inf, '\n' ) ; // drop header line
+	if( x == '#' ) getline( s, header ) ; // store header line
 	else s.putback( x ) ;
 
 	for(;;)
@@ -114,13 +115,28 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr.pos
 		   >> r.out_base ;
 		if( !ss ) throw "parse error in line " + line ;
-		if( !( ss >> flags ) ) flags.clear() ;
+		
+		// check for empty flags field (quite annoying...)
+		if( ss.get() == '\t' ) {
+			// something follows...
+			int c = ss.get() ;
+			if( c == '\t' ) {
+				// an empty flags field...
+				flags.clear() ;
+				ss.putback( '\t' ) ;
+			}
+			else if( c != stringstream::traits_type::eof() )
+			{
+				ss.putback( c ) ;
+				if( !( ss >> flags ) ) flags.clear() ;
+			}
+		}
 
 		r.hsa.chr = lookup_sym( hsa_chr ) ;
 		r.ptr.chr = lookup_sym( ptr_chr ) ;
 
-		r.hsa.strand = hsa_strand_code == '+' ;
-		r.ptr.strand = ptr_strand_code == '+' ;
+		r.hsa.strand = hsa_strand_code != '-' ;
+		r.ptr.strand = ptr_strand_code != '-' ;
 		r.hsa.length = 1 ;
 		r.ptr.length = 1 ;
 		r.hsa.base = maybe_compl( r.hsa.strand, to_ambicode( hsa_base ) ) ;
@@ -129,13 +145,14 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 		decode_flags( flags, r ) ;
 		r.hsa.seen = 0 ;
 		r.ptr.seen = 0 ;
+		if( !getline( ss, r.more_stuff ) ) r.more_stuff.clear() ;
 	}
 	delete d.back() ;
 	d.pop_back() ;
 	return s ;
 }
 
-template< typename C > istream& read_martin_table_indel( istream& s, C& d, const char* fn )
+template< typename C > istream& read_martin_table_indel( istream& s, C& d, const char* fn, string& header )
 {
 	Chan ch ;
 
@@ -144,7 +161,7 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 	int hsa_end, ptr_end ;
 	const int inf = numeric_limits<int>::max() ;
 	int x = s.get() ;
-	if( x == '#' ) s.ignore( inf, '\n' ) ; // drop header line
+	if( x == '#' ) getline( s, header ) ; // store header line
 	else s.putback( x ) ;
 
 	for(;;)
@@ -164,13 +181,28 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 		   >> ptr_chr >> ptr_strand_code >> r.ptr.pos >> ptr_end 
 		   >> r.sequence ;
 		if( !ss ) throw "parse error in line " + line ;
-		if( !( ss >> flags ) ) flags.clear() ;
+
+		// check for empty flags field (quite annoying...)
+		if( ss.get() == '\t' ) {
+			// something follows...
+			int c = ss.get() ;
+			if( c == '\t' ) {
+				// an empty flags field...
+				flags.clear() ;
+				ss.putback( '\t' ) ;
+			}
+			else if( c != stringstream::traits_type::eof() )
+			{
+				ss.putback( c ) ;
+				if( !( ss >> flags ) ) flags.clear() ;
+			}
+		}
 
 		r.hsa.chr = lookup_sym( hsa_chr ) ;
 		r.ptr.chr = lookup_sym( ptr_chr ) ;
 
-		r.hsa.strand = hsa_strand_code == '+' ;
-		r.ptr.strand = ptr_strand_code == '+' ;
+		r.hsa.strand = hsa_strand_code != '-' ;
+		r.ptr.strand = ptr_strand_code != '-' ;
 
 		if( r.sequence.size() > 255 )
 			error( 1, 0, "cannot represent long insert at %s:%d (%d)",
@@ -202,23 +234,30 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 		decode_flags( flags, r ) ;
 		r.hsa.seen = 0 ;
 		r.ptr.seen = 0 ;
+		if( !getline( ss, r.more_stuff ) ) r.more_stuff.clear() ;
 	}
 	delete d.back() ;
 	d.pop_back() ;
 	return s ;
 }
 
+inline char strand_code( int chr, int strand )
+{
+	static int empty_chr = lookup_sym( "*" ) ;
+	return chr == empty_chr ? '*' : strand ? '+' : '-' ;
+}
+
 inline ostream& write_half_record_snp( ostream& s, const SnpRec1& r )
 {
 	return s 
 		<< from_ambicode( maybe_compl( r.strand, r.base ) ) << '\t' 
-		<< symbols[r.chr] << '\t' << (r.strand ? '+' : '-') << '\t'
+		<< symbols[r.chr] << '\t' << strand_code( r.chr, r.strand ) << '\t'
 		<< r.pos << '\t' ;
 }
 inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
 {
 	return s 
-		<< symbols[r.chr] << '\t' << (r.strand ? '+' : '-') << '\t'
+		<< symbols[r.chr] << '\t' << strand_code( r.chr, r.strand ) << '\t'
 		<< r.pos << '\t' << r.pos + r.length << '\t' ;
 }
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
@@ -245,10 +284,10 @@ inline string encode_flags( const SnpRec& r )
 	return s ;
 }
 
-template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
+template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d, const string& header, const string& label )
 {
 	Chan ch ;
-	s << "#HSA_Base\tHSA_Chr\tHSA_Strand\tHSA_Pos\tPAN_Base\tPAN_Chr\tPAN_Strand\tPAN_Pos\tOutBase\tFlag\tNEA_BaseH\tNEA_QualH\tNEA_BaseC\tNEA_QualC\n" ;
+	s << '#' << header << '\t' << label << "_BaseH\t" << label << "_QualH\t" << label << "_BaseC\t" << label << "_QualC\n" ;
 	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
 	{
 		if( (i-d.begin()) % 1024 == 0 )
@@ -263,7 +302,7 @@ template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
 		
 		write_half_record_snp( s, r.hsa ) ;
 		write_half_record_snp( s, r.ptr ) ;
-		s << r.out_base << '\t' << encode_flags(r) ;
+		s << r.out_base << '\t' << encode_flags(r) << r.more_stuff ;
 		write_bases( s, r.hsa ) ;
 		write_bases( s, r.ptr ) ;
 		s << '\n' ;
@@ -271,10 +310,10 @@ template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d )
 	return s ;
 }
 
-template< typename C > ostream& write_martin_table_indel( ostream& s, const C& d )
+template< typename C > ostream& write_martin_table_indel( ostream& s, const C& d, const string& header, const string& label )
 {
 	Chan ch ;
-	s << "#Type\tHSA_Chr\tHSA_Strand\tHSA_Start\tHSA_End\tPAN_Chr\tPAN_Strand\tPAN_Start\tPAN_End\tSeq\tFlag\tNEA_SeqH\tNEA_QualH\tNEA_SeqC\tNEA_QualC\n" ;
+	s << '#' << header << '\t' << label << "_SeqH\t" << label << "_QualH\t" << label << "_SeqC\t" << label << "_QualC\n" ;
 	for( typename C::const_iterator i = d.begin() ; i != d.end() ; ++i )
 	{
 		if( (i-d.begin()) % 1024 == 0 )
@@ -290,7 +329,7 @@ template< typename C > ostream& write_martin_table_indel( ostream& s, const C& d
 		s << (r.hsa.length ? "insert\t" : "deletion\t") ;
 		write_half_record_indel( s, r.hsa ) ;
 		write_half_record_indel( s, r.ptr ) ;
-		s << r.sequence << '\t' << encode_flags(r) ;
+		s << r.sequence << '\t' << encode_flags(r) << r.more_stuff ;
 		write_bases( s, r.hsa ) ;
 		write_bases( s, r.ptr ) ;
 		s << '\n' ;
@@ -486,10 +525,11 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 
 WRAPPED_MAIN
 {
-	char *ptr_file = 0 ;
-	char *hsa_file = 0 ;
-	char *snp_out_file = 0 ;
-	char *indel_out_file = 0 ;
+	const char *ptr_file = 0 ;
+	const char *hsa_file = 0 ;
+	const char *snp_out_file = 0 ;
+	const char *indel_out_file = 0 ;
+	const char *label = "NEA" ;
 	int core_limit = 0 ;
 
 	console.loglevel = Console::debug ;
@@ -499,9 +539,10 @@ WRAPPED_MAIN
 		{ "ptr-file",     0 , POPT_ARG_STRING, &ptr_file,           0,    "Neandertalized Chimp is in FILE", "FILE" },
 		{ "output-snp",   0 , POPT_ARG_STRING, &snp_out_file,       0,    "Write SNPs table to FILE", "FILE" },
 		{ "output-indel", 0 , POPT_ARG_STRING, &indel_out_file,     0,    "Write indels table to FILE", "FILE" },
-		{ "buffer",       0 , POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &gap_buffer,         0,    "Flag gaps closer than N", "N" },
-		{ "min-support",  0 , POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &min_support,        0,    "Require a minimum support of M", "M" },
-		{ "max-support",  0 , POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &max_support,        0,    "Require a maximum support of M", "M" },
+		{ "buffer",       0 , POPT_ARG_INT    | POPT_ARGFLAG_SHOW_DEFAULT, &gap_buffer,         0,    "Flag gaps closer than N", "N" },
+		{ "min-support",  0 , POPT_ARG_INT    | POPT_ARGFLAG_SHOW_DEFAULT, &min_support,        0,    "Require a minimum support of M", "M" },
+		{ "max-support",  0 , POPT_ARG_INT    | POPT_ARGFLAG_SHOW_DEFAULT, &max_support,        0,    "Require a maximum support of M", "M" },
+		{ "label",        0 , POPT_ARG_STRING | POPT_ARGFLAG_SHOW_DEFAULT, &label,              0,    "Write LABEL into output header", "LABEL" },
 		{ "sanity-check", 0 , POPT_ARG_NONE,   &sanity_check,       0,    "Compare claimed bases to genome", 0 },
 		{ "vmem",         0 , POPT_ARG_INT,    &core_limit,         0, 	  "Limit virtual memory to X megabytes", "X" },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -523,12 +564,14 @@ WRAPPED_MAIN
 		setrlimit( RLIMIT_AS, &lim ) ;
 	}
 
+	string header_snp, header_indel ;
+
 	std::vector<SnpRec*> mt ;
 	while( char const *arg = poptGetArg( pc ) )
 	{
 		ifstream f( arg ) ;
-		if( strstr( arg, "SNP" ) ) read_martin_table_snp( f, mt, arg ) ;
-		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt, arg ) ;
+		if( strstr( arg, "SNP" ) ) read_martin_table_snp( f, mt, arg, header_snp ) ;
+		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt, arg, header_indel ) ;
 		else error( 1, errno, "cannot guess contents of %s", arg ) ;
 
 		if( !f.eof() ) error( 1, errno, "Parse error in 'Martin table' %s.", arg ) ;
@@ -552,11 +595,11 @@ WRAPPED_MAIN
 
 	if( snp_out_file ) {
 		ofstream out( snp_out_file ) ;
-		write_martin_table_snp( out, mt ) ;
+		write_martin_table_snp( out, mt, header_snp, label ) ;
 	}
 	if( indel_out_file ) {
 		ofstream out( indel_out_file ) ;
-		write_martin_table_indel( out, mt ) ;
+		write_martin_table_indel( out, mt, header_indel, label ) ;
 	}
 	poptFreeContext( pc ) ;
 	return 0 ;

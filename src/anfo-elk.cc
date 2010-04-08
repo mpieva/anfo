@@ -296,7 +296,10 @@ WRAP( p_ignore_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
 WRAP( p_only_genome,    ( Object g ), (g) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( g ) ) ) ; }
-WRAP( p_filter_by_len,  ( Object l ), (l) ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
+WRAP( p_filter_by_len,  ( Object l, Object h ), (l,h) )
+{ return wrap_stream( new LengthFilter( Get_Integer( l ),
+		Truep(h) ? Get_Integer( h ) : numeric_limits<int>::max() ) ) ; }
+WRAP( p_filter_by_gc,   ( Object l, Object h ), (l,h) ) { return wrap_stream( new GcFilter( Get_Integer( l ), Get_Integer( h ) ) ) ; }
 WRAP( p_filter_multi,   ( Object m ), (m) ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
 WRAP( p_subsample,      ( Object r ), (r) ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
 WRAP( p_edit_header,    ( Object e ), (e) ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
@@ -442,7 +445,8 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_rmdup,            "prim-rmdup",          3, 3, EVAL ) ;
 	Define_Primitive( (P)p_trim,             "prim-trim",           3, 3, EVAL ) ;
 
-	Define_Primitive( (P)p_filter_by_len,    "prim-filter-length",  1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_len,    "prim-filter-length",  2, 2, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_gc,     "prim-filter-gc",      2, 2, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_qual, 	 "prim-filter-qual",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_mask_by_qual,     "prim-mask-qual",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;

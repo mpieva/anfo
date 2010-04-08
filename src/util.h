@@ -21,20 +21,14 @@
 #include <cstring>
 #include <cstdlib>
 #include <deque>
+#include <fcntl.h>
 #include <iosfwd>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#if HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 
 struct Exception { virtual void print_to( std::ostream& ) const = 0 ;
                    virtual ~Exception() {} } ;

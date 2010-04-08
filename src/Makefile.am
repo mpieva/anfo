@@ -4,7 +4,7 @@ lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 		     ducttape.h index.h logdom.h misc_streams.h output_streams.h \
-		     sequence.h stream.h trim.h util.h 
+		     sequence.h stream.h trim.h util.h config.pb.h output.pb.h judy++.h
 
 schemedir = $(prefix)/share/elk
 scheme_SCRIPTS = anfo.scm
