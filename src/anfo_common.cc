@@ -302,10 +302,10 @@ bool Mapper::xform( auto_ptr< Result > r )
 		if( icompare( r->seeds(i).genome_name(), genome_->name() )
 				|| icompare( r->seeds(i).genome_name(), genome_->name() + ".dna"  ) )
 		{
-			ss.Swap( res_.mutable_seeds(i) ) ;
-            if( i != res_.seeds_size()-1 ) res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;
-            if( res_.seeds_size() > 1 ) res_.mutable_seeds()->RemoveLast() ;
-            else res_.clear_seeds() ;
+			ss.Swap( r->mutable_seeds(i) ) ;
+            if( i != r->seeds_size()-1 ) r->mutable_seeds()->SwapElements( i, r->seeds_size()-1 ) ;
+            if( r->seeds_size() > 1 ) r->mutable_seeds()->RemoveLast() ;
+            else r->clear_seeds() ;
 			break ;
 		}
 	}

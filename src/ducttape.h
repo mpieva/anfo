@@ -47,8 +47,14 @@ class DuctTaper : public Stream
 		Chan report_ ;
 		Logdom het_prior_ ;
 
+		// needed for probability calculations
+		Logdom rate_ss, rate_ds ;
+		adna_parblock adna_ ;
+
 		state state_ ;
 		auto_ptr< Header > hdr_ ;
+		auto_ptr< Result > res_ ;
+		auto_ptr< Footer > ftr_ ;
 
 		// tracking of current reference sequence; we need to start a
 		// new contig if one of these changes
@@ -90,9 +96,6 @@ class DuctTaper : public Stream
 		// went into a contig.
 		int mapq_accum_ ;
 
-		// needed for probability calculations
-		adna_parblock adna_ ;
-
 		void flush_contig() ;
 
 	public:
@@ -106,9 +109,9 @@ class DuctTaper : public Stream
 		virtual void priv_put_header( auto_ptr< Header > ) ;
 		virtual void priv_put_result( auto_ptr< Result > ) ;
 		virtual void priv_put_footer( auto_ptr< Footer > ) ;
-		virtual auto_ptr< Header > fetch_header() ;
-		virtual auto_ptr< Result > fetch_result() ;
-		virtual auto_ptr< Footer > fetch_footer() ;
+		virtual auto_ptr< Header > priv_fetch_header() { return hdr_ ; }
+		virtual auto_ptr< Result > priv_fetch_result() { return res_ ; }
+		virtual auto_ptr< Footer > priv_fetch_footer() { return ftr_ ; }
 
 	private:
 		void put_result_recent(  auto_ptr< Result > ) ;
@@ -125,31 +128,6 @@ class GlzWriter : public Stream
 		GlzWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >& p ) : gos_( p.first ) {}
 		virtual void put_result( const Result& ) ;
 } ;
-
-#if 0
-//! \brief writes consensuus in text format
-//! Format as agreed upon internally:  
-//! > "hg18" chromosome ±start
-//! ; "pt2" chromosome ±start
-//! [repeat as necessary?]
-//! <hg18-base> <pt2-base> <nt-majority-base (A,C,G,T)>
-//!   <Q-score> <depth> <#gaps> <#A> <#C> <#G> <#T> <4 likelihood-ratios>
-//! [repeat as necessary]
-//!
-//! \todo reconstruction of the involved whole genome alignments is not
-//!       yet possible
-class ThreeAlnWriter : public Stream
-{
-	private:
-		std::auto_ptr< std::ostream > out_ ;
-		std::string name_ ;
-		Chan chan_ ;
-
-	public:
-		ThreeAlnWriter( const pair< ostream*, string > &p ) : out_( p.first ), name_( p.second ) {}
-		virtual void put_result( const Result& ) ;
-} ;
-#endif
 
 } // namespace
 

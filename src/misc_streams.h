@@ -34,7 +34,7 @@ struct by_genome_coordinate {
 
 	bool compare( const Result &a, const Result &b )
 	{
-		const Hit *u = hit_to( a ), *v = hit_to( b ) ;
+		const Hit *u = best_hit( a ), *v = best_hit( b ) ;
 		if( u && !v ) return true ;
 		if( !u ) return false ;
 

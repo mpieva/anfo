@@ -311,9 +311,6 @@ Stream* mk_output_glz( const ParamBlock& p )
 void desc_output_glz( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in GLZ format to " << parse_fn( p.arg ) ; }
 
-Stream* mk_output_3aln( const ParamBlock& p )
-{ return new ThreeAlnWriter( make_output_stream_std( p.arg ) ) ; }
-
 void desc_output_3aln( ostream& ss, const ParamBlock& p )
 { ss << "write contigs in 3ALN format to " << parse_fn( p.arg ) ; }
 
@@ -416,7 +413,6 @@ WRAPPED_MAIN
 		{ 0, 0, mk_output_text,               desc_output_text },
 		{ 0, 0, mk_output_sam,                 desc_output_sam },
 		{ 0, 0, mk_output_glz,                 desc_output_glz },
-		{ 0, 0, mk_output_3aln,               desc_output_3aln },
 		{ 0, 0, mk_output_fasta,             desc_output_fasta },
 		{ 0, 0, mk_output_fastq,             desc_output_fastq },
 		{ 0, 0, mk_output_table,             desc_output_table },
@@ -454,7 +450,6 @@ WRAPPED_MAIN
 		{ "output-text",    0 , POPT_ARG_STRING, 0, opt_output_text,   "write protobuf text stream to FILE", "FILE" },
 		{ "output-sam",     0 , POPT_ARG_STRING, 0, opt_output_sam,    "write alignments in sam format to FILE", "FILE" },
 		{ "output-glz",     0 , POPT_ARG_STRING, 0, opt_output_glz,    "write contigs in GLZ format to FILE", "FILE" },
-		{ "output-3aln",    0 , POPT_ARG_STRING, 0, opt_output_3aln,   "write contigs in 3ALN format to FILE", "FILE" },
 		{ "output-fasta",   0 , POPT_ARG_STRING, 0, opt_output_fasta,  "write alignments(!) in fasta format to FILE", "FILE" },
 		{ "output-fastq",   0 , POPT_ARG_STRING, 0, opt_output_fastq,  "write sequences(!) in fastq format to FILE", "FILE" },
 		{ "output-table",   0 , POPT_ARG_STRING, 0, opt_output_table,  "write per-alignment stats to FILE", "FILE" },

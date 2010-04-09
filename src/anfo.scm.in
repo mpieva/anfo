@@ -60,7 +60,6 @@
 (define (write-sam      file) (bracket-stream (prim-write-sam      file)))
 (define (write-table    file) (bracket-stream (prim-write-table    file)))
 (define (write-text     file) (bracket-stream (prim-write-text     file)))
-(define (write-threealn file) (bracket-stream (prim-write-threealn file)))
 (define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
 
 (define*

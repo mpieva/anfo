@@ -16,17 +16,6 @@
 
 package config ;
 
-message Homolog {
-    optional string genome = 1 ;
-    optional string sequence = 2 ;
-
-    // start of alignment, negative if RC'd
-    required int32 start = 3 ;
-
-    // cigar codes to reproduce the alignment
-    repeated uint32 cigar = 4 ;
-}
-
 message Contig {
     // number of half-bytes to seek into the genome file to get to the
     // start of the contig
@@ -37,12 +26,6 @@ message Contig {
 
     // one-past-the-end of the contig in original sequence, 0-based
     required uint32 range_end = 3 ; 
-
-    // aligned homologs, if available
-    // (This is intended for artificial genomes that result from
-    // alignments, here we store information to recreate those
-    // alignments.)
-    repeated Homolog homolog = 4 ;
 }
 
 message Sequence {

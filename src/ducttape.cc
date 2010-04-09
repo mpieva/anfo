@@ -31,12 +31,23 @@
 
 namespace streams {
 
+Stream::state DuctTaper::get_state() 
+{
+	if( hdr_.get() ) return have_header ;
+	if( res_.get() ) return have_output ;
+	if( ftr_.get() ) return end_of_stream ;
+	return state_ ;
+}
+
 void DuctTaper::priv_put_header( auto_ptr< Header > h ) 
 {
 	if( !h->is_sorted_by_all_genomes() && !h->is_sorted_by_coordinate_size() )
 		throw "need sorted input for duct taping" ;
 
-	adna_ = adna_parblock( h->config().aligner() ) ;
+	const config::Aligner& a = h->config().aligner() ;
+	adna_ = adna_parblock( a ) ;
+	rate_ss = Logdom::from_float( a.rate_of_ss_deamination() ) ;
+	rate_ds = Logdom::from_float( a.rate_of_ds_deamination() ) ; 
 	hdr_ = h ;
 	state_ = need_input ;
 }
@@ -76,10 +87,10 @@ void DuctTaper::flush_contig()
 		--contig_end_ ;
 	}
 
-	res_.Clear() ;
-	res_.set_num_reads( nreads_ ) ;
+	res_.reset( new Result ) ;
+	res_->set_num_reads( nreads_ ) ;
 
-	Read &rd = *res_.mutable_read() ;
+	Read &rd = *res_->mutable_read() ;
 	std::stringstream ss1 ;
 	ss1 << name_ << '_' << ++num_ ;
 	rd.set_seqid( ss1.str() ) ;
@@ -106,8 +117,8 @@ void DuctTaper::flush_contig()
 				rd.add_seen_bases( i->seen[ external_to_internal_base[j] ] ) ;
 
 			Logdom lk[10] ;
-			for( int j = 0 ; j !=  4 ; ++j ) lk[j] = i->lk[j] ; // * (1-het_prior_) ;
-			for( int j = 4 ; j != 10 ; ++j ) lk[j] = i->lk[j] ; // * het_prior_ ;
+			for( int j = 0 ; j !=  4 ; ++j ) lk[j] = i->lk[j] * (1-het_prior_) ;
+			for( int j = 4 ; j != 10 ; ++j ) lk[j] = i->lk[j] *    het_prior_  ;
 
 			Logdom lk_tot = std::accumulate(  lk, lk+10, Logdom::null() ) ;
 			Logdom *maxlk = std::max_element( lk, lk+10 ) ;
@@ -128,7 +139,7 @@ void DuctTaper::flush_contig()
 	}
 
 
-	Hit &hit = *res_.add_hit() ;
+	Hit &hit = *res_->add_hit() ;
 	hit.set_genome_name( cur_genome_ ) ;
 	hit.set_sequence( cur_sequence_ ) ;
 	hit.set_start_pos( contig_start_ ) ;
@@ -141,17 +152,11 @@ void DuctTaper::flush_contig()
 	state_ = have_output ;
 }
 
-Result DuctTaper::fetch_result()
+void DuctTaper::priv_put_footer( auto_ptr< Footer > f ) 
 {
-	state_ = foot_.IsInitialized() ? end_of_stream : need_input ;
-	return res_ ;
-}
-
-void DuctTaper::put_footer( const Footer& f ) 
-{
-	foot_ = f ;
-	state_ = end_of_stream ;
 	flush_contig() ;
+	ftr_ = f ;
+	state_ = end_of_stream ;
 }
 
 
@@ -262,13 +267,10 @@ class AlnIter
 //! to the sum of all the match scores, which requires a preliminary
 //! pass over everything.
 
-void DuctTaper::put_result_ancient( const Result& r )
+void DuctTaper::put_result_ancient( auto_ptr< Result > r )
 {
-	const Hit* h = hit_to( r ) ;
+	const Hit* h = best_hit( *r ) ;
 	if( !h ) return ;
-
-	Logdom rate_ss = Logdom::from_float( hdr_.config().aligner().rate_of_ss_deamination() ), 
-		   rate_ds = Logdom::from_float( hdr_.config().aligner().rate_of_ds_deamination() ) ; 
 
 	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
 	mapq_accum_ += mapq*mapq ;
@@ -296,7 +298,7 @@ void DuctTaper::put_result_ancient( const Result& r )
 
 	GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
 	DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
-	for( AlnIter aln_i( r.read(), *h ), aln_e( r.read(), *h, 1 ) ; aln_i != aln_e ; ++aln_i )
+	for( AlnIter aln_i( r->read(), *h ), aln_e( r->read(), *h, 1 ) ; aln_i != aln_e ; ++aln_i )
 	{
 		if( aln_i.cigar_op() == Hit::Match || aln_i.cigar_op() == Hit::Mismatch )
 		{
@@ -308,7 +310,7 @@ void DuctTaper::put_result_ancient( const Result& r )
 	}
 
 	ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
-	for( AlnIter aln_b( r.read(), *h ), aln_i( aln_b ), aln_e( r.read(), *h, 1 ) ;
+	for( AlnIter aln_b( r->read(), *h ), aln_i( aln_b ), aln_e( r->read(), *h, 1 ) ;
 			aln_i != aln_e ; ++column )
 	{
 		if( column == observed_.end() ) {
@@ -430,17 +432,15 @@ no_match:
 	}
 } 
 
-void DuctTaper::put_result( const Result& r )
+void DuctTaper::priv_put_result( auto_ptr< Result > r )
 {
-	if( hdr_.config().aligner().has_rate_of_ds_deamination()  )
-		put_result_ancient( r ) ;
-	else
-		put_result_recent( r ) ;
+	if( rate_ds.is_finite() ) put_result_ancient( r ) ;
+	else                      put_result_recent(  r ) ;
 }
 
-void DuctTaper::put_result_recent( const Result& r )
+void DuctTaper::put_result_recent( auto_ptr< Result > r )
 {
-	const Hit* h = hit_to( r ) ;
+	const Hit* h = best_hit( *r ) ;
 	if( !h ) return ;
 
 	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
@@ -464,7 +464,7 @@ void DuctTaper::put_result_recent( const Result& r )
 	for( int offs = h->start_pos() - contig_start_ ; offs ; ++column )
 		if( !column->is_ins ) --offs ;
 
-	for( AlnIter aln_b( r.read(), *h ), aln_i( aln_b ), aln_e( r.read(), *h, 1 ) ;
+	for( AlnIter aln_b( r->read(), *h ), aln_i( aln_b ), aln_e( r->read(), *h, 1 ) ;
 			aln_i != aln_e ; ++column )
 	{
 		if( column == observed_.end() ) {
@@ -542,7 +542,7 @@ void GlzWriter::put_result( const Result& rr )
 	static uint8_t dna_to_glf_base[] = { 0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15 } ;
 
 	const Read& r = rr.read() ;
-	const Hit* h = hit_to( rr ) ;
+	const Hit* h = best_hit( rr ) ;
 	if( r.likelihoods_size() == 10 && h ) 
 	{
 		chan_( Console::info, r.seqid() ) ;
@@ -614,96 +614,6 @@ void GlzWriter::put_result( const Result& rr )
 				default:
 					break ;
 			}
-		}
-	}
-}
-
-// Need to walk along any number of alignments (hg18, pt2, ..., nt),
-// producing either gaps or bases at each position.  If *all* positions
-// are gapped, the position is skipped.  Else produce symbols (gaps or
-// base, either from genome or from majority sequence), summary
-// information and likelihoods.
-//
-// XXX: for the time being, walk only one alignment
-void ThreeAlnWriter::put_result( const Result& res )
-{
-	const Read& r = res.read() ;
-	const Hit* h = hit_to( res ) ;
-	if( !h ) return ;
-	GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
-	DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
-
-	std::stringstream ss ;
-	ss << name_ << ": " << h->genome_name() << '/' << h->sequence() << '@' << h->start_pos() ; 
-	chan_( Console::info, ss.str() ) ;
-
-	*out_ << '>' << r.seqid() << ' ' << r.description() << '\n' ;
-	// XXX more header lines like this:
-	// out_ << ';' << h.genome_name() << ' ' << h.sequence() << ' '
-		// << ( h.aln_length() < 0 ? '-' : '+' ) << h.start_pos() << std::endl ;
-
-	AlnIter aln( r, *h ), aln_e( r, *h, 1 ) ;
-	int offs = 0 ;
-	for( ; aln != aln_e ; ++aln ) 
-	{
-		switch( aln.cigar_op() )
-		{
-			case Hit::Match:
-			case Hit::Mismatch:
-			case Hit::Delete:
-				*out_ << from_ambicode( *ref ) ;
-				break ;
-			case Hit::Insert:
-			case Hit::SoftClip:
-				*out_ << '-' ;
-				break ;
-			default:
-				break ;
-		}
-		int ngaps = -std::accumulate(
-				r.seen_bases().begin() + 4*offs,
-				r.seen_bases().begin() + 4*offs +4,
-				-r.depth(offs) ) ;
-
-		switch( aln.cigar_op() )
-		{
-			case Hit::Match:
-			case Hit::Mismatch:
-			case Hit::Insert:
-			case Hit::SoftClip:
-				*out_ << r.sequence()[offs] << std::setw(4) << (int)(uint8_t)r.quality()[offs]
-					<< std::setw(5) << r.depth(offs) << std::setw(5) << ngaps ;
-
-				*out_ << "   " ;
-				for( int i = 0 ; i != 4 ; ++i )
-					*out_ << std::setw(4) << r.seen_bases( i + 4*offs ) ;
-
-				*out_ << "   " ;
-				for( int i = 0 ; i != 4 ; ++i )
-					*out_ << std::setw(4) << (int)(uint8_t)r.likelihoods(i)[offs] ;
-				break ;
-
-			case Hit::Delete:
-				*out_ << '-' ;
-				break ;
-			default:
-				break ;
-		}
-		*out_ << '\n' ;
-		switch( aln.cigar_op() )
-		{
-			case Hit::Match:
-			case Hit::Mismatch:
-				++ref ;
-
-			case Hit::Insert:
-			case Hit::SoftClip:
-				++offs ;
-				break ;
-
-			default:
-				++ref ;
-				break ;
 		}
 	}
 }

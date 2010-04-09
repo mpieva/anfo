@@ -240,7 +240,6 @@ WRAP( p_write_native, ( Object f, Object c ), (f,c) ) { return wrap_stream( new 
 WRAP( p_write_text,   ( Object f ), (f) ) { return wrap_stream( new TextWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_sam,    ( Object f ), (f) ) { return wrap_stream( new SamWriter( open_any_output_std( f ) ) ) ; } 
 WRAP( p_write_glz,    ( Object f ), (f) ) { return wrap_stream( new GlzWriter( open_any_output_zc( f ) ) ) ; }
-WRAP( p_write_3aln,   ( Object f ), (f) ) { return wrap_stream( new ThreeAlnWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_fastq,  ( Object f ), (f) ) { return wrap_stream( new FastqWriter( open_any_output_std( f ), true ) ) ; }
 WRAP( p_write_table,  ( Object f ), (f) ) { return wrap_stream( new TableWriter( open_any_output_std( f ) ) ) ; }
 WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWriter( open_any_output_std( f ) ) ) ; }
@@ -431,7 +430,6 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_text,       "prim-write-text",     1, 1, EVAL ) ; 
 	Define_Primitive( (P)p_write_sam,        "prim-write-sam",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_glz,        "prim-write-glz",      1, 1, EVAL ) ;
-	Define_Primitive( (P)p_write_3aln,       "prim-write-threealn", 1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_fastq,      "prim-write-fastq",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_table,      "prim-write-table",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_fasta,      "prim-write-fasta",    1, 1, EVAL ) ;

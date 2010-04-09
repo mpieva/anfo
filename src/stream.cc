@@ -647,7 +647,7 @@ void merge_sensibly( output::Footer& lhs, const output::Footer& rhs )
 }
 
 
-const output::Hit* hit_to( const output::Result& r )
+const output::Hit* best_hit( const output::Result& r )
 {
 	if( r.hit_size() ) {
 		const output::Hit *h = &r.hit(0) ;
@@ -667,7 +667,7 @@ const output::Hit* hit_to( const output::Result& r, const string& g )
 	return 0 ;
 }
 
-output::Hit* mutable_hit_to( output::Result* r )
+output::Hit* mutable_best_hit( output::Result* r )
 {
 	if( r->hit_size() ) {
 		output::Hit *h = r->mutable_hit(0) ;
@@ -771,8 +771,7 @@ bool QualFilter::xform( Result& h )
 bool LengthFilter::xform( Result& r )
 {
 	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
-	if( r.hit_size() && len < minlength_ ) r.clear_hit() ;
-	return true ;
+	return len >= minlength_ ;
 }
 
 namespace {

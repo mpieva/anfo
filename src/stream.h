@@ -125,9 +125,9 @@ void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
 //! \brief returns the hit to some genome
 //! If an empty genome is asked for, returns the best hit.  Behaviour is
 //! undefined if no suitable hit exists.
-const output::Hit* hit_to( const output::Result& ) ;
+const output::Hit* best_hit( const output::Result& ) ;
 const output::Hit* hit_to( const output::Result&, const string& ) ;
-inline const output::Hit* hit_to( const output::Result& r, const char* g ) { return g ? hit_to( r ) : hit_to( r, string(g) ) ; }
+inline const output::Hit* hit_to( const output::Result& r, const char* g ) { return g ? best_hit( r ) : hit_to( r, string(g) ) ; }
 
 template< typename I > const output::Hit* hit_to( const output::Result& r, I begin, I end )
 {
@@ -139,7 +139,7 @@ template< typename I > const output::Hit* hit_to( const output::Result& r, I beg
 //! \brief returns the mutable hit to some genome
 //! If an empty genome is asked for, returns the best hit.  If no
 //! suitable hit exists, a new one is created.
-output::Hit* mutable_hit_to( output::Result* ) ;
+output::Hit* mutable_best_hit( output::Result* ) ;
 output::Hit* mutable_hit_to( output::Result*, const string& ) ;
 
 //! \brief computes (trimmed) query length from CIGAR line
