@@ -33,8 +33,8 @@ namespace streams {
 
 void DuctTaper::put_header( const Header& h ) 
 {
-	if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
-		throw "need sorted input for duct taping" ;
+	// if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+		// throw "need sorted input for duct taping" ;
 
 	hdr_ = h ;
 	adna_ = adna_parblock( h.config().aligner() ) ;
