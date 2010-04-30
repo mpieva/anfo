@@ -33,6 +33,7 @@ extern "C" {
 #include <cctype>
 #include <numeric>
 #include <set>
+#include <utility>
 
 #if HAVE_FCNTL_H
 #include <fcntl.h>
@@ -219,45 +220,26 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 	}
 }
 
-/*
-AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos, const char* fname ) : o_( zos ), name_( fname ), wrote_(0)
-{
-	o_.WriteRaw( "ANFO", 4 ) ;
+inline uint8_t ChunkedWriter::method_of( int l ) {
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
+	if( l >= 75 ) return bzip ;
+#endif
+#if HAVE_LIBZ && HAVE_ZLIB_H
+	if( l >= 50 ) return gzip ;
+#endif
+	if( l >= 10 ) return fastlz ;
+	return none ;
 }
 
-AnfoWriter::AnfoWriter( int fd, const char* fname, bool expensive )
-	: zos_( compress_any( expensive, new FileOutputStream( fd ) ) )
-	, o_( zos_.get() ), name_( fname ), wrote_(0)
-{
-	o_.WriteRaw( "ANFO", 4 ) ;
+inline uint8_t ChunkedWriter::level_of( int l ) {
+	if( l >= 65 ) return 9 ;	// thorough gzip or bzip
+	if( l >= 30 ) return 2 ;	// thorough fastlz or fast gzip
+	return 1 ;					// fast fastlz or none 
 }
-
-AnfoWriter::AnfoWriter( const char* fname, bool expensive )
-	: zos_( compress_any( expensive, new FileOutputStream(
-					throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) ) )
-	, o_( zos_.get() ), name_( fname ), wrote_(0)
-{
-	o_.WriteRaw( "ANFO", 4 ) ;
-}
-
-void AnfoWriter::put_result( const Result& r )
-{
-	write_delimited_message( o_, 4, r ) ; 
-	++wrote_ ;
-	if( wrote_ % 1024 == 0 )
-	{
-		stringstream s ;
-		s << name_ << ": " << wrote_ << " msgs" ;
-		chan_( Console::info, s.str() ) ;
-	}
-}
-*/
 
 void ChunkedWriter::init() 
 {
-    // sensible buffer size: big enough to make compression worthwhile,
-    // small enough that BZip won't split it again
-	buf_.resize( 850000 ) ;
+	buf_.resize( default_buffer_size ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 	CodedOutputStream o( zos_.get() ) ;
 	o.WriteRaw( "ANF1", 4 ) ;
@@ -274,7 +256,6 @@ ChunkedWriter::ChunkedWriter( const char* fname, int l ) :
 void ChunkedWriter::flush_buffer( unsigned needed ) 
 {
 	uint32_t uncomp_size = aos_->ByteCount() ;
-	if( uncomp_size == 0 ) return ;
 	if( needed && buf_.size() - uncomp_size >= needed+8 ) return ;
 	aos_.reset( 0 ) ;
 
@@ -325,6 +306,9 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 		o.WriteLittleEndian32( (uint32_t)(method_) << 28 | comp_size ) ;	// compressed size & compression method
 		o.WriteRaw( &tmp[0], comp_size ) ;
 	}
+	std::vector< char > newbuf ;
+	newbuf.resize( max( default_buffer_size, needed+8 ) ) ;
+	buf_.swap( newbuf ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 }
 
@@ -857,7 +841,7 @@ Result RmdupStream::fetch_result()
 {
 	Result r ;
 	swap( r, res_ ) ;
-	state_ = foot_.IsInitialized() ? end_of_stream : state_ = need_input ;
+	state_ = have_foot_ ? end_of_stream : need_input ;
 	return r ;
 }
 
@@ -884,10 +868,14 @@ void RmdupStream::put_footer( const Footer& f ) {
 		call_consensus() ;
 		swap( cur_, res_ ) ;
 	}
+	have_foot_ = true ;
 }
 
-inline int RmdupStream::max_score( const Hit* h ) const
-{ return int( 0.5 + slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ) ; }
+inline bool RmdupStream::good_score( const Hit* h ) const
+{ 
+	int mscore = int( 0.5 + slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ) ;
+	return !h->has_score() || h->score() == 0 || h->score() <= mscore ;
+}
 
 //! \brief receives a result record and merges it if appropriate
 //!
@@ -911,7 +899,7 @@ void RmdupStream::put_result( const Result& next )
 	{
 		// empty buffer.  if we now get a good alignment, we store it.
 		// anything else passed through
-		if( h && h->score() <= max_score( h ) )
+		if( h && good_score( h ) )
 		{
 			cur_ = next ;
 			for( size_t i = 0 ; i != 4 ; ++i )
@@ -934,7 +922,7 @@ void RmdupStream::put_result( const Result& next )
 	// rid of it, which makes room to store the next alignment.  (Very
 	// annoying, but it's a good thing we never need more than one slot
 	// for buffering...)
-	else if( !h0 || h0->score() > max_score( h0 ) )
+	else if( !h0 || !good_score( h ) )
 	{
 		swap( res_, cur_ ) ;
 		Read &r = *res_.mutable_read() ;
@@ -953,7 +941,7 @@ void RmdupStream::put_result( const Result& next )
 	// new one is any good...
 	else if( h && is_duplicate( cur_, next ) ) 
 	{
-		if( h->score() <= max_score( h ) ) 
+		if( good_score( h ) )
 		{
 			// a good one, we need to actually merge it.  If cur_ is a
 			// plain result, turn it into a degenerate merged one

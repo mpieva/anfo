@@ -143,7 +143,7 @@ void DuctTaper::flush_contig()
 
 Result DuctTaper::fetch_result()
 {
-	state_ = foot_.IsInitialized() ? end_of_stream : need_input ;
+	state_ = have_foot_ ? end_of_stream : need_input ;
 	return res_ ;
 }
 
@@ -151,6 +151,7 @@ void DuctTaper::put_footer( const Footer& f )
 {
 	foot_ = f ;
 	state_ = end_of_stream ;
+	have_foot_ = true ;
 	flush_contig() ;
 }
 

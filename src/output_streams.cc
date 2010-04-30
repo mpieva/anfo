@@ -50,9 +50,14 @@ bool GenTextAlignment::xform( Result& res )
 		GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
 		DnaP ref = g ? g->find_pos( h.sequence(), h.start_pos() ) : DnaP() ;
 		
-		if( !ref && strict_ ) throw "couldn't find reference: " + h.sequence() ;
 		if( !ref ) {
-			console.output( Console::warning, "couldn't find reference: " + h.sequence() ) ;
+			ostringstream errmsg ;
+			errmsg << "couldn't find reference: " ; 
+			if( !h.genome_name().empty() ) errmsg << h.genome_name() << ':' ;
+			errmsg << h.sequence() << '@' << h.start_pos() ;
+
+			if( strict_ ) throw errmsg.str() ;
+			console.output( Console::warning, errmsg.str() ) ;
 			continue ;
 		}
 

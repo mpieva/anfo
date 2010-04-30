@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include <err.h>
 #include <error.h>
 #include <malloc.h>
 #include <popt.h>
@@ -55,6 +56,8 @@ char lookup_sym( const string &s )
 	}
 	return i-1 ;
 }
+
+static const int star_symbol = lookup_sym( "*" ) ;
 
 struct SnpRec1 {
 	int pos ;
@@ -249,16 +252,18 @@ inline char strand_code( int chr, int strand )
 
 inline ostream& write_half_record_snp( ostream& s, const SnpRec1& r )
 {
-	return s 
-		<< from_ambicode( maybe_compl( r.strand, r.base ) ) << '\t' 
-		<< symbols[r.chr] << '\t' << strand_code( r.chr, r.strand ) << '\t'
-		<< r.pos << '\t' ;
+	if( r.chr != star_symbol ) return s 
+			<< from_ambicode( maybe_compl( r.strand, r.base ) ) << '\t' 
+			<< symbols[r.chr] << '\t' << strand_code( r.chr, r.strand ) << '\t'
+			<< r.pos << '\t' ;
+	else return s << "X\t*\t*\t0\t" ;
 }
 inline ostream& write_half_record_indel( ostream& s, const SnpRec1& r )
 {
-	return s 
+	if( r.chr != star_symbol ) return s 
 		<< symbols[r.chr] << '\t' << strand_code( r.chr, r.strand ) << '\t'
 		<< r.pos << '\t' << r.pos + r.length << '\t' ;
+	else return s << "*\t*\t0\t0\t" ;
 }
 inline ostream& write_bases( ostream& s, const SnpRec1& r )
 {
@@ -572,7 +577,10 @@ WRAPPED_MAIN
 		ifstream f( arg ) ;
 		if( strstr( arg, "SNP" ) ) read_martin_table_snp( f, mt, arg, header_snp ) ;
 		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt, arg, header_indel ) ;
-		else error( 1, errno, "cannot guess contents of %s", arg ) ;
+		else {
+			warn( "cannot guess contents of %s, assuming SNPs", arg ) ;
+			read_martin_table_snp( f, mt, arg, header_snp ) ;
+		}
 
 		if( !f.eof() ) error( 1, errno, "Parse error in 'Martin table' %s.", arg ) ;
 	}
