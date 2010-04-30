@@ -115,17 +115,32 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 		if( !getline( s, line ) ) break ;
 		stringstream ss( line ) ;
 		ss >> hsa_base >> hsa_chr >> hsa_strand_code >> r.hsa.pos
-		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr.pos
-		   >> r.out_base ;
+		   >> ptr_base >> ptr_chr >> ptr_strand_code >> r.ptr.pos ;
 		if( !ss ) throw "parse error in line " + line ;
 		
+		// check for empty outgroup base field (quite annoying...)
+		r.out_base = 0 ;
+		if( ss.get() == '\t' ) {
+			// something follows...
+			int c = ss.get() ;
+			if( c == '\t' ) {
+				// an empty outgroup base field...
+				ss.putback( '\t' ) ;
+			}
+			else if( c != stringstream::traits_type::eof() )
+			{
+				ss.putback( c ) ;
+				if( !( ss >> r.out_base ) ) r.out_base = 0 ;
+			}
+		}
+
 		// check for empty flags field (quite annoying...)
+		flags.clear() ;
 		if( ss.get() == '\t' ) {
 			// something follows...
 			int c = ss.get() ;
 			if( c == '\t' ) {
 				// an empty flags field...
-				flags.clear() ;
 				ss.putback( '\t' ) ;
 			}
 			else if( c != stringstream::traits_type::eof() )
@@ -186,12 +201,12 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 		if( !ss ) throw "parse error in line " + line ;
 
 		// check for empty flags field (quite annoying...)
+		flags.clear() ;
 		if( ss.get() == '\t' ) {
 			// something follows...
 			int c = ss.get() ;
 			if( c == '\t' ) {
 				// an empty flags field...
-				flags.clear() ;
 				ss.putback( '\t' ) ;
 			}
 			else if( c != stringstream::traits_type::eof() )
@@ -307,7 +322,8 @@ template< typename C > ostream& write_martin_table_snp( ostream& s, const C& d, 
 		
 		write_half_record_snp( s, r.hsa ) ;
 		write_half_record_snp( s, r.ptr ) ;
-		s << r.out_base << '\t' << encode_flags(r) << r.more_stuff ;
+		if( r.out_base ) s << r.out_base ;
+		s << '\t' << encode_flags(r) << r.more_stuff ;
 		write_bases( s, r.hsa ) ;
 		write_bases( s, r.ptr ) ;
 		s << '\n' ;
@@ -578,7 +594,7 @@ WRAPPED_MAIN
 		if( strstr( arg, "SNP" ) ) read_martin_table_snp( f, mt, arg, header_snp ) ;
 		else if( strstr( arg, "indel" ) ) read_martin_table_indel( f, mt, arg, header_indel ) ;
 		else {
-			warn( "cannot guess contents of %s, assuming SNPs", arg ) ;
+			warnx( "cannot guess contents of %s, assuming SNPs", arg ) ;
 			read_martin_table_snp( f, mt, arg, header_snp ) ;
 		}
 
@@ -594,7 +610,7 @@ WRAPPED_MAIN
 	console.output( Console::info, "Sorting on pt2..." ) ;
 	sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
 	console.output( Console::info, "Done." ) ;
-	scan_anfo_file( mt, ptr_file, "pt2", GetPt2Rec() ) ;
+	scan_anfo_file( mt, ptr_file, "pantro2", GetPt2Rec() ) ;
 
 	console.output( Console::info, "Sorting on hg18..." ) ;
 	sort( mt.begin(), mt.end(), ByHg18Coordinate() ) ;
