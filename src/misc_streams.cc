@@ -17,132 +17,142 @@ namespace streams {
 using namespace google::protobuf ;
 using namespace google::protobuf::io ;
 
-Header MergeStream::fetch_header()
-{
-	state_ = end_of_stream ;
-	for( size_t i = 0 ; i != streams_.size() ; )
-	{
-		Header h = streams_[i]->fetch_header() ;
-		merge_sensibly( hdr_, h ) ;
+namespace {
+	struct heap_compare {
+		const MergeStream* m_ ;
+		heap_compare( const MergeStream* m ) : m_(m) {}
+		bool operator() (
+				const pair< Result*, StreamHolder >& a,
+				const pair< Result*, StreamHolder >& b ) {
+			return m_->compare( a.first, b.first ) ;
+		}
+	} ;
+} ;
 
-		if( h.is_sorted_by_name() ) {
-			if( mode_ == unknown ) mode_ = by_name ;
-			else if( mode_ != by_name ) 
-				throw "MergeStream: inconsistent sorting of input (by_name)" ;
-		}
-		else if( h.is_sorted_by_all_genomes() ) {
-			if( mode_ == unknown ) {
-				mode_ = by_coordinate ;
-				gs_.clear() ;
+auto_ptr< Header > MergeStream::priv_fetch_header()
+{
+	auto_ptr< Header > hdr( new Header ) ;
+
+	for( size_t i = 0 ; i != streams_.size() ; ++i )
+	{
+		if( streams_[i]->get_state() == have_header )
+		{
+			auto_ptr< Header > h = streams_[i]->fetch_header() ;
+			merge_sensibly( *hdr, *h ) ;
+
+			if( h->is_sorted_by_name() ) {
+				if( mode_ == unknown ) mode_ = by_name ;
+				else if( mode_ != by_name ) 
+					throw "MergeStream: inconsistent sorting of input (by_name)" ;
 			}
-			else if( mode_ != by_coordinate || !gs_.empty() )
-				throw "MergeStream: inconsistent sorting of input (by_all_genomes)" ;
-		}
-		else if( h.is_sorted_by_coordinate_size() ) {
-			if( mode_ == unknown ) {
-				mode_ = by_coordinate ;
-				gs_.assign( h.is_sorted_by_coordinate().begin(), h.is_sorted_by_coordinate().end() ) ;
+			else if( h->is_sorted_by_all_genomes() ) {
+				if( mode_ == unknown ) {
+					mode_ = by_coordinate ;
+					gs_.clear() ;
+				}
+				else if( mode_ != by_coordinate || !gs_.empty() )
+					throw "MergeStream: inconsistent sorting of input (by_all_genomes)" ;
 			}
-			else if( mode_ != by_coordinate || (int)gs_.size() != h.is_sorted_by_coordinate_size()
-					|| !equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) )
-				throw "MergeStream: inconsistent sorting of input (by_genome)" ;
+			else if( h->is_sorted_by_coordinate_size() ) {
+				if( mode_ == unknown ) {
+					mode_ = by_coordinate ;
+					gs_.assign( h->is_sorted_by_coordinate().begin(), h->is_sorted_by_coordinate().end() ) ;
+				}
+				else if( mode_ != by_coordinate || (int)gs_.size() != h->is_sorted_by_coordinate_size()
+						|| !equal( gs_.begin(), gs_.end(), h->is_sorted_by_coordinate().begin() ) )
+					throw "MergeStream: inconsistent sorting of input (by_genome)" ;
+			}
 		}
 
 		if( streams_[i]->get_state() == have_output )
 		{
-			rs_.push_back( streams_[i]->fetch_result() ) ;
-			state_ = have_output ;
-			++i ;
+			heap_.push_back( make_pair( streams_[i]->fetch_result().release(), streams_[i] ) ) ;
 		}
-		else
+		else if( streams_[i]->get_state() == end_of_stream )
 		{
-			merge_sensibly( foot_, streams_[i]->fetch_footer() ) ;
-			streams_.erase( streams_.begin() + i ) ;
+			merge_sensibly( *ftr_, *streams_[i]->fetch_footer() ) ;
 		}
+		else throw "MergeStream: can only handle input streams" ;
 	}
-	return hdr_ ;
+	make_heap( heap_.begin(), heap_.end(), heap_compare(this) ) ;
+	streams_.clear() ;
+	return hdr ;
 }
 
-//! \todo uses linear search, but a heap would be more appropriate
-Result MergeStream::fetch_result() 
+auto_ptr< Result > MergeStream::priv_fetch_result() 
 {
-	if( state_ != have_output ) throw "logic error: MergeStream::fetch_result called in wrong stream state" ;
-	if( rs_.size() != streams_.size() ) throw "logic error: # of records does not equal # of streams in MergeStream::fetch_result" ;
-	if( !streams_.size() ) throw "logic error: no streams left in MergeStream::fetch_result" ;
-
-	int min_idx = 0 ;
-	for( size_t i = 1 ; i != rs_.size() ; ++i ) 
-		if( ( mode_ == by_coordinate && by_genome_coordinate( gs_ )( &rs_[ i ], &rs_[ min_idx ] ) )
-				|| ( mode_ == by_name && by_seqid()( &rs_[ i ], &rs_[ min_idx ] ) ) )
-			min_idx = i ;
-
-	string min_name = rs_[ min_idx ].read().seqid() ;
-	Result res ;
-	for( size_t i = 0 ; i != rs_.size() ; )
-	{
-		if( rs_[i].read().seqid() == min_name )
+	auto_ptr< Result > res ;
+	do {
+		if( res.get() )
 		{
-			if( res.IsInitialized() ) merge_sensibly( res, rs_[i] ) ;
-			else res = rs_[i] ;
-
-			Stream &sm = *streams_[i] ;
-			if( sm.get_state() == have_output ) rs_[i++] = sm.fetch_result() ; 
-			else
-			{
-				merge_sensibly( foot_, sm.fetch_footer() ) ;
-				streams_.erase( streams_.begin() + i ) ;
-				rs_.erase( rs_.begin() + i ) ;
-				if( rs_.empty() ) state_ = end_of_stream ;
-			}
+			merge_sensibly( *res, *heap_.front().first ) ;
+			delete heap_.front().first ;
 		}
-        else ++i ;
+		else res.reset( heap_.front().first ) ;
+
+		pop_heap( heap_.begin(), heap_.end(), heap_compare(this) ) ;
+		if( heap_.back().second->get_state() == have_output )
+		{
+			heap_.back().first = heap_.back().second->fetch_result().release() ;
+			push_heap( heap_.begin(), heap_.end(), heap_compare(this) ) ;
+		}
+		else if( heap_.back().second->get_state() == end_of_stream )
+		{
+			merge_sensibly( *ftr_, *heap_.back().second->fetch_footer() ) ;
+			heap_.pop_back() ;
+		}
+		else throw "MergeStream: can only handle input streams" ;
 	}
+	while( !heap_.empty() && heap_.front().first->read().seqid() == res->read().seqid() ) ;
 	return res ;
 }
 
-Header NearSortedJoin::fetch_header()
+auto_ptr< Header > NearSortedJoin::priv_fetch_header()
 {
-	state_ = end_of_stream ;
-	for( size_t i = 0 ; i != streams_.size() ; )
+	auto_ptr< Header > hdr( new Header ) ;
+	for( vector< StreamHolder >::iterator i = streams_.begin() ; i != streams_.end() ; )
 	{
-		merge_sensibly( hdr_, streams_[i]->fetch_header() ) ;
-		++nstreams_ ;
-		if( streams_[i]->get_state() == have_output )
+		merge_sensibly( *hdr, *(*i)->fetch_header() ) ;
+		if( (*i)->get_state() == have_output ) ++i ;
+		else if( (*i)->get_state() == end_of_stream )
 		{
-			state_ = have_output ;
-			++i ;
+			merge_sensibly( *ftr_, *(*i)->fetch_footer() ) ;
+			i = streams_.erase( i ) ;
 		}
-		else
-		{
-			merge_sensibly( foot_, streams_[i]->fetch_footer() ) ;
-			streams_.erase( streams_.begin() + i ) ;
-		}
+		else throw "NearSortedJoin: can only handle input streams" ;
 	}
 	cur_input_ = streams_.begin() ;
-	return hdr_ ;
+	return hdr ;
 }
 
 //! Enough information is read until one sequence has been reported on
 //! by each input stream.  Everything else is buffered if necessary.
 //! This works fine as long as the inputs come in in roughly the same
 //! order and are complete.
-Result NearSortedJoin::fetch_result()
+auto_ptr< Result > NearSortedJoin::priv_fetch_result()
 {
 	while( !streams_.empty() ) {
-		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
 
 		Stream &s = **cur_input_ ;
 		if( s.get_state() != have_output ) throw "logic error: NearSortedJoin::fetch_result wasn't provided with input" ;
 
-		Result r = s.fetch_result() ;
+		auto_ptr< Result > r = s.fetch_result() ;
 		if( s.get_state() == end_of_stream )
 		{
-			merge_sensibly( foot_, s.fetch_footer() ) ;
+			merge_sensibly( *ftr_, *s.fetch_footer() ) ;
 			cur_input_ = streams_.erase( cur_input_ ) ;
 		}
-		else ++cur_input_ ;
+		else if( s.get_state() == have_output ) ++cur_input_ ;
+		else throw "NearSortedJoin: can only handle input streams" ;
 
-        if( buffer_.size() >= 1000000 ) throw "input must be complete and nearly sorted the same way for join to work" ;
+		if( cur_input_ == streams_.end() ) cur_input_ = streams_.begin() ;
+
+        if( buffer_.size() >= 1000000 && !warned_ )
+		{
+			console.output( Console::warning, "NearSortedJoin: input is not complete and nearly sorted" ) ;
+			console.output( Console::warning, "NearSortedJoin: continuing, but an out-of-memory condition is likely" ) ;
+			warned_ = true ;
+		}
 
         if( ((nread_ + nwritten_) & 0xFFFF) == 0 )
         {
@@ -153,29 +163,23 @@ Result NearSortedJoin::fetch_result()
             progress_( Console::info, s.str() ) ;
         }
 
-		pair< size_t, Result > &p = buffer_[ r.read().seqid() ] ;
+		pair< size_t, Result* > &p = buffer_[ r->read().seqid() ] ;
 		++nread_ ;
 		++p.first ;
-		if( p.second.IsInitialized() ) merge_sensibly( p.second, r ) ;
-		else p.second = r ;
+		if( p.second ) merge_sensibly( *p.second, *r ) ;
+		else p.second = r.release() ;
 
 		if( p.first == nstreams_ )
 		{
 			++nwritten_ ;
-			Result r1 ;
-			swap( r1, p.second ) ;
-			buffer_.erase( r.read().seqid() ) ;
-
-			if( buffer_.empty() && streams_.empty() )
-				state_ = end_of_stream ;
+			auto_ptr< Result > r1( p.second ) ;
+			buffer_.erase( r->read().seqid() ) ;
 			return r1 ;
 		}
 	}
 
-	Result r1 ;
-	swap( r1, buffer_.begin()->second.second ) ;
+	auto_ptr< Result > r1( buffer_.begin()->second.second ) ;
 	buffer_.erase( buffer_.begin()->first ) ;
-	if( buffer_.empty() ) state_ = end_of_stream ;
 	return r1 ;
 }
 
@@ -201,76 +205,72 @@ void RepairHeaderStream::put_header( const Header& h )
 	state_ = need_input ;
 }
 
-void FanOut::put_header( const Header& h )
+Stream::state FanOut::priv_get_state()
 {
-	Stream::put_header( h ) ;
-	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
-		(*i)->put_header( h ) ;
+	state s = end_of_stream ;
+	for( iter i = streams_.begin() ; i != streams_.end() ; ++i )
+		switch( (*i)->get_state() ) 
+		{
+			case need_header: s = need_header ; break ;
+			case need_input: if( s != need_header ) s = need_input ; break ;
+			case end_of_stream: break ;
+			default: throw "FanOut can only handle output streams" ;
+		}
+	return s ;
 }
 
-void FanOut::put_result( const Result& r )
+void FanOut::priv_put_header( auto_ptr< Header > h )
 {
-	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
-		if( (*i)->get_state() == need_input ) (*i)->put_result( r ) ;
+	for( iter i = streams_.begin() ; i != streams_.end() ; ++i )
+		if( (*i)->get_state() == need_header )
+			(*i)->put_header( auto_ptr< Header >( new Header( *h ) ) ) ;
 }
 
-void FanOut::put_footer( const Footer& f )
+void FanOut::priv_put_result( auto_ptr< Result > r )
 {
-	Stream::put_footer( f ) ;
-	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
-		(*i)->put_footer( f ) ;
+	for( iter i = streams_.begin() ; i != streams_.end() ; ++i )
+		if( (*i)->get_state() == need_input )
+		(*i)->put_result( auto_ptr< Result >(  new Result( *r ) ) ) ;
 }
 
-Footer FanOut::fetch_footer()
+void FanOut::priv_put_footer( auto_ptr< Footer > f )
 {
-	for( citer i = streams_.begin() ; i != streams_.end() ; ++i )
-		merge_sensibly( foot_, (*i)->fetch_footer() ) ;
-	return Stream::fetch_footer() ;
+	for( iter i = streams_.begin() ; i != streams_.end() ; ++i )
+		if( (*i)->get_state() == need_input )
+		(*i)->put_footer( auto_ptr< Footer >( new Footer( *f ) ) ) ;
 }
+
 	
-void Compose::put_header( const Header& h_ )
-{
-	Header h = h_ ;
-	citer i = streams_.begin(), e = streams_.end() ;
-	for( e-- ; i != e ; ++i )
-	{
-		(*i)->put_header( h ) ;
-		h = (*i)->fetch_header() ;
-	}
-	(*i)->put_header( h ) ;
-}
-
-Header Compose::fetch_header() 
-{
-	citer i = streams_.begin(), e = streams_.end() ;
-	Header h = (*i)->fetch_header() ;
-	for( ++i ; i != e ; ++i )
-	{
-		(*i)->put_header( h ) ;
-		h = (*i)->fetch_header() ;
-	}
-	return h ;
-}
-
 // note weird calls to base(): makes a weird compiler happy...
-Stream::state Compose::get_state()
+Stream::state Compose::priv_get_state()
 {
+	if( streams_.empty() ) throw "Compose: empty composition" ;
+
 	// look at a stream at a time, starting from the end
 	for( criter i = streams_.rbegin() ;; )
 	{
-		// if we fell of the far end, we need more input
-		if( i.base() == streams_.rend().base() ) { return need_input ; }
+		// if we fell off the far end, we need more input or a header
+		if( i.base() == streams_.rend().base() ) { return streams_.front()->get_state() ; }
+
 		// else consider the state
 		state s = (*i)->get_state() ;
-		if( s == need_input ) {
-			// input comes from previous stream
+		if( s == need_header || s == need_input ) {
+			// input comes from previous stream, move there
 			++i ;
 		}
-		else if( s == have_output ) {
+		else if( s == have_header ) {
+			// pass the header on if needed, else discard it
+			if( i.base() == streams_.rbegin().base() ) { return have_header ; }
+			auto_ptr< Header > h = (*i)->fetch_header() ;
+			--i ;
+			if( (*i)->get_state() == need_header ) (*i)->put_header( h ) ;
+			else ++i ;
+		}
+		else if( s == have_output || s == can_io ) {
 			// output's available, either to the outside or to
 			// downstream filters
 			if( i.base() == streams_.rbegin().base() ) { return have_output ; }
-			Result r = (*i)->fetch_result() ;
+			auto_ptr< Result > r = (*i)->fetch_result() ;
 			--i ;
 			(*i)->put_result( r ) ;
 		}
@@ -278,29 +278,26 @@ Stream::state Compose::get_state()
 			// nothing left, pass the footer to see if some data is
 			// buffered
 			if( i.base() == streams_.rbegin().base() ) { return end_of_stream ; }
-			Footer f = (*i)->fetch_footer() ;
+			auto_ptr< Footer > f = (*i)->fetch_footer() ;
 			--i ;
 			(*i)->put_footer( f ) ;
 		}
-		else {
-			// easy: something's broken
-			return invalid ;
-		}
+		// easy: something's broken
+		else throw "Compose: broken stream" ;
 	}
 }
 
-#if HAVE_ELK_SCHEME_H
-void StatStream::put_result( const Result& r )
+void StatStream::priv_put_result( auto_ptr< Result > r )
 {
-	unsigned bases = r.read().sequence().size() ;
-	unsigned gc = count( r.read().sequence().begin(), r.read().sequence().end(), 'G' )
-		        + count( r.read().sequence().begin(), r.read().sequence().end(), 'C' ) ;
-	unsigned count = std::max( r.members_size() + r.nmembers(), 1U ) ;
+	unsigned bases = r->read().sequence().size() ;
+	unsigned gc = count( r->read().sequence().begin(), r->read().sequence().end(), 'G' )
+		        + count( r->read().sequence().begin(), r->read().sequence().end(), 'C' ) ;
+	unsigned count = std::max( r->members_size() + r->nmembers(), 1U ) ;
 	total_ += count ;
 	bases_ += bases ;
 	bases_gc_ += gc ;
 	bases_squared_ += bases*bases ;
-	if( const Hit* h = hit_to( r ) )
+	if( const Hit* h = best_hit( *r ) )
 	{
 		mapped_ += count ;
 		bases_m_ += bases ;
@@ -336,11 +333,11 @@ Object StatStream::get_summary() const
 	return r ;
 }
 
-void MismatchStats::put_result( const Result& r )
+void MismatchStats::priv_put_result( auto_ptr< Result > r )
 {
-	for( int i = 0 ; i != r.hit_size() ; ++i )
+	for( int i = 0 ; i != r->hit_size() ; ++i )
 	{
-		const Hit& h = r.hit(i) ;
+		const Hit& h = r->hit(i) ;
 		if( !h.has_aln_ref() || !h.has_aln_qry() ) 
 			throw "MismatchStats needs reconstructed alignments" ;
 
@@ -370,10 +367,10 @@ Object MismatchStats::get_summary() const
 	return r ;
 }
 
-void DivergenceStream::put_header( const Header& h )
+void DivergenceStream::priv_put_header( auto_ptr< Header > h )
 {
-    Stream::put_header( h ) ;
-    ancient_ = h.config().has_aligner() && h.config().aligner().has_mean_overhang_length() ;
+    saw_header_ = true ;
+    ancient_ = h->config().has_aligner() && h.config().aligner().has_mean_overhang_length() ;
 }
 
 // Excludes gaps, Ns, and nonsensical symbols
@@ -392,10 +389,10 @@ inline static bool fine( char x, char y, char z )
     return true ;
 }
 
-void DivergenceStream::put_result( const Result& r ) 
+void DivergenceStream::priv_put_result( auto_ptr< Result > r ) 
 {
-	const Hit *pri = hit_to( r, primary_genome_ ) ;
-	const Hit *sec = hit_to( r, secondary_genome_ ) ;
+	const Hit *pri = hit_to( *r, primary_genome_ ) ;
+	const Hit *sec = hit_to( *r, secondary_genome_ ) ;
 	if( pri && sec )
 	{
 		if( !pri->has_aln_ref() || !pri->has_aln_qry() ||
@@ -471,7 +468,6 @@ Object DivergenceStream::get_summary() const
 	b[4] = Make_Flonum( b5 ) ;
 	return bb ;
 }
-#endif
 
 RegionFilter::Regions3 RegionFilter::all_regions ;
 

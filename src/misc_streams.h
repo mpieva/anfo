@@ -44,7 +44,9 @@ struct by_genome_coordinate {
 		if( v->sequence() < u->sequence() ) return false ;
 		if( u->start_pos() < v->start_pos() ) return true ;
 		if( v->start_pos() < u->start_pos() ) return false ;
-		return u->aln_length() < v->aln_length() ;
+		return lexicographical_compare(
+				u->cigar().begin(), u->cigar().end(), 
+				v->cigar().begin(), v->cigar().end() ) ;
 	}
 
 	bool compare( const Result &a, const Result &b, const string& g )
@@ -57,7 +59,9 @@ struct by_genome_coordinate {
 		if( v->sequence() < u->sequence() ) return false ;
 		if( u->start_pos() < v->start_pos() ) return true ;
 		if( v->start_pos() < u->start_pos() ) return false ;
-		return u->aln_length() < v->aln_length() ;
+		return lexicographical_compare(
+				u->cigar().begin(), u->cigar().end(), 
+				v->cigar().begin(), v->cigar().end() ) ;
 	}
 
 	void tag_header( output::Header& h ) {
@@ -105,24 +109,42 @@ struct by_seqid {
 //!       In principle, we could merge smaller chunks into temporary
 //!       files to avoid hitting the file descriptor limit, but there
 //!       hasn't been a practical need to do that yet.
-class MergeStream : public StreamBundle
+//! \note If records with the same name appear after one another, they
+//!       get "merged sensibly".  This is the intended behaviour when
+//!       sorting by name, otherwise it does no harm.
+//! \todo Broken at the moment.
+class MergeStream : public InputStream
 {
 	private:
-		deque< Result > rs_ ;
+		vector< pair< Result*, StreamHolder > > heap_ ;
+		vector< StreamHolder > streams_ ;
+
 		enum { unknown, by_name, by_coordinate } mode_ ;
 		vector<string> gs_ ;
+		auto_ptr< Footer > ftr_ ;
 
 	public:
-		MergeStream() : mode_( unknown ) {}
-		virtual Header fetch_header() ;
-		virtual Result fetch_result() ;
+		MergeStream( const vector< StreamHolder >& ss ) :
+			streams_( ss ), mode_( unknown ), ftr_( new Footer ) {}
 
-		//! \todo totally broken, need to think about how to keep the
-		//!       necessary information.
-#if HAVE_ELK_SCHEME_H
-		virtual Object get_summary() const { return False ; }
-#endif
+		virtual state priv_get_state() {
+			return !streams_.empty() ? have_header :
+				   !heap_.empty() ? have_output :
+				   end_of_stream ;
+		}
+
+		virtual auto_ptr< Header > priv_fetch_header() ;
+		virtual auto_ptr< Result > priv_fetch_result() ;
+		virtual auto_ptr< Footer > priv_fetch_footer() { return ftr_ ; }
+
 		virtual string type_name() const { return "MergeStream" ; }
+
+		bool compare( const Result* a, const Result* b ) const
+		{
+			return 
+				mode_ == by_name ? by_seqid()( a, b ) :
+				by_genome_coordinate( gs_ )( a, b ) ;
+		}
 } ;
 
 //! \brief merges multiple streams by taking the best hit
@@ -131,47 +153,71 @@ class MergeStream : public StreamBundle
 //! This sequence is then delivered.  Everything works fine, as long as
 //! the sequence names come in in roughly the same order and every name
 //! is contained in every input.  Else it still works, but eats memory.
+//! You get a warning if that happens, and probably a crash later on.
 //! This is best used to merge chunks of work done by independent
 //! processes where the order of records hasn't been disturbed too much
 //! (multithreading and the implied slight shuffle is fine).
-class NearSortedJoin : public StreamBundle
+class NearSortedJoin : public InputStream
 {
 	private:
-		typedef map< string, pair< size_t, Result > > Buffer ;
+		vector< StreamHolder > streams_ ;
+		typedef map< string, pair< size_t, Result* > > Buffer ;
 		Buffer buffer_ ;
 		size_t nread_, nwritten_, nstreams_ ;
-		deque< StreamHolder >::iterator cur_input_ ;
+		vector< StreamHolder >::iterator cur_input_ ;
 		Chan progress_ ;
+		auto_ptr< Footer > ftr_ ;
+		bool warned_ ;
 
 	public:
-		NearSortedJoin() : nread_(0), nwritten_(0), nstreams_(0) {}
+		NearSortedJoin( const vector< StreamHolder >& ss ) :
+			streams_( ss ), nread_(0), nwritten_(0), nstreams_( streams_.size() ),
+			cur_input_( streams_.end() ), ftr_( new Footer ), warned_( false ) {}
 
-		virtual Header fetch_header() ;
-		virtual Result fetch_result() ;
+		virtual state get_state() {
+			return streams_.empty() && buffer_.empty() ? end_of_stream :
+				cur_input_ == streams_.end() ? have_header :
+				have_output ;
+		}
+
+		virtual auto_ptr< Header > priv_fetch_header() ;
+		virtual auto_ptr< Result > priv_fetch_result() ;
+		virtual auto_ptr< Footer > priv_fetch_footer() { return ftr_ ; }
+
+		virtual string type_name() const { return "NearSortedJoin" ; }
 } ;
 
 
 //! \brief presents a container as an input stream
 //! The container must be of pointers to \c Result, the stream acts as
-//! input stream.  A suitable header and footer are supplied at
-//! construction time.
-template< typename I > class ContainerStream : public Stream
+//! input stream and takes ownership(!) of the contained pointers.  A
+//! suitable header and footer are supplied at construction time.
+template< typename I > class ContainerStream : public InputStream
 {
 	private:
 		I cur_, end_ ;
 		unsigned total_, done_ ;
 		Chan chan_ ;
 
+		auto_ptr< Header > hdr_ ;
+		auto_ptr< Footer > ftr_ ;
+
 	public:
-		ContainerStream( const Header &hdr, I begin, I end, const Footer &foot ) 
-			: cur_( begin ), end_( end ), total_( std::distance( begin, end ) ), done_(0)
-		{
-			hdr_ = hdr ;
-			foot_ = foot ;
-			state_ = cur_ == end_ ? end_of_stream : have_output ;
+		ContainerStream( const Header &hdr, I begin, I end, const Footer &foot ) :
+			cur_( begin ), end_( end ), total_( std::distance( begin, end ) ), done_(0),
+			hdr_( new Header( hdr ) ), ftr_( new Footer( foot ) )
+		{}
+
+		virtual state priv_get_state() {
+			return hdr_.get() ? have_header :
+				cur_ == end_ ? end_of_stream : 
+				have_output ;
 		}
 
-		virtual Result fetch_result() {
+		virtual auto_ptr< Header > priv_fetch_header() { return hdr_ ; }
+		virtual auto_ptr< Footer > priv_fetch_footer() { return ftr_ ; }
+
+		virtual auto_ptr< Result > priv_fetch_result() {
 			if( ++done_ % 1024 == 0 )
 			{
 				stringstream s ;
@@ -180,11 +226,12 @@ template< typename I > class ContainerStream : public Stream
 				chan_( Console::info, s.str() ) ;
 			}
 
-			Result r = **cur_ ;
+			auto_ptr< Result > r( *cur_ ) ;
+			*cur_ = 0 ;
 			++cur_ ;
-			if( cur_ == end_ ) state_ = end_of_stream ;
 			return r ;
 		}
+
 		virtual string type_name() const { return "ContainerStream" ; }
 } ;
 
@@ -199,10 +246,10 @@ extern unsigned SortingStream__ninstances ;
 //! configurable at construction time), some temporary files are merge
 //! sorted into a bigger one.
 
-template <class Comp> class SortingStream : public Stream
+template <class Comp> class SortStream : public Stream
 {
 	private:
-		typedef deque< Holder< streams::Stream > > MergeableQueue ;
+		typedef deque< StreamHolder > MergeableQueue ;
 		typedef map< unsigned, MergeableQueue > MergeableQueues ;
 		typedef deque< Result* > ScratchSpace ;
 
@@ -213,11 +260,11 @@ template <class Comp> class SortingStream : public Stream
 		//! the number of times they have been merged.  This way we
 		//! don't merge the stuff over and over, and instead tend to do
 		//! a merge that gives the greatest reduction in number of open
-		//! files with least amount of IO.  The key is the number of
+		//! files with the least amount of IO.  The key is the number of
 		//! times a file has already been merged with others, the value
 		//! is just a set of streams.
 		MergeableQueues mergeable_queues_ ;
-		Holder< Stream > final_stream_ ;
+		StreamHolder final_stream_ ;
 
 		uint64_t total_scratch_size_ ;
 
@@ -225,6 +272,8 @@ template <class Comp> class SortingStream : public Stream
         unsigned num_open_files_ ;
 		unsigned max_arr_size_ ;
 		Comp comp_ ;
+
+		auto_ptr< Header > hdr_ ;
 
 		//! \brief quicksort the scratch area
 		//! \internal
@@ -238,64 +287,65 @@ template <class Comp> class SortingStream : public Stream
 			sort( scratch_space_.begin(), scratch_space_.end(), comp_ ) ;
 		}
 
-		void enqueue_stream( streams::StreamHolder, int = 0 ) ;
+		void enqueue_stream( StreamHolder, int = 0 ) ;
 		void flush_scratch() ;
 
-		virtual ~SortingStream()
+		virtual ~SortStream()
 		{
 			for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 			--SortingStream__ninstances ;
 		}
 
 	public:
-		SortingStream( unsigned as = 256, unsigned qs = 256, Comp comp = Comp() ) :
+		SortStream( unsigned as = 256, unsigned qs = 256, Comp comp = Comp() ) :
             final_stream_(), total_scratch_size_(0), max_que_size_(qs),
             num_open_files_(0), max_arr_size_( as), comp_( comp )
-		{ foot_.set_exit_code( 0 ) ; ++SortingStream__ninstances ; }
+		{ ++SortingStream__ninstances ; }
 
-		virtual void put_header( const Header& h ) { Stream::put_header( h ) ; comp_.tag_header( hdr_ ) ; }
-		virtual void put_footer( const Footer& ) ;
-		virtual void put_result( const Result& r ) {
-			scratch_space_.push_back( new Result( r ) ) ;
+		virtual state priv_get_state() 
+		{
+			return final_stream_ ? final_stream_->get_state() :
+				hdr_.get() ? need_input : need_header ;
+		}
+
+		virtual void priv_put_header( auto_ptr< Header > h ) { hdr_ = h ; comp_.tag_header( *hdr_ ) ; }
+		virtual void priv_put_footer( auto_ptr< Footer > ) ;
+
+		virtual void priv_put_result( auto_ptr< Result > r ) {
+			scratch_space_.push_back( r.release() ) ;
 			total_scratch_size_ += scratch_space_.back()->SpaceUsed() ;
 			if( (total_scratch_size_ >> 20) >= max_arr_size_ ) flush_scratch() ;
 		}
 
-		virtual Result fetch_result()
-		{
-			Result r = final_stream_->fetch_result() ;
-			state_ = final_stream_->get_state() ;
-			return r ;
-		}
-		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_->fetch_footer() ) ; return foot_ ; }
-#if HAVE_ELK_SCHEME_H
+		virtual auto_ptr< Header > priv_fetch_header() { return final_stream_->fetch_header() ; }
+		virtual auto_ptr< Result > priv_fetch_result() { return final_stream_->fetch_result() ; }
+		virtual auto_ptr< Footer > priv_fetch_footer() { return final_stream_->fetch_footer() ; }
 		virtual Object get_summary() const { return final_stream_->get_summary() ; }
-#endif
 } ;
 
-template < typename Comp > void SortingStream<Comp>::flush_scratch()
+template < typename Comp > void SortStream<Comp>::flush_scratch()
 {
 	sort_scratch() ;
 	string tempname ;
 	int fd = mktempfile( &tempname ) ;
 	{
 		ContainerStream< deque< Result* >::const_iterator >
-			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
+			sa( hdr_, scratch_space_.begin(), scratch_space_.end(), new Footer ) ;
 		ChunkedWriter out( fd, 25, tempname.c_str() ) ;
-		console.output( Console::notice, "SortingStream: Writing to tempfile " + tempname ) ;
+		console.output( Console::notice, "SortStream: Writing to tempfile " + tempname ) ;
 		transfer( sa, out ) ;
 	}
 	throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", tempname.c_str() ) ;
 	google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
 	is->SetCloseOnDelete( true ) ;
-	enqueue_stream( new UniversalReader( tempname, is ), 1 ) ;
+	enqueue_stream( new UniversalReader( tempname, is ), 0 ) ;
 
 	for_each( scratch_space_.begin(), scratch_space_.end(), delete_ptr<Result>() ) ;
 	scratch_space_.clear() ;
 	total_scratch_size_ = 0 ;
 }
 
-template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::StreamHolder s, int level ) 
+template < typename Comp > void SortStream<Comp>::enqueue_stream( StreamHolder s, int level ) 
 {
 	mergeable_queues_[ level ].push_back( s ) ;
 
@@ -313,23 +363,24 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 
 		// we must actually make progress, and more than just a
 		// single stream must be merged to avoid quadratic behaviour
-		// (only important in a weird corner case, in which we simply
-        // use one more file descriptor)
+		// (only important in a weird corner case, in which we will
+		// simply use one more file descriptor then requested)
 		if( total_inputs > 2 ) {
 			string fname ;
 			int fd = mktempfile( &fname ) ;
-			std::stringstream s ;
-			s << "SortingStream: Merging bins 0.." << max_bin << " to tempfile " << fname ;
+			stringstream s ;
+			s << "SortStream: Merging bins 0.." << max_bin << " to tempfile " << fname ;
 			console.output( Console::notice, s.str() ) ;
 			{
-				streams::MergeStream ms ;
+				vector< StreamHolder > ss ;
 				for( MergeableQueues::iterator i = mergeable_queues_.begin() ; i->first <= max_bin ; ++i ) 
 				{
                     num_open_files_ -= i->second.size() ;
 					for( size_t j = 0 ; j != i->second.size() ; ++j )
-						ms.add_stream( i->second[j] ) ;
+						ss.push_back( i->second[j] ) ;
 					i->second.clear() ;
 				}
+				MergeStream ms( ss ) ;
 				ChunkedWriter out( fd, 25, fname.c_str() ) ;
 				transfer( ms, out ) ;
 			}
@@ -345,38 +396,35 @@ template < typename Comp > void SortingStream<Comp>::enqueue_stream( streams::St
 //! Only when the input ends can we completely sort it, so setting the
 //! footer switches to output mode.  Here we collect the temporary files
 //! we've written and become a \c MergeStream.
-template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f ) 
+template < typename Comp > void SortStream<Comp>::priv_put_footer( auto_ptr< Footer > f ) 
 {
-	Stream::put_footer( f ) ;
-
 	// We have to be careful about buffering; if more than one
-	// SortingStream is active, we could run out of RAM.  Therefore, if
+	// SortStream is active, we could run out of RAM.  Therefore, if
 	// we're alone, we sort and add a a stream.  Else we flush to
-	// temporary storage.  (Also, if the temporay space is empty, we
-	// *always* add the ContainerStream, otherwise we get strange
+	// temporary storage.  (Also, even if the temporay space is empty,
+	// we *always* add the ContainerStream, otherwise we get strange
 	// effects if the output turns out to be empty.)
-    Holder< MergeStream > m( new MergeStream ) ;
+	vector< StreamHolder > ss ;
 	if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
 		flush_scratch() ; 
 	else {
 		console.output( Console::notice, "SortingStream: final sort" ) ;
 		sort_scratch() ;
-		m->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
-					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
 	}
+	ss.push_back( new ContainerStream< deque< Result* >::const_iterator >(
+				*hdr_, scratch_space_.begin(), scratch_space_.end(), *f ) ) ;
 
 	// add any streams that have piled up
 	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
 		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
-			m->add_stream( *j ) ;
+			ss.push_back( *j ) ;
 	mergeable_queues_.clear() ;
-	m->fetch_header() ;
 
+    StreamHolder m( new MergeStream( ss ) ) ;
     if( SortingStream__ninstances == 1 )
     {
         // we're alone.  delegate directly to MergeStream
-        console.output( Console::notice, "SortingStream: merging everything to output" ) ;
-        state_ = m->get_state() ;
+        console.output( Console::notice, "SortStream: merging everything to output" ) ;
         final_stream_ = m ;
     }
     else
@@ -385,8 +433,8 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
         // into a temporary file and opening that.
         string fname ;
         int fd = mktempfile( &fname ) ;
-        std::stringstream s ;
-        s << "SortingStream: Merging everything to tempfile " << fname ;
+        stringstream s ;
+        s << "SortStream: Merging everything to tempfile " << fname ;
         console.output( Console::notice, s.str() ) ;
         ChunkedWriter out( fd, 25, fname.c_str() ) ;
         transfer( *m, out ) ;
@@ -409,32 +457,46 @@ class RepairHeaderStream : public Stream
 		virtual void put_header( const Header& ) ;
 } ;
 
-class FanOut : public StreamBundle
+class FanOut : public OutputStream
 {
+	private:
+		vector< StreamHolder > streams_ ;
+		typedef vector< StreamHolder >::iterator iter ;
+
 	public:
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
-		virtual void put_footer( const Footer& ) ;
-		virtual Footer fetch_footer() ;
+		FanOut( const vector< StreamHolder >& ss ) : streams_( ss ) {}
+
+		virtual state priv_get_state() ;
+
+		virtual void priv_put_header( auto_ptr< Header > ) ;
+		virtual void priv_put_result( auto_ptr< Result > ) ;
+		virtual void priv_put_footer( auto_ptr< Footer > ) ;
+
+		virtual string type_name() const { return "FanOut" ; }
 } ;
 
-class Compose : public StreamBundle
+class Compose : public Stream
 {
+	private:
+		vector< StreamHolder > streams_ ;
+		typedef vector< StreamHolder >::const_reverse_iterator criter ;
+
 	public:
-		virtual state get_state() ;
+		Compose( const vector< StreamHolder >& ss ) : streams_( ss ) {}
+		virtual state priv_get_state() ;
 
-		virtual void put_header( const Header&   ) ;
-		virtual void put_result( const Result& r ) { streams_.front()->put_result( r ) ; get_state() ; }
-		virtual void put_footer( const Footer& f ) { streams_.front()->put_footer( f ) ; get_state() ; }
+		virtual void priv_put_header( auto_ptr< Header > h ) { streams_.front()->put_header( h ) ; }
+		virtual void priv_put_result( auto_ptr< Result > r ) { streams_.front()->put_result( r ) ; }
+		virtual void priv_put_footer( auto_ptr< Footer > f ) { streams_.front()->put_footer( f ) ; }
 
-		virtual Header fetch_header() ;
-		virtual Result fetch_result() { return streams_.back()->fetch_result() ; }
-		virtual Footer fetch_footer() { return streams_.back()->fetch_footer() ; }
+		virtual auto_ptr< Header > priv_fetch_header() { return streams_.back()->fetch_header() ; }
+		virtual auto_ptr< Result > priv_fetch_result() { return streams_.back()->fetch_result() ; }
+		virtual auto_ptr< Footer > priv_fetch_footer() { return streams_.back()->fetch_footer() ; }
+
 		virtual string type_name() const { return "Compose" ; }
 } ;
 
-#if HAVE_ELK_SCHEME_H
-class StatStream : public Stream
+class StatStream : public OutputStream
 {
 	private:
 		unsigned total_, mapped_, mapped_u_, different_ ;
@@ -447,7 +509,8 @@ class StatStream : public Stream
 		    , bases_(0), bases_gc_(0), bases_m_(0), bases_gc_m_(0)
 		    , bases_squared_(0), bases_m_squared_(0) {}
 
-		virtual void put_result( const Result& ) ;
+		virtual state priv_get_state() { return need_input ; }
+		virtual void priv_put_result( auto_ptr< Result > ) ;
 		virtual Object get_summary() const ;
 } ;
 
@@ -460,35 +523,36 @@ class StatStream : public Stream
 //! ancestor, expressed as fraction of total divergence between primary
 //! and secondary genome.
 
-class DivergenceStream : public Stream
+class DivergenceStream : public OutputStream
 {
 	private:
 		string primary_genome_, secondary_genome_ ;
 		int chop_ ;
-        bool ancient_ ;
+        bool ancient_, saw_header_ ;
 		int64_t b1, b2, b3, b4, b5 ;
 
 	public:
 		DivergenceStream( const string& primary, const string& secondary, int chop )
 			: primary_genome_( primary ), secondary_genome_( secondary ), chop_( chop )
-			, b1(0), b2(0), b3(0), b4(0), b5(0) {}
+			, saw_header_(false), b1(0), b2(0), b3(0), b4(0), b5(0) {}
 
-		virtual void put_header( const Header& ) ;
-		virtual void put_result( const Result& ) ;
+		virtual state priv_get_state() { return saw_header_ ? need_header : need_input ; }
+		virtual void priv_put_header( auto_ptr< Header > ) ;
+		virtual void priv_put_result( auto_ptr< Result > ) ;
 		virtual Object get_summary() const ;
 } ;
 
-class MismatchStats : public Stream
+class MismatchStats : public OutputStream
 {
 	private:
 		int mat_[4][4] ;
 
 	public:
 		MismatchStats() { memset( mat_, 0, sizeof( mat_ ) ) ; }
-		virtual void put_result( const Result& ) ;
+		virtual state priv_get_state() { return need_input ; }
+		virtual void priv_put_result( auto_ptr< Result > ) ;
 		virtual Object get_summary() const ;
 } ;
-#endif
 
 //! \brief checks for hits to homologous regions
 //! This filter reads a UCSC Chain file and stores the "homologous"

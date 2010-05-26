@@ -200,8 +200,6 @@ inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, outp
 class Stream
 {
 	public:
-		int refcount_ ;
-		
 		// State machine:
 		// invalid: general way out, no operations valid
 		// need_header: put_header is allowed
@@ -217,15 +215,10 @@ class Stream
 		enum state { invalid, need_header, need_input, have_header,
 			         have_output, can_io, end_of_stream } ;
 
+		int refcount_ ;
 		static void cleanup( Stream* p ) { delete p ; }
 
 	protected:
-		// internal state---not strictly necessary here, but used almost
-		// everywhere and therefore simply convenient
-		// XXX Result res_ ;
-		// XXX Footer foot_ ;
-		// XXX state state_ ;
-
 		virtual ~Stream() {} 				// want control over instantiation
 
 	private:
@@ -236,7 +229,7 @@ class Stream
 		Stream() : refcount_(0) {} // XXX , state_( end_of_stream ) {}
 
 		//! \brief returns stream state
-		state get_state() const { return priv_get_state() ; }
+		state get_state() { return priv_get_state() ; }
 
 		//! \brief returns the header
 		auto_ptr< Header > fetch_header() {
@@ -282,42 +275,40 @@ class Stream
 		//! the meaning of what the 'summary' is differs from stream to
 		//! stream, the result is simply an Elk object.  The default is
 		//! to return the exit code contained in the footer.
-#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return False ; }
-#endif
+
+		//! \brief returns an identifying string
+		//! \internal
+		//! Intended mostly for debugging the Elk binding.
 		virtual string type_name() const = 0 ;
 
-	protected:
-		// doesn't belong here, but it's convenient
-		// void read_next_message( google::protobuf::io::CodedInputStream&, const std::string& ) ;
-
 	private:
-		virtual state priv_get_state() const = 0 ;
+		virtual state priv_get_state() = 0 ;
 		virtual auto_ptr< Header > priv_fetch_header() = 0 ;
 		virtual auto_ptr< Result > priv_fetch_result() = 0 ;
 		virtual auto_ptr< Footer > priv_fetch_footer() = 0 ;
-		virtual void priv_put_header( auto_ptr< Header >& ) = 0 ;
-		virtual void priv_put_result( auto_ptr< Result >& ) = 0 ;
-		virtual void priv_put_footer( auto_ptr< Footer >& ) = 0 ;
+		virtual void priv_put_header( auto_ptr< Header > ) = 0 ;
+		virtual void priv_put_result( auto_ptr< Result > ) = 0 ;
+		virtual void priv_put_footer( auto_ptr< Footer > ) = 0 ;
+} ;
+
+class InputStream : public Stream
+{
+	virtual void priv_put_header( auto_ptr< Header > ) { throw "priv_put_header called unexpectedly in " + type_name() ; }
+	virtual void priv_put_result( auto_ptr< Result > ) { throw "priv_put_result called unexpectedly in " + type_name() ; }
+	virtual void priv_put_footer( auto_ptr< Footer > ) { throw "priv_put_footer called unexpectedly in " + type_name() ; }
+} ;
+
+class OutputStream : public Stream
+{
+	virtual auto_ptr< Header > priv_fetch_header() { throw "priv_fetch_header called unexpectedly in " + type_name() ; }
+	virtual auto_ptr< Result > priv_fetch_result() { throw "priv_fetch_header called unexpectedly in " + type_name() ; }
+	virtual auto_ptr< Footer > priv_fetch_footer() { throw "priv_fetch_header called unexpectedly in " + type_name() ; }
 } ;
 
 typedef ::Holder<Stream> StreamHolder ;
 
 int transfer( Stream& in, Stream& out ) ;
-
-//! \brief base class of streams that read from many streams
-/*
-class StreamBundle : public Stream
-{
-	protected:
-		std::deque< StreamHolder > streams_ ;
-		typedef std::deque< StreamHolder >::const_iterator citer ;
-		typedef std::deque< StreamHolder >::const_reverse_iterator criter ;
-
-	public:
-		void add_stream( StreamHolder s ) { streams_.push_back( s ) ; }
-} ;
-*/
 
 struct ParseError : public Exception {
 	std::string msg_ ;
@@ -355,7 +346,7 @@ class AnfoReader : public Stream
 //! when the header is requested.  At this point we also inspect the
 //! stream to determine its format and create the appropriate filters to
 //! decode it.
-class UniversalReader : public Stream
+class UniversalReader : public InputStream
 {
 	private:
 		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
@@ -375,7 +366,7 @@ class UniversalReader : public Stream
 				const string& genome = ""
 				) ;
 
-		virtual state get_state() { return str_ ? str_->get_state() : have_header ; }
+		virtual state priv_get_state() { return str_ ? str_->get_state() : have_header ; }
 		virtual auto_ptr< Header > priv_fetch_header() ;
 		virtual auto_ptr< Result > priv_fetch_result() { return str_->fetch_result() ; }
 		virtual auto_ptr< Footer > priv_fetch_footer() { return str_->fetch_footer() ; }

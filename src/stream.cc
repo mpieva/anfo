@@ -263,11 +263,11 @@ void ChunkedWriter::init()
 }
 
 ChunkedWriter::ChunkedWriter( const pair< ZeroCopyOutputStream*, string >& p, int l ) :
-	zos_( p.first ), name_( p.second ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
+	state_(...), zos_( p.first ), name_( p.second ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
 ChunkedWriter::ChunkedWriter( int fd, int l, const char* fname ) :
-	zos_( new FileOutputStream( fd ) ), name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
+	state_(...), zos_( new FileOutputStream( fd ) ), name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
 ChunkedWriter::ChunkedWriter( const char* fname, int l ) :
-	zos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) ),
+	state_(...), zos_( new FileOutputStream( throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) ),
 	name_( fname ), wrote_(0), method_( method_of(l) ), level_( level_of(l) ) { init() ; }
 
 void ChunkedWriter::flush_buffer( unsigned needed ) 
