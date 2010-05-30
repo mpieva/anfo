@@ -10,8 +10,10 @@ AC_CONFIG_MACRO_DIR([m4])
 
 # Checks for programs.
 LT_INIT
+AC_PROG_CC
 AC_PROG_CXX
 AC_PROG_INSTALL
+AC_PROG_LIBTOOL
 
 AC_ARG_VAR([PROTOC], [location of protobuf compiler])
 AC_PATH_PROG([PROTOC], [protoc], AC_MSG_ERROR([protoc not found.  Need to install protobuf-compiler?]))
