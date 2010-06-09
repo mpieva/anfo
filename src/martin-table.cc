@@ -385,7 +385,7 @@ struct GetPt2Rec {
 } ;
 
 template< typename T >
-void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, T get )
+void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, T get )
 {
 	Chan progress ;
 	int k = 0 ;
@@ -400,7 +400,7 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 		// note: this is effectively broken for RC'ed alignments (but
 		// that doesn't matter in *this* application).
 
-		if( const Hit *h = hit_to( res, genome ) )
+		if( const Hit *h = hit_to( res ) )
 		{
 			if( h->aln_length() < 0 ) throw "unexpected reverse strand alignment!" ;
 
@@ -414,7 +414,12 @@ void scan_anfo_file( vector<SnpRec*> &mt, const char* fn, const string& genome, 
 			if( ++k % 1024 == 0 )
 			{
 				stringstream s ;
-				s   << "SNPs vs. " << genome << " (" << h->sequence() << '/' 
+				s   << "SNPs" ;
+				if( h->has_genome_name() && !h->genome_name().empty() )
+				{
+					s << " vs. " << h->genome_name() ;
+				}
+				s   << " (" << h->sequence() << '/' 
 					<< symbols[ get( first_snp ).chr ] << "): " 
 					<< first_snp - mt.begin() << '/' << mt.size() ;
 				progress( Console::info, s.str() ) ;
@@ -610,12 +615,12 @@ WRAPPED_MAIN
 	console.output( Console::info, "Sorting on pt2..." ) ;
 	sort( mt.begin(), mt.end(), ByPt2Coordinate() ) ;
 	console.output( Console::info, "Done." ) ;
-	scan_anfo_file( mt, ptr_file, "pantro2", GetPt2Rec() ) ;
+	scan_anfo_file( mt, ptr_file, GetPt2Rec() ) ;
 
 	console.output( Console::info, "Sorting on hg18..." ) ;
 	sort( mt.begin(), mt.end(), ByHg18Coordinate() ) ;
 	console.output( Console::info, "Done." ) ;
-	scan_anfo_file( mt, hsa_file, "hg18", GetHg18Rec() ) ;
+	scan_anfo_file( mt, hsa_file, GetHg18Rec() ) ;
 
 	if( snp_out_file ) {
 		ofstream out( snp_out_file ) ;
