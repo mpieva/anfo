@@ -24,116 +24,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <pthread.h>
 
-#if 0
-//! \brief interlocked queue for thread communication
-//! This is a generic queue with statically limited capacity that blocks
-//! on attempts to dequeue from an empty queue or enqueue into a full
-//! one.
-template< typename T, size_t capacity > class Queue
-{
-	private:
-		T buffer[capacity] ;
-		size_t size;
-		size_t in;
-		size_t out;
-		pthread_mutex_t mutex;
-		pthread_cond_t cond_full;
-		pthread_cond_t cond_empty;
-
-	public:
-		//! \brief initializes empty queue
-		Queue()
-			: size(0), in(0), out(0) 
-		{
-			pthread_mutex_init( &mutex, 0 ) ;
-			pthread_cond_init( &cond_full, 0 ) ;
-			pthread_cond_init( &cond_empty, 0 ) ;
-		}
-
-		//! \brief tries to enqueue a value
-		//! If the queue is full, the element is not enqueued and false
-		//! is returned.
-		//! \param value element to be enqueued
-		//! \return true iff value could be enqueued
-		bool try_enqueue( const T& value )
-		{
-			pthread_mutex_lock(&mutex);
-			bool have_space = size != capacity ;
-			if( have_space ) {
-				buffer[in] = value;
-				++ size;
-				++ in;
-				in %= capacity;
-			}
-			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&cond_empty);
-			return have_space ;
-		}
-
-		//! \brief enqueues a value
-		//! If the queue is full, the enqueuing thread is blocked until
-		//! at least one element is dequeued.
-		//! \param value element to be enqueued
-		void enqueue( const T& value )
-		{
-			pthread_mutex_lock(&mutex);
-			while (size == capacity)
-				pthread_cond_wait(&cond_full, &mutex);
-			buffer[in] = value;
-			++ size;
-			++ in;
-			in %= capacity;
-			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&cond_empty);
-		}
-
-		//! \brief dequeus a value
-		//! If the queue is empty, the calling thread is blocked until
-		//! at least one element is enqueued.
-		//! \return the dequeued element
-		T dequeue()
-		{
-			pthread_mutex_lock(&mutex);
-			while (size == 0)
-				pthread_cond_wait(&cond_empty, &mutex);
-			T value = buffer[out];
-			-- size;
-			++ out;
-			out %= capacity;
-			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&cond_full);
-			return value;
-		}
-
-		//! \brief tries to deque an element
-		//! If no element is available, false is returned.
-		//! \param value space to store the dequed element in
-		//! \return true iff an element was dequeued
-		bool try_dequeue( T& value )
-		{
-			pthread_mutex_lock(&mutex);
-			bool have_element = size != 0 ;
-			if( have_element ) {
-				value = buffer[out];
-				-- size;
-				++ out;
-				out %= capacity;
-			}
-			pthread_mutex_unlock(&mutex);
-			pthread_cond_broadcast(&cond_full);
-			return have_element ;
-		}
-
-		size_t get_size()
-		{
-			pthread_mutex_lock(&mutex);
-			size_t size_ = size;
-			pthread_mutex_unlock(&mutex);
-			return size_;
-		}
-} ;
-#endif
-
 namespace streams {
 
 
@@ -231,7 +121,7 @@ class ConcurrentStream : public Stream
 			pthread_cond_destroy( &input_available_ ) ;
 			assert( outgoing_empty() ) ;
 			assert( incoming_terminated() ) ;
-			assert( (next_in_free_+1) % size_ == next_in_ ) ;
+			assert( (next_in_+1) % size_ == next_in_free_ ) ;
 		}
 
 		//! \brief determines stream state
@@ -267,15 +157,18 @@ class ConcurrentStream : public Stream
 		// fire off separate threads for each one.
 		virtual void put_header( const Header& h )
 		{
-			for( size_t i = 0 ; i != streams_.size() ; ++i )
+			if( !eos_outstanding_ )
 			{
-				streams_[i].first->put_header( h ) ;
+				for( size_t i = 0 ; i != streams_.size() ; ++i )
+				{
+					streams_[i].first->put_header( h ) ;
 
-				pthread_t tid ;
-				pthread_create( &tid, 0, &start_routine, &streams_[i] ) ;
-				pthread_detach( tid ) ;
+					pthread_t tid ;
+					pthread_create( &tid, 0, &start_routine, &streams_[i] ) ;
+					pthread_detach( tid ) ;
+				}
+				eos_outstanding_ = streams_.size() ;
 			}
-			eos_outstanding_ = streams_.size() ;
 		}
 
 		// we know we have room for input, so no waiting; just put it
@@ -364,8 +257,6 @@ class ConcurrentStream : public Stream
 				pthread_cond_wait( &input_available_, &mutex_ ) ;
 
 			auto_ptr< Result > r( incoming_[ next_in_ ] ) ;
-			std::cerr << r.get() << std::endl ;
-			abort() ;
 			if( r.get() ) {
 				++next_in_ ;
 				next_in_ %= size_ ;
