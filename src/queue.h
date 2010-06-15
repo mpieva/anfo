@@ -134,45 +134,51 @@ template< typename T, size_t capacity > class Queue
 } ;
 #endif
 
-/* XXX
- * A clever multithreaded primitive is missing.  That would be a stream
- * that in reality just pushes work off to a number of identical stream
- * processors in their own threads.  We need essentially two queues for
- * incoming and outgoing data, but combined conditions need to be
- * signalled to create a facade of an ordinary stream.  Hmmm...
- *
- * XXX we need to know if we need a header.  It's awkward otherwise.
- */
-
 namespace streams {
 
-// Outline:  We check the state of every stream.  If at least one needs
-// a header, we'll simply wait.  When we get the header, it is
-// distributed to every stream, then each stream is started in its own
-// thread.  If no header is wanted, we  (or immediately, if the header wasn't even necessary).  
-//
-// We maintain two queues of 'Result' records, incoming and outgoing.
-// Each thread checks the stream status:  if output is available, it is
-// put into outgoing, sleeping if there's no room.  If input is needed,
-// it's taken from incoming, sleeping if nothing's there.  If the stream
-// ends, a marker is put into outgoing and the thread is terminated.  If
-// the input ends, the end marker is put back(!), and the footer is
-// processed (must be available).
-//
-// The main thread decides what to do depending on the queues.  If
-// there's room in incoming (XXX what about the footer?) we ask for
-// input.  Else if output is available, we offer it.  Else we wait (on
-// the combined condition).  If input ends, we enter a zero into
-// incoming.  If output ends often enough (it does so once per thread),
-// we wait on all threads, collect the footers, combine them with error
-// codes and signal end of stream.  (XXX We might need a state for "have
-// output *and* need input".)
-// 
-// If a result is asked for (from ELK), we collect all of them into a
-// list.
-//
-// XXX result collection is missing
-// XXX error handling is basically absent
+
+//! \brief multithreaded adapter for streams
+//! This is our primitive for multithreading: something that looks like
+//! an ordinary stream, but in reality drives stream processors in
+//! separate threads.
+//!
+//! \todo we need to know if we need a header.  It's awkward otherwise.
+//!
+//! Here's how it works: we initialize with a list of streams.  They
+//! should probably all be clones of a single stream processor,
+//! otherwise weird stuff might happen, but we don't enforce that.
+//!
+//! We now check the state of every stream.  If at least one needs a
+//! header, we don't do anything until we get a header.  When we get the
+//! header, it is distributed to every stream, then each stream is
+//! started in its own thread.  If no header is wanted, we start the
+//! threads immediately.
+//!
+//! We maintain two queues of 'Result' records, incoming and outgoing.
+//! Each thread checks the stream status:  if output is available, it is
+//! put into outgoing, the thread sleeps if there's no room.  If input is needed,
+//! it's taken from incoming, the thread sleeps if nothing's there.  If the stream
+//! ends, a marker is put into outgoing and the thread is terminated.  If
+//! the input ends, the end marker is put back(!), and the footer is
+//! processed (which means we must first put a footer in, then terminate
+//! the input queue).
+//!
+//! The main thread decides what to do depending on the queues.  If
+//! there's room in incoming and we haven't received a footer, we ask for
+//! input.  Else if output is available, we offer it.  Else we wait (on
+//! the combined condition).  If input ends, we store the footer and enter a zero into
+//! incoming.  If output ends often enough (it does so once per thread),
+//! we wait on all threads, collect the footers, combine them with error
+//! codes and signal end of stream.  (XXX We might need a state for "have
+//! output *and* need input".)
+//! 
+//! If a result is asked for (from ELK), we collect all of them into a
+//! list.  No interlock is necessary, as long is the result is only
+//! demanded after processing finishes.
+//!
+//! XXX result collection is missing
+//! XXX error handling is basically absent
+
 class ConcurrentStream : public Stream
 {
 	private:
@@ -215,6 +221,17 @@ class ConcurrentStream : public Stream
 
 			for( ; begin != end ; ++begin )
 				streams_.push_back( make_pair( *begin, this ) ) ;
+		}
+
+		~ConcurrentStream() 
+		{
+			pthread_mutex_destroy( &mutex_ ) ;
+			pthread_cond_destroy( &action_needed_ ) ;
+			pthread_cond_destroy( &room_for_output_ ) ;
+			pthread_cond_destroy( &input_available_ ) ;
+			assert( outgoing_empty() ) ;
+			assert( incoming_terminated() ) ;
+			assert( (next_in_free_+1) % size_ == next_in_ ) ;
 		}
 
 		//! \brief determines stream state
@@ -278,10 +295,11 @@ class ConcurrentStream : public Stream
 		// checked by the caller and the queue cannot fill up by itself.
 		virtual void put_footer( const Footer& f )
 		{
+			assert( !incoming_full() ) ;
 			pthread_mutex_lock( &mutex_ ) ;
 			foot_ = f ;
-			incoming_[ next_in_free_++ ] = 0 ;
-			next_in_free_ %= size_ ;
+			incoming_[ next_in_free_ ] = 0 ;
+			next_in_free_ = (next_in_free_+1) % size_ ;
 			pthread_mutex_unlock( &mutex_ ) ;
 			pthread_cond_signal( &input_available_ ) ;
 		}
@@ -331,7 +349,7 @@ class ConcurrentStream : public Stream
 		static void *start_routine( void* param ) {
 			pair< StreamHolder, ConcurrentStream* > *p = 
 				(pair< StreamHolder, ConcurrentStream* >*) param ;
-			return p->second->run_thread( p->first ) ;
+			return p->second->run_thread( &*p->first ) ;
 		}
 
 		//! \brief dequeues a record from incoming and passes it on
@@ -339,13 +357,15 @@ class ConcurrentStream : public Stream
 		//! got a record, we unlock and pass it on.  Else we leave the
 		//! terminator in and fetch the footer before releasing the
 		//! mutex.
-		void dequeue( const StreamHolder& s )
+		void dequeue( Stream *s )
 		{
 			pthread_mutex_lock( &mutex_ ) ;
 			while( incoming_empty() )
 				pthread_cond_wait( &input_available_, &mutex_ ) ;
 
 			auto_ptr< Result > r( incoming_[ next_in_ ] ) ;
+			std::cerr << r.get() << std::endl ;
+			abort() ;
 			if( r.get() ) {
 				++next_in_ ;
 				next_in_ %= size_ ;
@@ -355,9 +375,12 @@ class ConcurrentStream : public Stream
 			}
 			else
 			{
-				s->put_footer( foot_ ) ;
+				// note ordering: putting the footer can cause output to
+				// appear, which will fiddle with the queue.  best not
+				// nest this code inside out critical section.
 				pthread_mutex_unlock( &mutex_ ) ;
 				pthread_cond_signal( &input_available_ ) ;
+				s->put_footer( foot_ ) ;
 			}
 		}
 
@@ -378,7 +401,7 @@ class ConcurrentStream : public Stream
 		// back and supply the footer.
 		// if output is available, wait for space, then deliver it.  if
 		// the stream ends, wait for space, deliver eos, and terminate.
-		void* run_thread( StreamHolder s ) {
+		void* run_thread( Stream* s ) {
 			for(;;) {
 				switch( s->get_state() ) {
 					case invalid:

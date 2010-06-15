@@ -259,7 +259,7 @@ WRAPPED_MAIN
         }
         else
         {
-			if( (more_opts[i].first >> 4) > 1 ) {
+			if( more_opts[i].first > 0x10 ) {
 				vector< StreamHolder > v ;
 				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
 					v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
