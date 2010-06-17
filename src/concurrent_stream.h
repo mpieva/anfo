@@ -71,7 +71,6 @@ namespace streams {
 //! demanded after processing finishes.
 //!
 //! \todo result collection is missing
-//! \todo error handling is basically absent
 
 class ConcurrentStream : public Stream
 {
@@ -114,6 +113,7 @@ class ConcurrentStream : public Stream
 			next_out_(0), next_out_free_(0),
 			eos_outstanding_(0)
 		{
+			init() ;
 			for( ; begin != end ; ++begin )
 				streams_.push_back( make_pair( *begin, this ) ) ;
 		}

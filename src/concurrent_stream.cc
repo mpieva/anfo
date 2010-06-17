@@ -1,41 +1,43 @@
 #include "concurrent_stream.h"
 
+#include "util.h"
+
 #include <cassert>
 
 namespace {
 	void mutex_init( pthread_mutex_t& m )
 	{
-		throw_errno_if_not_null(
+		throw_strerror_if_not_null(
 				pthread_mutex_init( &m, 0 ), "pthread_mutex_init" ) ;
 	}
 
 	void mutex_lock( pthread_mutex_t& m )
 	{
-		throw_errno_if_not_null( 
+		throw_strerror_if_not_null( 
 				pthread_mutex_lock( &m ), "pthread_mutex_lock" ) ;
 	}
 
 	void mutex_unlock( pthread_mutex_t& m )
 	{
-		throw_errno_if_not_null( 
+		throw_strerror_if_not_null( 
 				pthread_mutex_unlock( &m ), "pthread_mutex_unlock" ) ;
 	}
 
 	void cond_init( pthread_cond_t& c )
 	{
-		throw_errno_if_not_null(
+		throw_strerror_if_not_null(
 				pthread_cond_init( &c, 0 ), "pthread_cond_init" ) ;
 	}
 
 	void cond_wait( pthread_cond_t& c, pthread_mutex_t& m )
 	{
-		throw_errno_if_not_null(
+		throw_strerror_if_not_null(
 				pthread_cond_wait( &c, &m ), "pthread_cond_wait" ) ;
 	}
 
 	void cond_signal( pthread_cond_t& c )
 	{
-		throw_errno_if_not_null(
+		throw_strerror_if_not_null(
 				pthread_cond_signal( &c ), "pthread_cond_signal" ) ;
 	}
 } ;
@@ -63,7 +65,10 @@ ConcurrentStream::~ConcurrentStream()
 
 //! \brief determines stream state
 //! State is entirely determined by the queues, so that it can
-//! change due to background activity.
+//! change due to background activity.  We determine the state of the
+//! queues, and if neither input is required nor output available, we
+//! wait.  Note that we need to dequeue termination markers from the
+//! outgoing queue and we need to signal if we did so.
 //! \todo We may need a way to indicate "both input need and output
 //!       available".
 Stream::state ConcurrentStream::get_state() 
@@ -80,6 +85,7 @@ Stream::state ConcurrentStream::get_state()
 				--eos_outstanding_ ;
 				++next_out_ ;
 				next_out_ %= size_ ;
+				cond_signal( room_for_output_ ) ;
 			}
 			if( !eos_outstanding_ ) { s = end_of_stream ; break ; }
 			else if( !outgoing_empty() ) { s = have_output ; break ; }
@@ -90,8 +96,9 @@ Stream::state ConcurrentStream::get_state()
 	return s ;
 }
 
-// Putting a header means we put the header to each stream, then
-// fire off separate threads for each one.
+//! Putting a header means we put the header to each stream, then
+//! fire off separate threads for each one.  Threads are started in a
+//! detached state, we get results from the stream objects themselves.
 void ConcurrentStream::put_header( const Header& h )
 {
 	if( !eos_outstanding_ )
@@ -101,31 +108,31 @@ void ConcurrentStream::put_header( const Header& h )
 			streams_[i].first->put_header( h ) ;
 
 			pthread_t tid ;
-			throw_errno_if_not_null(
+			throw_strerror_if_not_null(
 					pthread_create( &tid, 0, &start_routine, &streams_[i] ),
 					"pthread_create" ) ;
-			throw_errno_if_not_null( pthread_detach( tid ), "pthread_detach" ) ;
+			throw_strerror_if_not_null( pthread_detach( tid ), "pthread_detach" ) ;
 		}
 		eos_outstanding_ = streams_.size() ;
 	}
 }
 
-// we know we have room for input, so no waiting; just put it
-// there and signal
+//! we know we have room for input, so thre's no waiting, we just put it
+//! in incoming and signal
 void ConcurrentStream::put_result( const Result& r )
 {
 	mutex_lock( mutex_ ) ;
 	assert( !incoming_full() ) ;
 	incoming_[ next_in_free_++ ] = new Result( r ) ;
 	next_in_free_ %= size_ ;
-	mutex_unlock( mutex_ ) ;
 	cond_signal( input_available_ ) ;
+	mutex_unlock( mutex_ ) ;
 }
 
-// Putting a footer means we terminate the input queue and store
-// the footer for later.  Here we don't need to wait for a slot
-// in the incoming queue, because that condition *must* be
-// checked by the caller and the queue cannot fill up by itself.
+//! Putting a footer means we terminate the input queue and store the
+//! footer for later.  Here we don't need to wait for a slot in the
+//! incoming queue, because that condition must be checked by the caller
+//! and the queue cannot fill up by itself.
 void ConcurrentStream::put_footer( const Footer& f )
 {
 	mutex_lock( mutex_ ) ;
@@ -133,14 +140,14 @@ void ConcurrentStream::put_footer( const Footer& f )
 	foot_ = f ;
 	incoming_[ next_in_free_ ] = 0 ;
 	next_in_free_ = (next_in_free_+1) % size_ ;
-	mutex_unlock( mutex_ ) ;
 	cond_signal( input_available_ ) ;
+	mutex_unlock( mutex_ ) ;
 }
 
-// we fetch each header, then merge them.
-// (XXX if there is anything anywhere that needs locking around
-// reading the header, it needs to be implemented there; but
-// that's unlikely to be needed).
+//! We fetch each header, then merge them.
+//! \note This assumes that reading the header from any stream is safe
+//!       at any time.  While this is unlikely to be a wrong assumption,
+//!       it still feels brittle.
 Header ConcurrentStream::fetch_header()
 {
 	Header h ;
@@ -149,21 +156,20 @@ Header ConcurrentStream::fetch_header()
 	return h ;
 }
 
-// we know output is available, so no waiting, we just take it off
 Result ConcurrentStream::fetch_result()
 {
 	mutex_lock( mutex_ ) ;
 	assert( !outgoing_empty() ) ;
 	auto_ptr< Result > r( outgoing_[ next_out_++ ] ) ;
 	next_out_ %= size_ ;
-	mutex_unlock( mutex_ ) ;
 	cond_signal( room_for_output_ ) ;
+	mutex_unlock( mutex_ ) ;
 	return *r ;
 }
 
-// to fetch the footer, output must already have been
-// terminated.  that means threads aren't running anymore and we
-// can simply get the footers and merge them.
+//! To fetch the footer, output must already have been terminated.  That
+//! means threads aren't running anymore and we can simply get the
+//! footers and merge them, without regard for concurrent writes.
 Footer ConcurrentStream::fetch_footer()
 {
 	int exit_code = 0 ;
@@ -179,15 +185,25 @@ Footer ConcurrentStream::fetch_footer()
 }
 
 void *ConcurrentStream::start_routine( void* param ) {
-	pair< StreamHolder, ConcurrentStream* > *p = 
-		(pair< StreamHolder, ConcurrentStream* >*) param ;
-	return p->second->run_thread( &*p->first ) ;
+	try {
+		pair< StreamHolder, ConcurrentStream* > *p = 
+			(pair< StreamHolder, ConcurrentStream* >*) param ;
+		return p->second->run_thread( &*p->first ) ;
+	}
+	catch( const std::string& e ) { perr( e ) ; }
+	catch( const char *e ) { perr( e ) ; }
+	catch( char *e ) { perr( e ) ; }
+	catch( const Exception& e ) { perr( e ) ; }
+	catch( const std::exception& e ) { perr( e.what() ) ; }
+	catch( ... ) { perr( "Oh noes!" ) ; }
+	return 0 ;
 }
 
 //! \brief dequeues a record from incoming and passes it on
-//! We dequeue a record (waiting for it if necessary).  If we got a
-//! record, we unlock and pass it on.  Else we leave the terminator in
-//! and fetch the footer before releasing the mutex.
+//! We dequeue a record, waiting for it if necessary.  If we got a
+//! record, we unlock and pass it on.  Else we got a terminator, which
+//! we leave in, then we copy the footer to change to the end-of-stream
+//! state.
 void ConcurrentStream::dequeue( Stream *s )
 {
 	mutex_lock( mutex_ ) ;
@@ -197,17 +213,17 @@ void ConcurrentStream::dequeue( Stream *s )
 	if( r.get() ) {
 		++next_in_ ;
 		next_in_ %= size_ ;
-		mutex_unlock( mutex_ ) ;
 		cond_signal( action_needed_ ) ;
+		mutex_unlock( mutex_ ) ;
 		s->put_result( *r ) ;
 	}
 	else
 	{
 		// note ordering: putting the footer can cause output to
 		// appear, which will fiddle with the queue.  best not
-		// nest this code inside out critical section.
-		mutex_unlock( mutex_ ) ;
+		// nest this code inside our critical section.
 		cond_signal( input_available_ ) ;
+		mutex_unlock( mutex_ ) ;
 		s->put_footer( foot_ ) ;
 	}
 }
@@ -219,8 +235,8 @@ void ConcurrentStream::enqueue( Result* r )
 
 	outgoing_[ next_out_free_++ ] = r ;
 	next_out_free_ %= size_ ;
-	mutex_unlock( mutex_ ) ;
 	cond_signal( action_needed_ ) ;
+	mutex_unlock( mutex_ ) ;
 }
 
 // driven by state of stream.  if input is requested, wait for it and

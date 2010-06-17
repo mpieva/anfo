@@ -59,19 +59,6 @@ T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 }
 
 template< typename T >
-T throw_errno_if_not_null( T x, const char* a, const char* b = 0 )
-{
-	if( x != 0 )
-	{
-		std::string msg ;
-		msg.append( strerror( errno ) ).append( " while " ).append( a ) ;
-		if( b ) msg.append( " " ).append( b ) ;
-		throw msg ;
-	}
-	return x ;
-}
-
-template< typename T >
 T throw_if_negative( T x, const char* a, const char* b = 0 )
 {
 	if( x < 0 )
@@ -95,6 +82,17 @@ T throw_if_not_null( T x, const char* a, const char* b = 0 )
 		throw msg.str() ;
 	}
 	return x ;
+}
+
+inline void throw_strerror_if_not_null( int x, const char* a, const char* b = 0 )
+{
+	if( x != 0 )
+	{
+		std::stringstream msg ;
+		msg << strerror( x ) << " while " << a ;
+		if( b ) msg << ' '<< b ;
+		throw msg.str() ;
+	}
 }
 
 //! \brief near drop-in for write(2)
