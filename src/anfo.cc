@@ -21,11 +21,11 @@
 #include "align.h"
 #include "anfo_common.h"
 #include "compress_stream.h"
+#include "concurrent_stream.h"
 #include "conffile.h"
 #include "index.h"
 #include "misc_streams.h"
 #include "stream.h"
-#include "queue.h"
 #include "util.h"
 
 #include "output.pb.h"
