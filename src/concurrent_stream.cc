@@ -264,5 +264,16 @@ void* ConcurrentStream::run_thread( Stream* s ) {
 	}
 }
 
+Object ConcurrentStream::get_summary()
+{
+	GC_Node ;
+	Object l = Null ;
+	GC_Link( l ) ;
+	for( size_t i = streams_.size() ; i != 0 ; --i )
+		l = Cons( streams_[i-1].first->get_summary(), l ) ;
+	GC_Unlink ;
+	return l ;
+}
+
 } ;
 

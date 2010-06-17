@@ -125,9 +125,7 @@ class MergeStream : public StreamBundle
 
 		//! \todo totally broken, need to think about how to keep the
 		//!       necessary information.
-#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return False ; }
-#endif
 		virtual string type_name() const { return "MergeStream" ; }
 } ;
 
@@ -274,9 +272,7 @@ template <class Comp> class SortingStream : public Stream
 			return r ;
 		}
 		virtual Footer fetch_footer() { merge_sensibly( foot_, final_stream_->fetch_footer() ) ; return foot_ ; }
-#if HAVE_ELK_SCHEME_H
 		virtual Object get_summary() const { return final_stream_->get_summary() ; }
-#endif
 } ;
 
 template < typename Comp > void SortingStream<Comp>::flush_scratch()
@@ -439,7 +435,6 @@ class Compose : public StreamBundle
 		virtual string type_name() const { return "Compose" ; }
 } ;
 
-#if HAVE_ELK_SCHEME_H
 class StatStream : public Stream
 {
 	private:
@@ -494,7 +489,6 @@ class MismatchStats : public Stream
 		virtual void put_result( const Result& ) ;
 		virtual Object get_summary() const ;
 } ;
-#endif
 
 //! \brief checks for hits to homologous regions
 //! This filter reads two UCSC Chain files, breaks them down into

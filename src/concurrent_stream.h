@@ -69,8 +69,6 @@ namespace streams {
 //! If a result is asked for (from ELK), we collect all of them into a
 //! list.  No interlock is necessary, as long is the result is only
 //! demanded after processing finishes.
-//!
-//! \todo result collection is missing
 
 class ConcurrentStream : public Stream
 {
@@ -127,6 +125,7 @@ class ConcurrentStream : public Stream
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() ;
 		virtual Footer fetch_footer() ;
+		virtual Object get_summary() ;
 } ;
 
 } ; // namespace streams

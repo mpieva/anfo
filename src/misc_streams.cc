@@ -289,7 +289,6 @@ Stream::state Compose::get_state()
 	}
 }
 
-#if HAVE_ELK_SCHEME_H
 void StatStream::put_result( const Result& r )
 {
 	unsigned bases = r.read().sequence().size() ;
@@ -467,7 +466,6 @@ Object DivergenceStream::get_summary() const
 	b[4] = Make_Flonum( b5 ) ;
 	return bb ;
 }
-#endif
 
 RegionFilter::Regions3 RegionFilter::all_regions ;
 

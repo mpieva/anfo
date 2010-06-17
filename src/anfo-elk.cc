@@ -24,9 +24,6 @@
 #include "../config.h"
 #endif
 
-// don't do anything unless Elk is present
-#if HAVE_ELK_SCHEME_H
-
 #include "anfo_common.h"
 #include "ducttape.h"
 #include "index.h"
@@ -496,4 +493,3 @@ void elk_finit_libanfo()
 
 } // extern C
 
-#endif
