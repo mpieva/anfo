@@ -251,9 +251,7 @@ void Indexer::put_result( const Result& r )
 			num_raw += index_.lookupS(
 					effective_sequence( res_.read() ), seeds, params, &num_useless ) ;
 					
-			num_clumps += cis.allow_near_perfect() 
-				? combine_seeds( seeds, p.min_seed_len(), ss )
-				: select_seeds( seeds, p.max_diag_skew(), p.max_gap(), p.min_seed_len(), index_.gaps(), ss ) ;
+			num_clumps += combine_seeds( seeds, p.min_seed_len(), ss ) ;
 
             if( p.has_repeat_threshold() && (unsigned)ss->ref_positions_size() >= p.repeat_threshold() )
             {
@@ -287,11 +285,8 @@ void Mapper::put_result( const Result& r )
 	AlnStats *as = 0 ;
     for( int i = 0 ; i != res_.aln_stats_size() ; ++i )
 	{
-		if( icompare( res_.aln_stats(i).tag(), genome_->name() )
-				|| icompare( res_.aln_stats(i).tag(), genome_->name() + ".dna"  ) )
-		{
+		if( res_.aln_stats(i).tag() == genome_->name() )
 			as = res_.mutable_aln_stats(i) ;
-		}
 	}
 	
 	if( !as ) {
@@ -302,8 +297,7 @@ void Mapper::put_result( const Result& r )
 	Seeds ss ;
     for( int i = 0 ; i != res_.seeds_size() ; ++i )
 	{
-		if( icompare( res_.seeds(i).genome_name(), genome_->name() )
-				|| icompare( res_.seeds(i).genome_name(), genome_->name() + ".dna"  ) )
+		if( res_.seeds(i).genome_name() == genome_->name() )
 		{
 			ss.Swap( res_.mutable_seeds(i) ) ;
             if( i != res_.seeds_size()-1 ) res_.mutable_seeds()->SwapElements( i, res_.seeds_size()-1 ) ;

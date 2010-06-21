@@ -19,7 +19,6 @@
 
 #include "config.pb.h"
 #include "sequence.h"
-#include "judy++.h"
 #include "util.h"
 
 #include <algorithm>
@@ -186,9 +185,9 @@ class FixedIndex
 		unsigned lookupS( const std::string&  seq, PreSeeds&, const LookupParams &p, int *num_useless ) const ;
 		unsigned lookup1(  Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
 		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
+		unsigned lookup2m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
 
 		operator const void * () const { return base ; }
-		const Judy1 &gaps() const { return gaps_ ; }
 		const config::CompactIndex& metadata() const { return meta_ ; }
 
 		void swap( FixedIndex& i ) {
@@ -206,8 +205,9 @@ class FixedIndex
 		uint32_t first_level_len ;
 		uint64_t length ;
 		int fd_ ;
-		Judy1 gaps_ ;
 		config::CompactIndex meta_ ;
+
+		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless, size_t ) const ;
 } ;
 
 template< typename F, typename G > void CompactGenome::scan_words(
@@ -273,10 +273,6 @@ struct compare_diag_then_offset {
 //! We immediately combine adjacent, overlapping and adjacent seeds: if
 //! seeds have the same diagonal and overlap or are adjacent, they can
 //! always be combined.
-//! A practical side effect of how Judy works:  since keys are actually
-//! unsigned, we can never accidentally merge offsets with differing
-//! sign, since they aren't actually close to each other (except when
-//! offsets become unrealistically huge).
 inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
 {
 	v.push_back( Seed() ) ;
@@ -288,12 +284,18 @@ inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
 //! \brief Combines short, adjacent seeds into longer ones.
 //! This is the cheap method to combine seeds: only overlapping and
 //! adjacent seeds are combined, neighboring diagonals are not
-//! considered.  The code is short and direct, and works even for
-//! imperfect seeds.  It's less capable than \c select_seeds, though.
+//! considered.  The code is short and direct, and works well even for
+//! imperfect seeds.
 //!
 //! How to do this?  We sort seeds first by diagonal index, then by
 //! offset.  Seeds are adjacent iff they have the same diagonal index
 //! and their offsets differ by no more than the seed size.
+//!
+//! \note Formerly we tried to somehow deal with neighboring diagonals.
+//!       This has been declared as not worth the hassle, so it was
+//!       dropped.  If we get seeds for the same region on neighboring
+//!       diagonals, they are useless repeats anyway and excluded from
+//!       the index to begin with.
 //!
 //! \param v container of seeds, will be modifed in place.
 //! \param m minimum length of a good seed
@@ -322,8 +324,9 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 			{
 				if( s.size >= m ) 
 				{
-					ss->mutable_ref_positions()->Add( s.diagonal + s.offset + s.size/2 ) ;
-					ss->mutable_query_positions()->Add( s.offset + s.size/2 ) ;
+					ss->mutable_ref_positions()->Add( s.diagonal + s.offset ) ;
+					ss->mutable_query_positions()->Add( s.offset ) ;
+					ss->mutable_seed_sizes()->Add( s.size ) ;
 					++out ;
 				}
 				s = *a ;
@@ -331,144 +334,10 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 		}
 		if( s.size >= m ) 
 		{
-			ss->mutable_ref_positions()->Add( s.diagonal + s.offset + s.size/2 ) ;
-			ss->mutable_query_positions()->Add( s.offset + s.size/2 ) ;
+			ss->mutable_ref_positions()->Add( s.diagonal + s.offset ) ;
+			ss->mutable_query_positions()->Add( s.offset ) ;
+			ss->mutable_seed_sizes()->Add( s.size ) ;
 			++out ;
-		}
-	}
-	return out ;
-}
-
-//! \brief aggregates and selects seeds
-//! 
-//! Seeds that are "close enough" are collapsed into a clump, then the
-//! best seed from any clump that has a minimum total seed length is
-//! used.  Seeds remaining after this process will be grouped at the
-//! beginning of their container, the rest is erased.
-//!
-//! Configuration of this function is done by three additional
-//! parameters: Seeds on the same diagonal ±d and not further apart than
-//! ±r are clumped.  A clump is good enough for an alignment if the
-//! total match length of the seeds in it reaches m, and if so, its
-//! longest seed is actually used.  We may need different parameters for
-//! input sequences of different lengths or characteristics; that's at
-//! the caller's descretion, however.
-//!
-//! \todo When building clumps, the clump is collected, then removed.
-//!       This leaves a mess that needs to be cleaned up by (expensive)
-//!       sorting.  Instead the clump should be removed as we go, so no
-//!       mess is created.
-//! \todo Clump building relies on linear scans to look for seeds on
-//!       neighboring diagonals.  If there is a whole lot of seeds on
-//!       the current diag, that's expensive.  Exponential or binary
-//!       search would be better.  Actually, putting each diagonal into
-//!       its own container might be even better.
-//! \todo This code is way too slow to operate with imperfect seeds, but
-//!       those seem more valuable than clump building.  That needs to
-//!       be fixed, so both features can be combined.  On top of that,
-//!       it might be completely broken, too.
-//! \todo The clump building needs the genome's contig map, which we
-//!       don't actually want to have available here.  A list of gaps
-//!       would work equally well, but we don't have that (yet).
-//!
-//! \param v container of seeds, will be modified in place.
-//! \param d maximum number of gaps between seeds to be clumped
-//! \param r maximum unseeded length between seeds to be clumped
-//! \param m minimum total seed length in a good clump
-//! \param cm contig map from indexed genome
-//! \return number of good seeds produced
-inline int select_seeds( PreSeeds& v, uint32_t d, int32_t r, uint32_t m,
-		const Judy1 &gaps, output::Seeds *ss )
-{
-	int out = 0 ;
-	if( !v.empty() )
-	{
-		// combine overlapping and adjacent seeds into larger ones
-		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
-		PreSeeds::iterator       dd = v.begin() ;
-		Seed s = *a ; 
-		while( ++a != e )
-		{
-			if( a->diagonal == s.diagonal &&
-					(a->offset >= 0) == (s.offset >= 0) &&
-					a->offset - s.offset <= (int32_t)s.size )
-			{
-				uint32_t size2 = a->offset - s.offset + a->size ;
-				if( size2 > s.size ) s.size = size2 ;
-			}
-			else
-			{
-				*dd = s ; ++dd ;
-				s = *a ;
-			}
-		}
-		*dd = s ; ++dd ;
-
-		PreSeeds::iterator clump_begin = v.begin(), input_end = dd ;
-
-		// Start building a clump, assuming there is still something to
-		// build from
-		while( clump_begin != input_end )
-		{
-			PreSeeds::iterator clump_end = clump_begin + 1 ;
-			PreSeeds::iterator last_touched = clump_end ;
-
-			// Still anything in the clump that may have unrecognized
-			// neighbors?
-			for( PreSeeds::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
-			{
-				// Decide whether open_in_clump and candidate are actually
-				// neighbors.  They are not if they end up in different
-				// contigs; else they are if their diagonals are closer than
-				// ±d and their offsets are closer than ±r.
-				for( PreSeeds::iterator candidate = clump_end ;
-						candidate != input_end &&
-						candidate->diagonal <= open_in_clump->diagonal + d ;
-						++candidate )
-				{
-					if( abs( candidate->offset - open_in_clump->offset ) <= r
-							&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
-					{
-						// make sure both parts belong to the same contig
-						Word_t next_gap = open_in_clump->offset + open_in_clump->diagonal ;
-						if( !gaps.first( next_gap ) || next_gap > (Word_t)
-								candidate->offset + candidate->diagonal ) 
-						{
-							std::swap( *clump_end++, *candidate ) ;
-							if( candidate < last_touched ) last_touched = candidate ;
-						}
-					}
-				}
-			}
-
-			// Okay, we have built our clump, but we left a mess behind
-			// it (between clump_end and last_touched).  Clean up the
-			// mess first.
-			if( clump_end < last_touched ) 
-				std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
-
-			// The new clump sits between clump_begin and clump_end.  We
-			// will now reduce this to at most one "best" seed.
-			PreSeeds::iterator best = clump_begin ;
-			uint32_t mlen = 0 ;
-			for( PreSeeds::iterator cur = clump_begin ; cur != clump_end ; ++cur )
-			{
-				mlen += cur->size ;
-				if( cur->size > best->size ) best = cur ;
-			}
-
-			// The whole clump is good enough if the total match length
-			// reaches m.  If so, we keep its biggest seed by moving it
-			// to out, else we do nothing.
-			if( mlen >= m ) 
-			{
-				ss->mutable_ref_positions()->Add( best->diagonal + best->offset + best->size/2 ) ;
-				ss->mutable_query_positions()->Add( best->offset + best->size/2 ) ;
-				++out ;
-			}
-
-			// Done with the clump.  Move to the next.
-			clump_begin = clump_end ;
 		}
 	}
 	return out ;
@@ -528,17 +397,8 @@ class Metagenome
 		//! descriptor, but mmap()s /dev/zero instead and read()s the
 		//! requested region from the file descriptor (intended for file
 		//! systems where mmap() is agonizingly slow, e.g.  GCFS).
-		static void *mmap( void *start, size_t length, int prot, int flags, int *fd, off_t offset ) ;
+		static void *mmap( void *start, size_t length, int *fd, off_t offset ) ;
 } ;
-
-static inline bool icompare( const std::string& a, const std::string& b )
-{
-    if( a.size() != b.size() ) return false ;
-    for( size_t i = 0 ; i != a.size() ; ++i )
-        if( tolower( a[i] ) != tolower( b[i] ) ) return false ;
-    return true ;
-}
-
 
 #endif
 

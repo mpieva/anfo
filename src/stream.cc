@@ -47,6 +47,18 @@ namespace std {
 
 	bool operator < ( const config::Policy& p, const config::Policy& q )
 	{ return p.SerializeAsString() < q.SerializeAsString() ; }
+} ;
+
+static inline void lower_string( std::string& s )
+{
+	size_t sl = s.size() ;
+	for( size_t j = 0 ; j != sl ; ++j ) s[j] = tolower( s[j] ) ;
+}
+
+static inline std::string basename( const std::string& s )
+{
+	std::string::size_type p = s.rfind( '/' ) ;
+	return p != std::string::npos ? s.substr(p+1) : s ;
 }
 
 namespace streams {
@@ -65,14 +77,6 @@ int transfer( Stream& in, Stream& out )
 }
 
 int anfo_reader__num_files_ = 0 ;
-
-namespace {
-	string basename( const string& s )
-	{
-		string::size_type p = s.rfind( '/' ) ;
-		return p != string::npos ? s.substr(p+1) : s ;
-	}
-} ;
 
 AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
 {
@@ -121,6 +125,8 @@ namespace {
 	{
 		Hit h ;
 		h.set_genome_name( o.has_genome_name() ? o.genome_name() : string() ) ;
+		lower_string( *h.mutable_genome_name() ) ;
+
 		h.set_sequence( o.sequence() ) ;
 		h.set_start_pos( o.start_pos() ) ;
 		h.set_aln_length( o.aln_length() ) ;
@@ -129,7 +135,6 @@ namespace {
 		if( o.has_taxid() ) h.set_taxid( o.taxid() ) ;
 		if( o.has_taxid_species() ) h.set_taxid_species( o.taxid_species() ) ;
 		if( o.has_taxid_order() ) h.set_taxid_order( o.taxid_order() ) ;
-		// if( o.has_genome_file() ) h.set_genome_file( o.genome_file() ) ;
 		upgrade_cigar( *h.mutable_cigar(), o.cigar() ) ;
 		return h ;
 	}
@@ -552,12 +557,14 @@ void sanitize_read( Read& rd )
 void sanitize( Result& r ) 
 {
     for( int i = 0 ; i != r.hit_size() ; ++i )
-    {
-        string& s = *r.mutable_hit(i)->mutable_genome_name() ;
-        for( size_t j = 0 ; j != s.size() ; ++j )
-            s[j] = tolower( s[j] ) ;
-    }
+        lower_string( *r.mutable_hit(i)->mutable_genome_name() ) ;
+    
     sanitize_read( *r.mutable_read() ) ;
+	for( int i = 0 ; i != r.members_size() ; ++i )
+		sanitize_read( *r.mutable_members(i) ) ;
+
+	for( int i = 0 ; i != r.seeds_size() ; ++i )
+		lower_string( *r.mutable_seeds(i)->mutable_genome_name() ) ;
 }
     
 //! \brief merges two hits by keeping the better one

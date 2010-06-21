@@ -65,13 +65,9 @@ WRAPPED_MAIN
 
 	FixedIndex::LookupParams params ;
 	params.cutoff = numeric_limits<uint32_t>::max() ;
-	params.allow_mismatches = 0 ;
-	int lower_limit = 9 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
-		{ "lower", 0, POPT_ARG_INT, &lower_limit, 0, "Set lower limit for word length", 0 },
-		{ "mismatches", 0, POPT_ARG_INT, &params.allow_mismatches, 0, "Set number of allowed mismatches in seed", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -94,7 +90,7 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	FixedIndex index( "hg18_chr1_12.idx" ) ;
+	FixedIndex index( "hg18.idx" ) ;
 	GenomeHolder genome = Metagenome::find_genome( index.metadata().genome_name() ) ;
 
 	vector<Subject> subjects ;
@@ -105,48 +101,40 @@ WRAPPED_MAIN
 		while( ifs >> subj ) subjects.push_back( subj ) ;
 	}
 		
-	for( params.wordsize = lower_limit ; params.wordsize <= 12 ; ++params.wordsize )
-	{
-		for( params.stride = 4 ; params.stride <= 8 ; params.stride *= 2 )
-		{
-			for( int min_seed_len = 24 ; min_seed_len <= 48 ; min_seed_len+=4 )
+	// for( params.wordsize = lower_limit ; params.wordsize <= 12 ; ++params.wordsize ) {
+	// for( params.stride = 4 ; params.stride <= 8 ; params.stride *= 2 ) {
+	params.wordsize = 12 ;
+	params.stride = 4 ;
+	for( params.allow_mismatches = 0 ; params.allow_mismatches != 3 ; ++params.allow_mismatches ) {
+		for( int min_seed_len = 12 ; min_seed_len <= 48 ; min_seed_len+=4 ) {
+			cout << params.allow_mismatches << '\t' << min_seed_len << '\t' << flush ;
+
+			unsigned total_seeds = 0, total_seqs = 0, total_hits = 0 ;
+			for( vector<Subject>::const_iterator subj = subjects.begin() ; subj != subjects.end() ; ++subj )
 			{
-				cout << params.wordsize << '\t' << params.stride << '\t' << min_seed_len << '\t' << flush ;
+				PreSeeds seeds ;
+				int num_useless ;
+				index.lookupS( subj->seq, seeds, params, &num_useless ) ;
 
-				unsigned total_seeds = 0, total_seqs = 0, total_hits = 0 ;
+				output::Seeds ss ;
+				total_seeds += combine_seeds( seeds, min_seed_len, &ss ) ;
+				++total_seqs ;
 
-				for( vector<Subject>::const_iterator subj = subjects.begin() ; subj != subjects.end() ; ++subj )
+				unsigned left = genome->find_pos( subj->chrom, subj->start ) - genome->get_base() ;
+				for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
 				{
-					PreSeeds seeds ;
-					int num_useless ;
-					index.lookupS( subj->seq, seeds, params, &num_useless ) ;
-
-					output::Seeds ss ;
-					total_seeds += combine_seeds( seeds, min_seed_len, &ss ) ;
-					// XXX total_seeds += params.allow_mismatches 
-						// XXX ? combine_seeds( seeds, min_seed_len, &ss ) 
-						// XXX : select_seeds( seeds, 2 /*p.max_diag_skew()*/, 4 /*p.max_gap()*/, min_seed_len, index.gaps(), &ss ) ;
-					++total_seqs ;
-
-					unsigned left = genome->find_pos( subj->chrom, subj->start ) - genome->get_base() ;
-					for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
+					unsigned ref = ss.ref_positions(i) ;
+					int qry = ss.query_positions(i) ;
+					if( subj->strand == (qry < 0) && ref >= left && ref < left+subj->len )
 					{
-						unsigned ref = ss.ref_positions(i) ;
-						int qry = ss.query_positions(i) ;
-						if( subj->strand == (qry < 0) && ref >= left && ref < left+subj->len )
-						{
-							++total_hits ;
-							break ;
-						}
+						++total_hits ;
+						break ;
 					}
 				}
-				cout << total_seqs << '\t' << total_seeds << '\t' << total_hits << endl ;
 			}
+			cout << total_seqs << '\t' << total_seeds << '\t' << total_hits << endl ;
 		}
 	}
-
-	// cout << endl ;
-
 	poptFreeContext( pc ) ;
 	return 0 ;
 }

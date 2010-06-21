@@ -234,7 +234,7 @@ WRAPPED_MAIN
 
 	const char* output_file = 0 ;
 	const char* description = 0 ;
-	const char* genome_file = 0 ;
+	const char* genome_name = 0 ;
 
 	unsigned wordsize  = 12 ;
 	unsigned cutoff    = std::numeric_limits<unsigned>::max() ;
@@ -249,7 +249,7 @@ WRAPPED_MAIN
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Output index to FILE", "FILE" },
-		{ "genome",      'g', POPT_ARG_STRING, &genome_file, opt_none,    "Read genome from FILE", "FILE" },
+		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "Read genome GENOME", "GENOME" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to index", "TEXT" },
 		{ "wordsize",    's', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &wordsize,    opt_none,    "Index words of length SIZE", "SIZE" },
 		{ "stride",      'S', POPT_ARG_INT | POPT_ARGFLAG_SHOW_DEFAULT,    &stride,      opt_none,    "Index every Nth word", "N" },
@@ -279,10 +279,10 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	if( !genome_file ) throw "missing --genome option" ;
+	if( !genome_name ) throw "missing --genome option" ;
 	if( poptGetArg( pc ) ) throw "unexpected non-option argument" ;
 
-	GenomeHolder genome = Metagenome::find_genome( genome_file ) ;
+	GenomeHolder genome = Metagenome::find_genome( genome_name ) ;
 
 	if( repeat == std::numeric_limits<uint32_t>::max() ) repeat = wordsize >> 1 ;
 	uint64_t first_level_len = (1 << (2 * wordsize)) + 1 ;
@@ -365,7 +365,7 @@ WRAPPED_MAIN
 		else last = *p ;
 	}
 
-	ci.set_genome_name( genome_file ) ;
+	ci.set_genome_name( genome_name ) ;
 	ci.set_wordsize( wordsize ) ;
 	ci.set_stride( stride ) ;
 	ci.set_indexsize( total ) ;
