@@ -24,7 +24,7 @@ Prerequisites are...
 
  - libbz2 from bzip2.org
 
- - Guile from http://www.gnu.org/software/guile (optional).
+ - Elk
 
 If you have those, call './configure', 'make', then 'make doc' to create
 the documentation, then 'make install'.  If you want to toy with it,
@@ -54,15 +54,12 @@ Garching, /var/tmp/udo on bionc02), but here's how to do it yourself:
  - Write a sensible anfo.cfg using the examples in conf/ and
    config.proto as guideline.
 
- - You can run index-test, anfo or anfo-sge now.  Index-test
-   just does lookups in the index, and optionally (on simulated data)
-   checks if a seed in the correct region was found.  
-   nonsense, something is fucked up.
+ - You can run index-test or anfo.  Index-test just does lookups in the
+   index, and (on simulated data) checks if a seed in the correct region
+   was found.  
 
- - anfo/anfo-sge can be run on any FASTA/FASTQ file now.  No offically
-   blessed, "correct" sets of output exist, yet.  Anfo can run
-   multi-threaded, anfo-sge will not, but contains numerous workarounds
-   for the hostile SGE environment.
+ - anfo can be run on any FASTA/FASTQ file now.  No offically blessed,
+   "correct" sets of output exists, yet.  Anfo can run multi-threaded.
 
 
 What's stable and what isn't?
@@ -115,6 +112,12 @@ Pretty much stabilized are...
    specific alignment mechanisms are somewhat separated from each other,
    making extensions like a special 454 aligner possible at least in
    principle.
+
+
+
+This branch is the more-or-less stable pre-1.0 branch, experimenting
+with optimized index lookup.
+
 
 
 Copyright

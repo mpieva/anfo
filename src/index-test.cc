@@ -65,11 +65,11 @@ WRAPPED_MAIN
 
 	FixedIndex::LookupParams params ;
 	params.cutoff = numeric_limits<uint32_t>::max() ;
-	const char *index = "hg18" ;
+	const char *index_name = "hg18" ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
-		{ "index",       'i', POPT_ARG_STRING, &index,       0,           "Use INX as index", "INX" },
+		{ "index",       'i', POPT_ARG_STRING, &index_name,  0,           "Use INX as index", "INX" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -92,7 +92,7 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	FixedIndex index( index ) ;
+	FixedIndex index( index_name ) ;
 	GenomeHolder genome = Metagenome::find_genome( index.metadata().genome_name() ) ;
 
 	vector<Subject> subjects ;
