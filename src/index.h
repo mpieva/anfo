@@ -155,7 +155,67 @@ struct Seed
 	int32_t offset ;
 } ;
 
-typedef std::vector<Seed> PreSeeds ;
+//! \brief Collection of short matches.
+//! We actually collect the ranges of sorted(!) matches in the index
+//! data structure, then merge-sort them on demand.
+class PreSeeds
+{
+	private:
+		struct Matches
+		{
+			const uint32_t *begin, *end ;
+			int32_t offs ;
+			int16_t wordsize ;
+			int16_t stride ;
+		} ;
+
+		struct compare_matches {
+			bool operator()( Matches &a, Matches &b ) {
+				if( *a.begin - a.offs < *b.begin - b.offs ) return true ;
+				if( *a.begin - a.offs > *b.begin - b.offs ) return false ;
+				return a.offs < b.offs ;
+			}} ;
+
+		std::vector< Matches > heap_ ;
+
+		void push() 
+		{
+			while( heap_.back().begin != heap_.back().end &&
+					*heap_.back().begin % heap_.back().stride != 0 ) 
+				++heap_.back().begin ;
+			if( heap_.back().begin == heap_.back().end ) heap_.pop_back() ;
+			else std::push_heap( heap_.begin(), heap_.end(), compare_matches() ) ;
+		}
+
+	public:
+		PreSeeds() {}
+
+		void post( const uint32_t *begin, const uint32_t *end, int32_t offs, int wordsize, int stride )
+		{
+			heap_.push_back( Matches() ) ;
+			heap_.back().begin = begin ;
+			heap_.back().end = end ;
+			heap_.back().offs = offs ;
+			heap_.back().wordsize = wordsize ;
+			heap_.back().stride = stride ;
+			push() ;
+		}
+
+		bool empty() const { return heap_.empty() ; }
+
+		Seed take() 
+		{
+			Seed s ;
+			s.diagonal = (int64_t)(*heap_.front().begin) - (int64_t)heap_.front().offs ;
+			s.size = heap_.front().wordsize ;
+			s.offset = heap_.front().offs ;
+			++heap_.front().begin ;
+			std::pop_heap( heap_.begin(), heap_.end(), compare_matches() ) ;
+			push() ;
+			return s ;
+		}
+} ;
+
 
 inline std::ostream& operator << ( std::ostream& o, const Seed& s )
 {
@@ -273,13 +333,13 @@ struct compare_diag_then_offset {
 //! We immediately combine adjacent, overlapping and adjacent seeds: if
 //! seeds have the same diagonal and overlap or are adjacent, they can
 //! always be combined.
-inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
-{
-	v.push_back( Seed() ) ;
-	v.back().diagonal = diag ;
-	v.back().offset = offs ;
-	v.back().size = size ;
-}
+//inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
+//{
+	//v.push_back( Seed() ) ;
+	//v.back().diagonal = diag ;
+	//v.back().offset = offs ;
+	//v.back().size = size ;
+//}
 
 //! \brief Combines short, adjacent seeds into longer ones.
 //! This is the cheap method to combine seeds: only overlapping and
@@ -306,18 +366,19 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 	int out = 0 ;
 	if( !v.empty() )
 	{
-		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
+		// std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
 
 		// combine overlapping and adjacent seeds into larger ones
-		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
-		Seed s = *a ; 
-		while( ++a != e )
+		// PreSeeds::const_iterator a = v.begin(), e = v.end() ;
+		Seed s = v.take() ;
+		while( !v.empty() )
 		{
-			if( a->diagonal == s.diagonal &&
-					(a->offset >= 0) == (s.offset >= 0) &&
-					a->offset - s.offset <= (int32_t)s.size )
+			Seed a = v.take() ;
+			if( a.diagonal == s.diagonal &&
+					(a.offset >= 0) == (s.offset >= 0) &&
+					a.offset - s.offset <= (int32_t)s.size )
 			{
-				uint32_t size2 = a->offset - s.offset + a->size ;
+				uint32_t size2 = a.offset - s.offset + a.size ;
 				if( size2 > s.size ) s.size = size2 ;
 			}
 			else
@@ -329,7 +390,7 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 					ss->mutable_seed_sizes()->Add( s.size ) ;
 					++out ;
 				}
-				s = *a ;
+				s = a ;
 			}
 		}
 		if( s.size >= m ) 

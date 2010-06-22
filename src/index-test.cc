@@ -65,9 +65,11 @@ WRAPPED_MAIN
 
 	FixedIndex::LookupParams params ;
 	params.cutoff = numeric_limits<uint32_t>::max() ;
+	const char *index = "hg18" ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
+		{ "index",       'i', POPT_ARG_STRING, &index,       0,           "Use INX as index", "INX" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -90,7 +92,7 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	FixedIndex index( "hg18.idx" ) ;
+	FixedIndex index( index ) ;
 	GenomeHolder genome = Metagenome::find_genome( index.metadata().genome_name() ) ;
 
 	vector<Subject> subjects ;
@@ -104,7 +106,7 @@ WRAPPED_MAIN
 	// for( params.wordsize = lower_limit ; params.wordsize <= 12 ; ++params.wordsize ) {
 	// for( params.stride = 4 ; params.stride <= 8 ; params.stride *= 2 ) {
 	params.wordsize = 12 ;
-	params.stride = 4 ;
+	params.stride = 1 ;
 	for( params.allow_mismatches = 0 ; params.allow_mismatches != 3 ; ++params.allow_mismatches ) {
 		for( int min_seed_len = 12 ; min_seed_len <= 48 ; min_seed_len+=4 ) {
 			cout << params.allow_mismatches << '\t' << min_seed_len << '\t' << flush ;
