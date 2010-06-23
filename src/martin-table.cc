@@ -96,7 +96,6 @@ template< typename C > istream& read_martin_table_snp( istream& s, C& d, const c
 
 	char hsa_strand_code, ptr_strand_code, hsa_base, ptr_base ;
 	string flags, hsa_chr, ptr_chr ;
-	const int inf = numeric_limits<int>::max() ;
 	int x = s.get() ;
 	if( x == '#' ) getline( s, header ) ; // store header line
 	else s.putback( x ) ;
@@ -177,7 +176,6 @@ template< typename C > istream& read_martin_table_indel( istream& s, C& d, const
 	char hsa_strand_code, ptr_strand_code ;
 	string flags, hsa_chr, ptr_chr, type ;
 	int hsa_end, ptr_end ;
-	const int inf = numeric_limits<int>::max() ;
 	int x = s.get() ;
 	if( x == '#' ) getline( s, header ) ; // store header line
 	else s.putback( x ) ;

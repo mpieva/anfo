@@ -148,12 +148,40 @@ class CompactGenome
 //! diagonal will usually be combined.  Offset is negative for rc'ed
 //! matches, in this case its magnitude is the actual offset from the
 //! end of the sequence.
-struct Seed
+// struct Seed
+// {
+	// int64_t diagonal ;
+	// uint32_t size ;
+	// int32_t offset ;
+// } ;
+struct Matches
 {
-	int64_t diagonal ;
-	uint32_t size ;
-	int32_t offset ;
+	const uint32_t *begin, *end ;
+	int32_t offs ;
+	uint16_t wordsize ;
+	uint16_t stride ;
+	int64_t diag ;
 } ;
+
+
+// match lists are sorted backwards by reference coordinate and
+// therefore backwards by diagonal; we also choose to sort
+// backwards on the offset.
+struct compare_match_lists {
+	bool operator()( const Matches &a, const Matches &b ) {
+		if( b.diag < a.diag ) return true ;
+		if( a.diag < b.diag ) return false ;
+		return b.offs < a.offs ;
+	}
+} ;
+
+struct compare_matches_for_heap {
+	// note the `wrong' order; this is intended for a heap!
+	bool operator()( const Matches &a, const Matches &b ) {
+		return compare_match_lists()( b, a ) ;
+	}
+} ;
+
 
 //! \brief Collection of short matches.
 //! We actually collect the ranges of sorted(!) matches in the index
@@ -161,30 +189,27 @@ struct Seed
 class PreSeeds
 {
 	private:
-		struct Matches
-		{
-			const uint32_t *begin, *end ;
-			int32_t offs ;
-			int16_t wordsize ;
-			int16_t stride ;
+		struct equal_match_lists {
+			bool operator()( const Matches &a, const Matches &b ) {
+				return a.begin == b.begin && a.offs == b.offs ;
+			}
 		} ;
-
-		struct compare_matches {
-			bool operator()( Matches &a, Matches &b ) {
-				if( *a.begin - a.offs < *b.begin - b.offs ) return true ;
-				if( *a.begin - a.offs > *b.begin - b.offs ) return false ;
-				return a.offs < b.offs ;
-			}} ;
-
 		std::vector< Matches > heap_ ;
 
-		void push() 
+		bool normalize() 
 		{
 			while( heap_.back().begin != heap_.back().end &&
 					*heap_.back().begin % heap_.back().stride != 0 ) 
 				++heap_.back().begin ;
-			if( heap_.back().begin == heap_.back().end ) heap_.pop_back() ;
-			else std::push_heap( heap_.begin(), heap_.end(), compare_matches() ) ;
+
+			if( heap_.back().begin == heap_.back().end ) {
+				heap_.pop_back() ;
+				return false ;
+			}
+			else {
+				heap_.back().diag = (int64_t)(*heap_.back().begin) - (int64_t)(heap_.back().offs) ;
+				return true ;
+			}
 		}
 
 	public:
@@ -192,35 +217,44 @@ class PreSeeds
 
 		void post( const uint32_t *begin, const uint32_t *end, int32_t offs, int wordsize, int stride )
 		{
-			heap_.push_back( Matches() ) ;
-			heap_.back().begin = begin ;
-			heap_.back().end = end ;
-			heap_.back().offs = offs ;
-			heap_.back().wordsize = wordsize ;
-			heap_.back().stride = stride ;
-			push() ;
+			if( begin != end ) {
+				heap_.push_back( Matches() ) ;
+				heap_.back().begin = begin ;
+				heap_.back().end = end ;
+				heap_.back().offs = offs ;
+				heap_.back().wordsize = wordsize ;
+				heap_.back().stride = stride ;
+				normalize() ;
+			}
 		}
 
 		bool empty() const { return heap_.empty() ; }
 
-		Seed take() 
+		const Matches& get() const { return heap_.front() ; }
+
+		void start_traversal() {
+			std::sort( heap_.begin(), heap_.end(), compare_match_lists() ) ;
+			heap_.erase( std::unique( heap_.begin(), heap_.end(), equal_match_lists() ), heap_.end() ) ;
+			std::make_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+		}
+
+		void take() 
 		{
-			Seed s ;
-			s.diagonal = (int64_t)(*heap_.front().begin) - (int64_t)heap_.front().offs ;
-			s.size = heap_.front().wordsize ;
-			s.offset = heap_.front().offs ;
-			++heap_.front().begin ;
-			std::pop_heap( heap_.begin(), heap_.end(), compare_matches() ) ;
-			push() ;
-			return s ;
+			std::pop_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+
+			++heap_.back().begin ;
+			assert( heap_.back().begin == heap_.back().end ||
+				heap_.back().begin[-1] > heap_.back().begin[0] ) ;
+
+			if( normalize() ) std::push_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
 		}
 } ;
 
 
-inline std::ostream& operator << ( std::ostream& o, const Seed& s )
-{
-	return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
-}
+// inline std::ostream& operator << ( std::ostream& o, const Seed& s )
+// {
+	// return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
+// }
 
 
 class FixedIndex 
@@ -321,13 +355,15 @@ template< typename F, typename G > void CompactGenome::scan_words(
 //! \brief compares seeds first by diagonal, then by offset
 //! \internal
 //! Functor object passed to std::sort in various places.
+/*
 struct compare_diag_then_offset {
 	bool operator()( const Seed& a, const Seed& b ) {
-		if( a.diagonal < b.diagonal ) return true ;
-		if( b.diagonal < a.diagonal ) return false ;
-		return a.offset < b.offset ;
+		if( a.diagonal > b.diagonal ) return true ;
+		if( b.diagonal > a.diagonal ) return false ;
+		return a.offset > b.offset ;
 	}
 } ;
+*/
 
 //! \brief stores a new seed
 //! We immediately combine adjacent, overlapping and adjacent seeds: if
@@ -366,38 +402,43 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 	int out = 0 ;
 	if( !v.empty() )
 	{
+		v.start_traversal() ;
 		// std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
 
 		// combine overlapping and adjacent seeds into larger ones
 		// PreSeeds::const_iterator a = v.begin(), e = v.end() ;
-		Seed s = v.take() ;
-		while( !v.empty() )
+		Matches s = v.get() ;
+		v.take() ;
+		for( ; !v.empty() ; v.take() )
 		{
-			Seed a = v.take() ;
-			if( a.diagonal == s.diagonal &&
-					(a.offset >= 0) == (s.offset >= 0) &&
-					a.offset - s.offset <= (int32_t)s.size )
+			const Matches& a = v.get() ;
+			assert( a.diag <= s.diag ) ;
+			if( a.diag == s.diag ) assert( a.offs <= s.offs ) ;
+
+			if( a.diag == s.diag &&
+					(a.offs >= 0) == (s.offs >= 0) &&
+					a.offs + (int32_t)a.wordsize >= s.offs )
 			{
-				uint32_t size2 = a.offset - s.offset + a.size ;
-				if( size2 > s.size ) s.size = size2 ;
+				s.offs = a.offs ;
+				s.wordsize += s.offs - a.offs ;
 			}
 			else
 			{
-				if( s.size >= m ) 
+				if( s.wordsize >= m ) 
 				{
-					ss->mutable_ref_positions()->Add( s.diagonal + s.offset ) ;
-					ss->mutable_query_positions()->Add( s.offset ) ;
-					ss->mutable_seed_sizes()->Add( s.size ) ;
+					ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
+					ss->mutable_query_positions()->Add( s.offs ) ;
+					ss->mutable_seed_sizes()->Add( s.wordsize ) ;
 					++out ;
 				}
 				s = a ;
 			}
 		}
-		if( s.size >= m ) 
+		if( s.wordsize >= m ) 
 		{
-			ss->mutable_ref_positions()->Add( s.diagonal + s.offset ) ;
-			ss->mutable_query_positions()->Add( s.offset ) ;
-			ss->mutable_seed_sizes()->Add( s.size ) ;
+			ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
+			ss->mutable_query_positions()->Add( s.offs ) ;
+			ss->mutable_seed_sizes()->Add( s.wordsize ) ;
 			++out ;
 		}
 	}
