@@ -106,9 +106,9 @@ WRAPPED_MAIN
 	// for( params.wordsize = lower_limit ; params.wordsize <= 12 ; ++params.wordsize ) {
 	// for( params.stride = 4 ; params.stride <= 8 ; params.stride *= 2 ) {
 	params.wordsize = 12 ;
-	params.stride = 1 ;
-	for( params.allow_mismatches = 0 ; params.allow_mismatches != 3 ; ++params.allow_mismatches ) {
-		for( int min_seed_len = 12 ; min_seed_len <= 48 ; min_seed_len+=4 ) {
+	params.stride = 4 ;
+	for( params.allow_mismatches = 0 ; params.allow_mismatches != 2 ; ++params.allow_mismatches ) {
+		for( int min_seed_len = 12 ; min_seed_len <= 20 ; min_seed_len+=4 ) {
 			cout << params.allow_mismatches << '\t' << min_seed_len << '\t' << flush ;
 
 			unsigned total_seeds = 0, total_seqs = 0, total_hits = 0 ;

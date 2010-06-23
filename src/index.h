@@ -141,19 +141,22 @@ class CompactGenome
 		static void report( uint32_t, uint32_t, const char* ) ;
 } ;
 
-//! \brief Representation of a seed.
+//! \brief Representation of a list of seeds.
 //! A seed is described by a size and two coordinates.  One is the start
 //! on the query sequence, the other we choose to be the "diagonal"
 //! (difference between coordinates), since seeds on the same or close
 //! diagonal will usually be combined.  Offset is negative for rc'ed
 //! matches, in this case its magnitude is the actual offset from the
 //! end of the sequence.
-// struct Seed
-// {
-	// int64_t diagonal ;
-	// uint32_t size ;
-	// int32_t offset ;
-// } ;
+//!
+//! Here we actually represent a list of seeds by two pointers into a
+//! list of reference coordinates.  The first entry is chached in the
+//! data structure itself, so it selves to represent both lists and
+//! single seeds.
+//!
+//! The list of seeds in index files is sorted backwards (more or less
+//! an artefact of the way indexes are built), so we can merge these
+//! lists instead of copying and sorting them.
 struct Matches
 {
 	const uint32_t *begin, *end ;
@@ -185,7 +188,11 @@ struct compare_matches_for_heap {
 
 //! \brief Collection of short matches.
 //! We actually collect the ranges of sorted(!) matches in the index
-//! data structure, then merge-sort them on demand.
+//! data structure, then merge-sort them on demand.  The calling
+//! sequence is to first post() ranges of index entries, then
+//! start_traversal(), then look at the first seed using get(), and
+//! remove them one by one using take() until the structure becomes
+//! empty().
 class PreSeeds
 {
 	private:
@@ -251,10 +258,10 @@ class PreSeeds
 } ;
 
 
-// inline std::ostream& operator << ( std::ostream& o, const Seed& s )
-// {
-	// return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
-// }
+inline std::ostream& operator << ( std::ostream& o, const Matches& s )
+{
+	return o << '@' << s.offs << '+' << s.diag << ':' << s.wordsize ;
+}
 
 
 class FixedIndex 
@@ -352,48 +359,24 @@ template< typename F, typename G > void CompactGenome::scan_words(
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }
 
-//! \brief compares seeds first by diagonal, then by offset
-//! \internal
-//! Functor object passed to std::sort in various places.
-/*
-struct compare_diag_then_offset {
-	bool operator()( const Seed& a, const Seed& b ) {
-		if( a.diagonal > b.diagonal ) return true ;
-		if( b.diagonal > a.diagonal ) return false ;
-		return a.offset > b.offset ;
-	}
-} ;
-*/
-
-//! \brief stores a new seed
-//! We immediately combine adjacent, overlapping and adjacent seeds: if
-//! seeds have the same diagonal and overlap or are adjacent, they can
-//! always be combined.
-//inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
-//{
-	//v.push_back( Seed() ) ;
-	//v.back().diagonal = diag ;
-	//v.back().offset = offs ;
-	//v.back().size = size ;
-//}
-
 //! \brief Combines short, adjacent seeds into longer ones.
-//! This is the cheap method to combine seeds: only overlapping and
+//! This is a cheap method to combine seeds: only overlapping and
 //! adjacent seeds are combined, neighboring diagonals are not
 //! considered.  The code is short and direct, and works well even for
 //! imperfect seeds.
 //!
-//! How to do this?  We sort seeds first by diagonal index, then by
-//! offset.  Seeds are adjacent iff they have the same diagonal index
-//! and their offsets differ by no more than the seed size.
+//! How to do this?  We get seeds ordered first by diagonal (backwards,
+//! actually), then backwards by offset.  Seeds are adjacent iff they
+//! have the same diagonal index and their offsets differ by no more
+//! than the seed size.  They can be combined on the fly.
 //!
 //! \note Formerly we tried to somehow deal with neighboring diagonals.
 //!       This has been declared as not worth the hassle, so it was
 //!       dropped.  If we get seeds for the same region on neighboring
-//!       diagonals, they are useless repeats anyway and excluded from
-//!       the index to begin with.
+//!       diagonals, they are useless repeats anyway and probably
+//!       excluded from the index to begin with.
 //!
-//! \param v container of seeds, will be modifed in place.
+//! \param v container of seeds, will be consumed
 //! \param m minimum length of a good seed
 //! \param ss output container for seed positions
 //! \return number of good seeds produced
@@ -403,7 +386,6 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 	if( !v.empty() )
 	{
 		v.start_traversal() ;
-		// std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
 
 		// combine overlapping and adjacent seeds into larger ones
 		// PreSeeds::const_iterator a = v.begin(), e = v.end() ;
@@ -419,8 +401,8 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 					(a.offs >= 0) == (s.offs >= 0) &&
 					a.offs + (int32_t)a.wordsize >= s.offs )
 			{
-				s.offs = a.offs ;
 				s.wordsize += s.offs - a.offs ;
+				s.offs = a.offs ;
 			}
 			else
 			{

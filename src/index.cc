@@ -160,15 +160,10 @@ unsigned FixedIndex::lookup1( Oligo o, PreSeeds& v, const FixedIndex::LookupPara
 	if( o >= first_level_len )
 		throw "oligo number out of index' range" ;
 
-	if( base[o_max] - base[o_min] < p.cutoff )
-		v.post( secondary + base[o_min], secondary + base[o_max], offs, p.wordsize, p.stride ) ;
-
-		// for( uint32_t i = base[o_min] ; i != base[o_max] ; ++i )
-			// if( 0 == secondary[i] % p.stride )
-				// add_seed( v, (int64_t)secondary[i] - (int64_t)offs, offs, p.wordsize ) ;
-	// }
-	else if( num_useless ) *num_useless += base[o_max] - base[o_min] ;
-	return base[o_max] - base[o_min] ;
+	uint32_t n = base[o_max] - base[o_min] ;
+	if( n < p.cutoff ) v.post( secondary + base[o_min], secondary + base[o_max], offs, p.wordsize, p.stride ) ;
+	else if( num_useless ) *num_useless += n ;
+	return n ;
 } 
 
 //! \brief looks up an oligo with up to one mismatch
