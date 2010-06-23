@@ -90,7 +90,7 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	FixedIndex index( "hg18.idx" ) ;
+	FixedIndex index( "chr21.idx" ) ;
 	GenomeHolder genome = Metagenome::find_genome( index.metadata().genome_name() ) ;
 
 	vector<Subject> subjects ;
