@@ -28,9 +28,8 @@
 #include <google/protobuf/text_format.h>
 #include <cmath>
 #include <iterator>
+#include <map>
 #include <sstream>
-
-#include <dlfcn.h>
 
 namespace streams {
 
@@ -243,12 +242,39 @@ extern "C" void show_quality( const Message& m, const Reflection* r, const Field
 	s << '\n' ;
 }
 
+namespace {
+	class Symtab
+	{
+		private:
+			map< string, PrintMethod > m ;
+
+		public:
+			Symtab() {
+				m[ "show_quality" ] = show_quality ;
+				m[ "show_seen_bases" ] = show_seen_bases ; 
+				m[ "show_uint32_array" ] =show_uint32_array ; 
+				m[ "show_int32_array" ] = show_int32_array ; 
+				m[ "show_hit" ] = show_hit ; 
+				m[ "show_cigar" ] = show_cigar ;  
+				m[ "show_noop" ] = show_noop ; 
+			}
+	
+			PrintMethod find_method( const string& k ) const
+			{
+				map< string, PrintMethod >::const_iterator i = m.find( k ) ;
+				return i == m.end() ? 0 : i->second ;
+			}
+	} ;
+
+	static Symtab the_symtab ;
+} ;
+				
 void universal_print_field( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent )
 {
 	if( f->options().HasExtension( output::show ) )
 	{
 		const std::string& method_name = f->options().GetExtension( output::show ) ;
-		if( void* p = dlsym( RTLD_DEFAULT, method_name.c_str() ) ) return ((PrintMethod)p)( m, r, f, s, indent ) ;
+		if( PrintMethod p = the_symtab.find_method( method_name ) ) return p( m, r, f, s, indent ) ;
 		std::stringstream ss ;
 		ss << "TextWriter: " << method_name << " declared for "
 			<< m.GetDescriptor()->name() << "::" << f->name() << ", but not found." ;

@@ -489,7 +489,7 @@ void *Metagenome::mmap( void *start, size_t length, int *fd, off_t offset )
 			}
 		} else {
 			void *p = ::mmap( start, length, PROT_READ, 
-					MAP_PRIVATE | MAP_NORESERVE | MAP_POPULATE, *fd, offset ) ;
+					MAP_PRIVATE | MAP_NORESERVE, *fd, offset ) ;
 			if( p != (void*)(-1) ) return p ;
 		}
 		make_room() ;
