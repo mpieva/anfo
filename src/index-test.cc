@@ -65,9 +65,11 @@ WRAPPED_MAIN
 
 	FixedIndex::LookupParams params ;
 	params.cutoff = numeric_limits<uint32_t>::max() ;
+	const char *index_name = "hg18" ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
+		{ "index",       'i', POPT_ARG_STRING, &index_name,  0,           "Use INX as index", "INX" },
 		POPT_AUTOHELP POPT_TABLEEND
 	} ;
 
@@ -90,7 +92,7 @@ WRAPPED_MAIN
 			return 1 ; 
 	}
 
-	FixedIndex index( "chr21.idx" ) ;
+	FixedIndex index( index_name ) ;
 	GenomeHolder genome = Metagenome::find_genome( index.metadata().genome_name() ) ;
 
 	vector<Subject> subjects ;
@@ -105,8 +107,8 @@ WRAPPED_MAIN
 	// for( params.stride = 4 ; params.stride <= 8 ; params.stride *= 2 ) {
 	params.wordsize = 12 ;
 	params.stride = 4 ;
-	for( params.allow_mismatches = 0 ; params.allow_mismatches != 3 ; ++params.allow_mismatches ) {
-		for( int min_seed_len = 12 ; min_seed_len <= 48 ; min_seed_len+=4 ) {
+	for( params.allow_mismatches = 0 ; params.allow_mismatches != 2 ; ++params.allow_mismatches ) {
+		for( int min_seed_len = 12 ; min_seed_len <= 20 ; min_seed_len+=4 ) {
 			cout << params.allow_mismatches << '\t' << min_seed_len << '\t' << flush ;
 
 			unsigned total_seeds = 0, total_seqs = 0, total_hits = 0 ;

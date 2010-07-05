@@ -55,7 +55,7 @@ template< typename T >
 T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 {
 	if( x == y ) throw_errno( a, b ) ;
-	else return x ;
+	return x ;
 }
 
 template< typename T >

@@ -141,25 +141,126 @@ class CompactGenome
 		static void report( uint32_t, uint32_t, const char* ) ;
 } ;
 
-//! \brief Representation of a seed.
+//! \brief Representation of a list of seeds.
 //! A seed is described by a size and two coordinates.  One is the start
 //! on the query sequence, the other we choose to be the "diagonal"
 //! (difference between coordinates), since seeds on the same or close
 //! diagonal will usually be combined.  Offset is negative for rc'ed
 //! matches, in this case its magnitude is the actual offset from the
 //! end of the sequence.
-struct Seed
+//!
+//! Here we actually represent a list of seeds by two pointers into a
+//! list of reference coordinates.  The first entry is chached in the
+//! data structure itself, so it selves to represent both lists and
+//! single seeds.
+//!
+//! The list of seeds in index files is sorted backwards (more or less
+//! an artefact of the way indexes are built), so we can merge these
+//! lists instead of copying and sorting them.
+struct Matches
 {
-	int64_t diagonal ;
-	uint32_t size ;
-	int32_t offset ;
+	const uint32_t *begin, *end ;
+	int32_t offs ;
+	uint16_t wordsize ;
+	uint16_t stride ;
+	int64_t diag ;
 } ;
 
-typedef std::vector<Seed> PreSeeds ;
 
-inline std::ostream& operator << ( std::ostream& o, const Seed& s )
+// match lists are sorted backwards by reference coordinate and
+// therefore backwards by diagonal; we also choose to sort
+// backwards on the offset.
+struct compare_match_lists {
+	bool operator()( const Matches &a, const Matches &b ) {
+		if( b.diag < a.diag ) return true ;
+		if( a.diag < b.diag ) return false ;
+		return b.offs < a.offs ;
+	}
+} ;
+
+struct compare_matches_for_heap {
+	// note the `wrong' order; this is intended for a heap!
+	bool operator()( const Matches &a, const Matches &b ) {
+		return compare_match_lists()( b, a ) ;
+	}
+} ;
+
+
+//! \brief Collection of short matches.
+//! We actually collect the ranges of sorted(!) matches in the index
+//! data structure, then merge-sort them on demand.  The calling
+//! sequence is to first post() ranges of index entries, then
+//! start_traversal(), then look at the first seed using get(), and
+//! remove them one by one using take() until the structure becomes
+//! empty().
+class PreSeeds
 {
-	return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
+	private:
+		struct equal_match_lists {
+			bool operator()( const Matches &a, const Matches &b ) {
+				return a.begin == b.begin && a.offs == b.offs ;
+			}
+		} ;
+		std::vector< Matches > heap_ ;
+
+		bool normalize() 
+		{
+			while( heap_.back().begin != heap_.back().end &&
+					*heap_.back().begin % heap_.back().stride != 0 ) 
+				++heap_.back().begin ;
+
+			if( heap_.back().begin == heap_.back().end ) {
+				heap_.pop_back() ;
+				return false ;
+			}
+			else {
+				heap_.back().diag = (int64_t)(*heap_.back().begin) - (int64_t)(heap_.back().offs) ;
+				return true ;
+			}
+		}
+
+	public:
+		PreSeeds() {}
+
+		void post( const uint32_t *begin, const uint32_t *end, int32_t offs, int wordsize, int stride )
+		{
+			if( begin != end ) {
+				heap_.push_back( Matches() ) ;
+				heap_.back().begin = begin ;
+				heap_.back().end = end ;
+				heap_.back().offs = offs ;
+				heap_.back().wordsize = wordsize ;
+				heap_.back().stride = stride ;
+				normalize() ;
+			}
+		}
+
+		bool empty() const { return heap_.empty() ; }
+
+		const Matches& get() const { return heap_.front() ; }
+
+		void start_traversal() {
+			std::sort( heap_.begin(), heap_.end(), compare_match_lists() ) ;
+			heap_.erase( std::unique( heap_.begin(), heap_.end(), equal_match_lists() ), heap_.end() ) ;
+			std::make_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+		}
+
+		void take() 
+		{
+			std::pop_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+
+			++heap_.back().begin ;
+			assert( heap_.back().begin == heap_.back().end ||
+				heap_.back().begin[-1] > heap_.back().begin[0] ) ;
+
+			if( normalize() ) std::push_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+		}
+} ;
+
+
+inline std::ostream& operator << ( std::ostream& o, const Matches& s )
+{
+	return o << '@' << s.offs << '+' << s.diag << ':' << s.wordsize ;
 }
 
 
@@ -258,46 +359,24 @@ template< typename F, typename G > void CompactGenome::scan_words(
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }
 
-//! \brief compares seeds first by diagonal, then by offset
-//! \internal
-//! Functor object passed to std::sort in various places.
-struct compare_diag_then_offset {
-	bool operator()( const Seed& a, const Seed& b ) {
-		if( a.diagonal < b.diagonal ) return true ;
-		if( b.diagonal < a.diagonal ) return false ;
-		return a.offset < b.offset ;
-	}
-} ;
-
-//! \brief stores a new seed
-//! We immediately combine adjacent, overlapping and adjacent seeds: if
-//! seeds have the same diagonal and overlap or are adjacent, they can
-//! always be combined.
-inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
-{
-	v.push_back( Seed() ) ;
-	v.back().diagonal = diag ;
-	v.back().offset = offs ;
-	v.back().size = size ;
-}
-
 //! \brief Combines short, adjacent seeds into longer ones.
-//! This is the cheap method to combine seeds: only overlapping and
+//! This is a cheap method to combine seeds: only overlapping and
 //! adjacent seeds are combined, neighboring diagonals are not
 //! considered.  The code is short and direct, and works well even for
 //! imperfect seeds.
 //!
-//! How to do this?  We sort seeds first by diagonal index, then by
-//! offset.  Seeds are adjacent iff they have the same diagonal index
-//! and their offsets differ by no more than the seed size.
+//! How to do this?  We get seeds ordered first by diagonal (backwards,
+//! actually), then backwards by offset.  Seeds are adjacent iff they
+//! have the same diagonal index and their offsets differ by no more
+//! than the seed size.  They can be combined on the fly.
 //!
 //! \note Formerly we tried to somehow deal with neighboring diagonals.
 //!       This has been declared as not worth the hassle, so it was
 //!       dropped.  If we get seeds for the same region on neighboring
-//!       diagonals, they are useless repeats anyway and excluded from
-//!       the index to begin with.
+//!       diagonals, they are useless repeats anyway and probably
+//!       excluded from the index to begin with.
 //!
-//! \param v container of seeds, will be modifed in place.
+//! \param v container of seeds, will be consumed
 //! \param m minimum length of a good seed
 //! \param ss output container for seed positions
 //! \return number of good seeds produced
@@ -306,37 +385,42 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 	int out = 0 ;
 	if( !v.empty() )
 	{
-		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
+		v.start_traversal() ;
 
 		// combine overlapping and adjacent seeds into larger ones
-		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
-		Seed s = *a ; 
-		while( ++a != e )
+		// PreSeeds::const_iterator a = v.begin(), e = v.end() ;
+		Matches s = v.get() ;
+		v.take() ;
+		for( ; !v.empty() ; v.take() )
 		{
-			if( a->diagonal == s.diagonal &&
-					(a->offset >= 0) == (s.offset >= 0) &&
-					a->offset - s.offset <= (int32_t)s.size )
+			const Matches& a = v.get() ;
+			assert( a.diag <= s.diag ) ;
+			if( a.diag == s.diag ) assert( a.offs <= s.offs ) ;
+
+			if( a.diag == s.diag &&
+					(a.offs >= 0) == (s.offs >= 0) &&
+					a.offs + (int32_t)a.wordsize >= s.offs )
 			{
-				uint32_t size2 = a->offset - s.offset + a->size ;
-				if( size2 > s.size ) s.size = size2 ;
+				s.wordsize += s.offs - a.offs ;
+				s.offs = a.offs ;
 			}
 			else
 			{
-				if( s.size >= m ) 
+				if( s.wordsize >= m ) 
 				{
-					ss->mutable_ref_positions()->Add( s.diagonal + s.offset ) ;
-					ss->mutable_query_positions()->Add( s.offset ) ;
-					ss->mutable_seed_sizes()->Add( s.size ) ;
+					ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
+					ss->mutable_query_positions()->Add( s.offs ) ;
+					ss->mutable_seed_sizes()->Add( s.wordsize ) ;
 					++out ;
 				}
-				s = *a ;
+				s = a ;
 			}
 		}
-		if( s.size >= m ) 
+		if( s.wordsize >= m ) 
 		{
-			ss->mutable_ref_positions()->Add( s.diagonal + s.offset ) ;
-			ss->mutable_query_positions()->Add( s.offset ) ;
-			ss->mutable_seed_sizes()->Add( s.size ) ;
+			ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
+			ss->mutable_query_positions()->Add( s.offs ) ;
+			ss->mutable_seed_sizes()->Add( s.wordsize ) ;
 			++out ;
 		}
 	}
