@@ -40,7 +40,9 @@
 (define intercept: 'intercept:)
 (define label:     'label:)
 (define left:      'left:)
+(define max:       'max:)
 (define mem:       'mem:)
+(define min:       'min:)
 (define name:      'name:)
 (define num:       'num:)
 (define origin:    'origin:)
@@ -53,6 +55,7 @@
 (define sequences: 'sequences:)
 (define slope:     'slope:)
 (define solexa:    'solexa:)
+(define strict:    'strict:)
 
 (define (write-fasta    file) (bracket-stream (prim-write-fasta    file)))
 (define (write-fastq    file) (bracket-stream (prim-write-fastq    file)))
@@ -68,8 +71,9 @@
   (bracket-stream (prim-duct-tape lbl pri)))
 
 (define* 
-  (add-alns (context: ctx 0))
-  (bracket-stream (prim-add-alns ctx)))
+  (add-alns (context: ctx 0)
+            (strict: str #f))
+  (bracket-stream (prim-add-alns ctx str)))
 
 (define*
   (read-file in 
@@ -80,13 +84,22 @@
   (bracket-stream (prim-read-file in sol ori gen nam)))
 
 (define (filter-chain left right file) (bracket-stream (prim-filter-chain left right file)))
-(define (filter-length len) (bracket-stream (prim-filter-length len)))
 (define (filter-qual qual) (bracket-stream (prim-filter-qual qual)))
 (define (inside-region file) (bracket-stream (prim-inside-region file)))
 (define (mask-qual qual) (bracket-stream (prim-mask-qual qual)))
 (define (outside-region file) (bracket-stream (prim-outside-region file)))
 (define (sanitize) (bracket-stream (prim-sanitize)))
 (define (subsample rate) (bracket-stream (prim-subsample rate)))
+
+(define*
+  (filter-length (min: min 0)
+                 (max: max #f))
+  (bracket-stream (prim-filter-length min max)))
+
+(define*
+  (filter-gc (min: min 0)
+             (max: max 100))
+  (bracket-stream (prim-filter-gc min max)))
 
 (define*
   (filter-multi (num: num 2)) 
@@ -307,4 +320,6 @@
     (cons (fun (car rs)) (cdr rs)))))
 
 (provide 'anfo)
+
+(autoload 'pp 'pp.scm)
 

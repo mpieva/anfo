@@ -33,6 +33,13 @@
 using namespace config ;
 using namespace std ; 
 
+static inline void cleanup_genome_name( string& gn )
+{
+	size_t gnl = gn.length() ;
+	for( size_t i = 0 ; i != gnl ; ++i ) gn[i] = tolower( gn[i] ) ;
+	if( gn.substr( gnl-4 ) == ".dna" ) gn = gn.substr( 0, gnl-4 ) ;
+}
+
 CompactGenome::CompactGenome( const std::string &name )
 	: base_(), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_(), refcount_(0)
 {
@@ -43,8 +50,7 @@ CompactGenome::CompactGenome( const std::string &name )
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		file_size_ = the_stat.st_size ;
-		void *p = Metagenome::mmap( 0, file_size_, PROT_READ, MAP_SHARED, &fd_, 0 ) ;
-		if( Metagenome::nommap ) { close( fd_ ) ; fd_ = -1 ; }
+		void *p = Metagenome::mmap( 0, file_size_, &fd_, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		base_.assign( (uint8_t*)p ) ;
 
@@ -57,6 +63,7 @@ CompactGenome::CompactGenome( const std::string &name )
 		if( !g_.ParseFromArray( (const char*)p + meta_off, meta_len ) )
 			throw "error parsing meta information" ;
 
+		cleanup_genome_name( *g_.mutable_name() ) ;
 		length_  = meta_off ;
 
 		for( int i = 0 ; i != g_.sequence_size() ; ++i )
@@ -105,7 +112,7 @@ FixedIndex::FixedIndex( const std::string& name )
 		struct stat the_stat ;
 		throw_errno_if_minus1( fstat( fd_, &the_stat ), "statting", name.c_str() ) ;
 		length = the_stat.st_size ;
-		p = Metagenome::mmap( 0, length, PROT_READ, MAP_SHARED, &fd_, 0 ) ;
+		p = Metagenome::mmap( 0, length, &fd_, 0 ) ;
 		throw_errno_if_minus1( p, "mmapping", name.c_str() ) ;
 		p_ = p ;
 
@@ -116,13 +123,10 @@ FixedIndex::FixedIndex( const std::string& name )
 		if( !meta_.ParseFromArray( (const char*)p + 8, meta_len ) )
 			throw "error parsing meta information" ;
 
+		cleanup_genome_name( *meta_.mutable_genome_name() ) ;
 		first_level_len = (1 << (2 * meta_.wordsize())) + 1 ;
 		base = (const uint32_t*)( (const char*)p + 8 + ((3+meta_len) & ~3) ) ;
 		secondary = base + first_level_len ; 
-
-		for( int i = 0 ; i != meta_.gap_size() ; ++i )
-			gaps_.set( meta_.gap(i) ) ;
-		meta_.clear_gap() ;
 	}
 	catch(...)
 	{
@@ -156,14 +160,10 @@ unsigned FixedIndex::lookup1( Oligo o, PreSeeds& v, const FixedIndex::LookupPara
 	if( o >= first_level_len )
 		throw "oligo number out of index' range" ;
 
-	if( base[o_max] - base[o_min] < p.cutoff )
-	{
-		for( uint32_t i = base[o_min] ; i != base[o_max] ; ++i )
-			if( 0 == secondary[i] % p.stride )
-				add_seed( v, (int64_t)secondary[i] - (int64_t)offs, offs, p.wordsize ) ;
-	}
-	else if( num_useless ) *num_useless += base[o_max] - base[o_min] ;
-	return base[o_max] - base[o_min] ;
+	uint32_t n = base[o_max] - base[o_min] ;
+	if( n < p.cutoff ) v.post( secondary + base[o_min], secondary + base[o_max], offs, p.wordsize, p.stride ) ;
+	else if( num_useless ) *num_useless += n ;
+	return n ;
 } 
 
 //! \brief looks up an oligo with up to one mismatch
@@ -179,15 +179,52 @@ unsigned FixedIndex::lookup1( Oligo o, PreSeeds& v, const FixedIndex::LookupPara
 //!                    being too frequent
 //! \return number of seeds found, including repetitive ones
 
-unsigned FixedIndex::lookup1m( Oligo o, PreSeeds& v, const FixedIndex::LookupParams& p, int32_t offs, int *num_useless ) const 
+unsigned FixedIndex::lookup1m(
+		Oligo o,
+		PreSeeds& v,
+		const FixedIndex::LookupParams& p,
+		int32_t offs,
+		int *num_useless ) const 
+{
+	return lookup1m( o, v, p, offs, num_useless, p.wordsize ) ;
+}
+
+unsigned FixedIndex::lookup1m(
+		Oligo o,
+		PreSeeds& v,
+		const FixedIndex::LookupParams& p,
+		int32_t offs,
+		int *num_useless,
+		size_t imax ) const 
 {
 	unsigned total = lookup1( o, v, p, offs, num_useless ) ;
 	Oligo m1 = 1, m2 = 2, m3 = 3 ;
-	for( size_t i = 0 ; i != p.wordsize ; ++i )
+	for( size_t i = 0 ; i != imax ; ++i )
 	{
 		total += lookup1( o ^ m1, v, p, offs, num_useless ) ;
 		total += lookup1( o ^ m2, v, p, offs, num_useless ) ;
 		total += lookup1( o ^ m3, v, p, offs, num_useless ) ;
+		m1 <<= 2 ;
+		m2 <<= 2 ;
+		m3 <<= 2 ;
+	}
+	return total ;
+} 
+
+unsigned FixedIndex::lookup2m(
+		Oligo o,
+		PreSeeds& v,
+		const FixedIndex::LookupParams& p,
+		int32_t offs,
+		int *num_useless ) const 
+{
+	unsigned total = lookup1m( o, v, p, offs, num_useless ) ;
+	Oligo m1 = 1, m2 = 2, m3 = 3 ;
+	for( size_t i = 0 ; i != p.wordsize ; ++i )
+	{
+		total += lookup1m( o ^ m1, v, p, offs, num_useless, i ) ;
+		total += lookup1m( o ^ m2, v, p, offs, num_useless, i ) ;
+		total += lookup1m( o ^ m3, v, p, offs, num_useless, i ) ;
 		m1 <<= 2 ;
 		m2 <<= 2 ;
 		m3 <<= 2 ;
@@ -235,7 +272,10 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 		}
 		if( filled >= p.wordsize ) 
 		{
-			if( p.allow_mismatches )
+			if( p.allow_mismatches >= 2 )
+				total += lookup2m( o_f, v, p,   offset - p.wordsize + 1, num_useless ) 
+					   + lookup2m( o_r, v, p, - offset                 , num_useless ) ;
+			else if( p.allow_mismatches )
 				total += lookup1m( o_f, v, p,   offset - p.wordsize + 1, num_useless ) 
 					   + lookup1m( o_r, v, p, - offset                 , num_useless ) ;
 			else
@@ -331,20 +371,14 @@ glob_t Metagenome::glob_path( const std::string& genome )
 	for( std::list< std::string >::iterator j = the_metagenome.path.begin() ; j != the_metagenome.path.end() ; ++j )
 	{
 		std::string p = *j + "/" + genome ;
-		glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
-		glob_append = GLOB_APPEND ;
+		if( !genome.empty() ) {
+			glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
+			glob_append = GLOB_APPEND ;
+		}
 		p += "*.dna" ;
 		glob( p.c_str(), GLOB_NOSORT | glob_append | GLOB_TILDE, 0, &the_glob ) ;
 	}
 	return the_glob ;
-}
-
-static std::string lower_string( const std::string& s ) 
-{
-    std::string r ;
-    for( size_t i = 0 ; i != s.size() ; ++i )
-        r.push_back( tolower( s[i]) ) ;
-    return r ;
 }
 
 GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::string& seq )
@@ -373,11 +407,11 @@ GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::st
 
 					console.output( Console::info, "Metagenome: loaded (part of) genome " + g->name() ) ;
 
-					SeqMap1 &m_ = the_metagenome.seq_map[ lower_string( g->name() ) ] ;
+					SeqMap1 &m_ = the_metagenome.seq_map[ g->name() ] ;
 					for( int k = 0 ; k != g->g_.sequence_size() ; ++k )
 						m_[ g->g_.sequence(k).name() ] = g ;
 
-					if( icompare( g->name(), genome ) ) i = m.find( seq ) ;
+					if( g->name() == genome ) i = m.find( seq ) ;
 				}
 			}
 			catch( const std::string& e ) { perr( e ) ; }
@@ -389,11 +423,7 @@ GenomeHolder Metagenome::find_sequence( const std::string& genome, const std::st
 		}
 		globfree( &the_glob ) ;
 	}
-
-	if( i == m.end() )
-		throw "could not find " + genome + ( genome.empty() ? "" : ":" ) + seq ;
-
-	return i->second ;
+	return i == m.end() ? GenomeHolder() : i->second ;
 }
 
 GenomeHolder Metagenome::find_genome( const std::string& genome )
@@ -440,12 +470,13 @@ static int get_zero_device()
 
 int Metagenome::nommap = false ;
 
-void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int *fd, off_t offset )
+void *Metagenome::mmap( void *start, size_t length, int *fd, off_t offset )
 {
 	for(;;)
 	{
 		if( nommap ) {
-			void *p = ::mmap( 0, length, (prot | MAP_PRIVATE) & ~MAP_SHARED, flags, get_zero_device(), 0 ) ;
+			void *p = ::mmap( 0, length, PROT_READ | PROT_WRITE,
+							  MAP_PRIVATE, get_zero_device(), 0 ) ;
 			if( p != (void*)(-1) ) {
 				myread( *fd, p, length ) ;
 				close( *fd ) ;
@@ -453,7 +484,8 @@ void *Metagenome::mmap( void *start, size_t length, int prot, int flags, int *fd
 				return p ;
 			}
 		} else {
-			void *p = ::mmap( start, length, prot, flags, *fd, offset ) ;
+			void *p = ::mmap( start, length, PROT_READ, 
+					MAP_PRIVATE | MAP_NORESERVE, *fd, offset ) ;
 			if( p != (void*)(-1) ) return p ;
 		}
 		make_room() ;

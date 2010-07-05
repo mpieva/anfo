@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <deque>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -42,11 +43,9 @@
 // Including Elk defines some macros that collide with protobuf.  We
 // undefine them (and hope they aren't needed...).
 
-#if HAVE_ELK_SCHEME_H
 #include <elk/scheme.h>
 #undef Print
 #undef MAX_TYPE
-#endif
 
 namespace streams {
 	using namespace output ;
@@ -181,6 +180,9 @@ inline void push_m( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, outp
 inline void push_M( std::vector<unsigned>& s, unsigned m ) { push_op( s, m, output::Hit::Mismatch ) ; }
 inline void push_i( std::vector<unsigned>& s, unsigned i ) { push_op( s, i, output::Hit::Insert ) ; }
 inline void push_d( std::vector<unsigned>& s, unsigned d ) { push_op( s, d, output::Hit::Delete ) ; }
+
+inline int effective_length( const Read& rd )
+{ return (rd.has_trim_right() ? rd.trim_right() : rd.sequence().length()) - rd.trim_left() ; }
 
 //! @}
 
@@ -406,6 +408,11 @@ class AnfoWriter : public Stream
 class ChunkedWriter : public Stream
 {
 	public:
+		// sensible buffer size: big enough to make compression worthwhile,
+		// small enough that BZip won't split it again
+		static const unsigned default_buffer_size = 850000 ;
+
+		// supported compression methods
 		enum method { none, fastlz, gzip, bzip } ;
 
 	private:
@@ -422,21 +429,8 @@ class ChunkedWriter : public Stream
 		void init() ;
 
 	public:
-		static uint8_t method_of( int l ) {
-#if HAVE_LIBBZ2 && HAVE_BZLIB_H
-			if( l >= 75 ) return bzip ;
-#endif
-#if HAVE_LIBZ && HAVE_ZLIB_H
-			if( l >= 50 ) return gzip ;
-#endif
-			if( l >= 10 ) return fastlz ;
-			return none ;
-		}
-		static uint8_t level_of( int l ) {
-			if( l >= 65 ) return 9 ;	// thorough gzip or bzip
-			if( l >= 30 ) return 2 ;	// thorough fastlz or fast gzip
-			return 1 ;					// fast fastlz or none 
-		}
+		static uint8_t method_of( int ) ;
+		static uint8_t level_of( int ) ;
 
 
 		ChunkedWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >&, int ) ;
@@ -631,10 +625,21 @@ class QualFilter : public Filter
 class LengthFilter : public Filter
 {
 	private:
-		int minlength_ ;
+		int minlength_, maxlength_ ;
 
 	public:
-		LengthFilter( int l ) : minlength_(l) {}
+		LengthFilter( int l = 0, int h = std::numeric_limits<int>::max() )
+			: minlength_(l), maxlength_(h) {}
+		virtual bool xform( Result& ) ;
+} ;
+
+class GcFilter : public Filter
+{
+	private:
+		int mingc_, maxgc_ ;
+
+	public:
+		GcFilter( int l = 0, int h = 100 ) : mingc_(l), maxgc_(h) {}
 		virtual bool xform( Result& ) ;
 } ;
 
@@ -767,6 +772,7 @@ class RmdupStream : public Filter
 		double intercept_ ;
 		vector<string> gs_ ;
 		int maxq_ ;
+		bool have_foot_ ;
 
 		// XXX double err_prob_[4][4] ; // get this from config or
 		// something?
@@ -774,14 +780,15 @@ class RmdupStream : public Filter
 		bool is_duplicate( const Result& , const Result& ) const ;
 		void add_read( const Result& ) ;
 		void call_consensus() ;
-		int max_score( const Hit* h ) const ;
+		bool good_score( const Hit* ) const ;
 
 	public:
 		//! \brief sets parameters
 		//! \param s Slope of score function, bad alignments are disregarded.
 		//! \param i Intercept of score function.
 		//! \param q (Assumed) quality of the polymerase.
-		RmdupStream( double s, double i, int q ) : slope_(s), intercept_(i), maxq_( std::min(q,127) ) {}
+		RmdupStream( double s, double i, int q ) :
+			slope_(s), intercept_(i), maxq_( std::min(q,127) ), have_foot_(false) {}
 
 		virtual void priv_put_header( auto_ptr< Header > h )
 		{

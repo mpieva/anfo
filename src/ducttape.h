@@ -46,6 +46,7 @@ class DuctTaper : public Stream
 		string name_ ;
 		Chan report_ ;
 		Logdom het_prior_ ;
+		bool have_foot_ ;
 
 		// needed for probability calculations
 		Logdom rate_ss, rate_ds ;

@@ -64,7 +64,7 @@ message Header {
 // infrastructure, though.  While we're at it, an index would be well
 // placed here, too.
 message Footer {
-	required uint32 exit_code = 1 ;
+    optional uint32 exit_code = 1 [default=0] ;
 }
 
 // Result hits... all very ad-hoc and ugly.  We need:
@@ -79,54 +79,6 @@ message Footer {
 // - if best is on sex chromosomes, score of best hit on same genome
 //   outside sex chromosomes
 
-// deprecated, don't touch
-message OldHit {
-    // globally unique name of the genome (used when sorting hits be
-    // coordinate, can be used to locate the reference sequence if
-    // present; if absent, the sequence name should be globally unique)
-    optional string genome_name = 8 ;
-
-    // name of the subject sequence (== chromosome or similar)
-    required string sequence = 2 ;
-
-    // minimum position where any nucleotide aligns, zero-based
-    // This is the position of the 5'-most base if on the forward
-    // strand, the position of the 3'-most based if on the reverse strand
-    required uint32 start_pos = 3 ;
-
-    // length of alignment on reference sequence, negative if on the
-    // reverse strand
-    required sint32 aln_length = 4 ;
-
-    // Score (this is actually a penalty)
-	// This is optional, because the score may not be available after
-	// importing something weird (say, BAM).
-    optional sint32 score = 5 [ default = 0 ] ;
-
-    // E-value (because it's customary to have one)
-    optional float evalue = 6 ;
-
-    // alignment as (binary equivalent of) a CIGAR line
-    // Bytes 1..127 encode matches of 1..127nt, 129..191 is an insert of
-    // 1..63nt, 193..255 a deletion of 1..63nt.  A NUL byte is a marker
-    // for the place where the alignment started, bytes 128 and 192 are
-    // reserved.
-    required bytes cigar = 7 ;
-
-    // taxids if known: most specific, species and order
-    // An absent taxid means it's not known.
-    optional int32 taxid = 16 ;
-    optional int32 taxid_species = 17 ;
-    optional int32 taxid_order = 18 ;
-
-    // The alignment itself as pair of strings, along with a CLUSTAL
-    // style "conservation" line.  This is not normally stored in a
-    // file, it is generated from the CIGAR line; but it's cool to have
-    // for human readable output.
-    optional string ref = 32 ;
-    optional string qry = 33 ;
-    optional string con = 34 ;
-}
 
 enum Reason {
     // ordinary alignment
@@ -263,7 +215,8 @@ message Seeds {
     // negative numbers mean to align on the reverse complemented strand
     repeated int32 query_positions = 3 [ packed=true, (show) = "show_int32_array" ] ;
 
-    optional uint32 repeat_threshold = 5 ;
+	// sizes of seeds
+	repeated uint32 seed_sizes = 4 [ packed=true, (show) = "show_uint32_array" ] ;
 }
 
 message Result {
@@ -393,4 +346,20 @@ message AlnStats {
     optional string tag = 15 ;
 }
 
+// Deprecated, don't touch.
+message OldHit {
+    required string sequence = 2 ;
+    required uint32 start_pos = 3 ;
+    required sint32 aln_length = 4 ;
+    optional sint32 score = 5 [ default = 0 ] ;
+    optional float  evalue = 6 ;
+    required bytes  cigar = 7 ;
+    optional string genome_name = 8 ;
+    optional int32  taxid = 16 ;
+    optional int32  taxid_species = 17 ;
+    optional int32  taxid_order = 18 ;
+    optional string ref = 32 ;
+    optional string qry = 33 ;
+    optional string con = 34 ;
+}
 // vim:expandtab

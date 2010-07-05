@@ -21,11 +21,11 @@
 #include "align.h"
 #include "anfo_common.h"
 #include "compress_stream.h"
+#include "concurrent_stream.h"
 #include "conffile.h"
 #include "index.h"
 #include "misc_streams.h"
 #include "stream.h"
-#include "queue.h"
 #include "util.h"
 
 #include "output.pb.h"
@@ -248,9 +248,9 @@ WRAPPED_MAIN
         {
             if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
 
-			if( (more_opts[i].first >> 4) > 1 ) {
+			if( more_opts[i].first > 0x1F ) {
 				vector< StreamHolder > v ;
-				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+				for( int k = 0 ; k != (more_opts[i].first >> 4) ; ++k )
 					v.push_back( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
 				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
 			}
@@ -259,9 +259,9 @@ WRAPPED_MAIN
         }
         else
         {
-			if( (more_opts[i].first >> 4) > 1 ) {
+			if( more_opts[i].first > 0x1F ) {
 				vector< StreamHolder > v ;
-				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+				for( int k = 0 ; k != (more_opts[i].first >> 4) ; ++k )
 					v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
 				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
 			}

@@ -10,6 +10,9 @@ namespace streams {
 
 	using namespace std ;
 
+	inline int eff_length( const Read& r )
+	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
+
 //! \brief compares hits by smallest genome coordinate
 //! Comparison is first done lexically on the subject name, then on the
 //! smallest coordinate that's part of the alignment, then on the
@@ -21,6 +24,7 @@ struct by_genome_coordinate {
 
 	by_genome_coordinate( const string &g ) : gs_() { gs_.push_back( g ) ; }
 	by_genome_coordinate( const vector<string> &gs ) : gs_(gs) {}
+	by_genome_coordinate() : gs_() {}
 
 	bool operator() ( const Result *a, const Result *b ) {
 		if( gs_.empty() ) return compare( *a, *b ) ;
@@ -35,9 +39,14 @@ struct by_genome_coordinate {
 	bool compare( const Result &a, const Result &b )
 	{
 		const Hit *u = best_hit( a ), *v = best_hit( b ) ;
+
+		return compare( u, v, a.read(), b.read() ) ;
+	}
+
+	bool compare( const Hit* u, const Hit* v, const Read& a, const Read& b )
+	{
 		if( u && !v ) return true ;
 		if( !u ) return false ;
-
 		if( u->genome_name() < v->genome_name() ) return true ;
 		if( v->genome_name() < u->genome_name() ) return false ;
 		if( u->sequence() < v->sequence() ) return true ;
@@ -54,7 +63,6 @@ struct by_genome_coordinate {
 		const Hit *u = hit_to( a, g ), *v = hit_to( b, g ) ;
 		if( u && !v ) return true ;
 		if( !u ) return false ;
-
 		if( u->sequence() < v->sequence() ) return true ;
 		if( v->sequence() < u->sequence() ) return false ;
 		if( u->start_pos() < v->start_pos() ) return true ;
@@ -555,11 +563,15 @@ class MismatchStats : public OutputStream
 } ;
 
 //! \brief checks for hits to homologous regions
-//! This filter reads a UCSC Chain file and stores the "homologous"
-//! ranges.  A record passes the filter iff it has hits to both genomes
-//! that make up the chain and both hits are inside the two regions of
-//! the same chain.  This should be equivalent to the "traditional"
-//! sequence of two liftovers and check for agreement.
+//! This filter reads two UCSC Chain files, breaks them down into
+//! blocks, discards overlapping blocks (so the mapping becomes 1:1),
+//! then discard blocks from the first chain that wouldn't map back
+//! according to the second chain.
+//! 
+//! The filter proper verifies that the alignment to the first genome is
+//! mostly covered by blocks, then maps them and verifies that they
+//! cover the alignment to the second genome.  A flag is set if either
+//! alignment is missing or either test fails.
 //!
 //! \todo I swear, one of those days I'll implement a symbol table for
 //!       those repeated chromosome names.
@@ -589,6 +601,12 @@ class AgreesWithChain : public Filter
 		static Chains::iterator find_any_most_specific_overlap( 
 				unsigned start, unsigned end, Chains *chains ) ;
 	public:
+		//! \brief constructs chain filter
+		//! \param p primary genome (e.g. hg18)
+		//! \param s secondary genome (e.g. pt2)
+		//! \param c chain from \c p to \c s (this means \c p is target,
+		//!          \c s is query), in the form of 
+		//! \param d chain from \c s to \c p
 		AgreesWithChain( const string& l, const string& r, const pair<istream*,string>& s ) ;
 		virtual bool xform( Result& ) ;
 } ;

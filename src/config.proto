@@ -80,7 +80,8 @@ message CompactIndex {
     // stride if not every word is indexed
     optional uint32 stride = 6 [default=1] ;
 
-	repeated uint32 gap = 7 [ packed=true ] ;
+    // list of gap positions in genome
+    repeated uint32 gap = 7 [ packed=true ] ;
 }
 
 message CompactIndexSpec {
@@ -90,9 +91,8 @@ message CompactIndexSpec {
     optional uint32 stride = 6 ;
 
     // number of mismatches to allow per seed
-    // Only values of 0 or 1 are currently support, and even that
-    // support is flaky.  Set to 1 only in combination with longish
-    // seeds.
+    // Only values of 0, 1 or 2 are currently supported, and more
+	// probably doesn't make any sense.
     optional uint32 allow_near_perfect = 5 [ default = 0 ] ;
 }
 
@@ -111,12 +111,6 @@ message Policy {
 
     // don't bother aligning if there are too many seeds
     optional uint32 repeat_threshold = 4 ;
-
-    // join seeds on diagonals no more distant than this
-    optional uint32 max_diag_skew = 5 ;
-
-    // join seeds no further apart than this
-    optional uint32 max_gap = 6 ;
 
     // minimum total length of combined seeds to make an alignment
     optional uint32 min_seed_len = 7 ; 

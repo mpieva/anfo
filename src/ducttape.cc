@@ -154,6 +154,7 @@ void DuctTaper::flush_contig()
 
 void DuctTaper::priv_put_footer( auto_ptr< Footer > f ) 
 {
+	have_foot_ = true ;
 	flush_contig() ;
 	ftr_ = f ;
 	state_ = end_of_stream ;

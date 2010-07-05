@@ -21,25 +21,27 @@
 #include <cstring>
 #include <cstdlib>
 #include <deque>
+#include <fcntl.h>
 #include <iosfwd>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
-
-#if HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 
 struct Exception { virtual void print_to( std::ostream& ) const = 0 ;
                    virtual ~Exception() {} } ;
 
 inline std::ostream& operator << ( std::ostream& s, const Exception& e ) { e.print_to( s ) ; return s ; }
+
+inline void throw_errno( const char* a, const char* b = 0 )
+{
+	std::string msg ;
+	msg.append( strerror( errno ) ).append( " while " ).append( a ) ;
+	if( b ) msg.append( " " ).append( b ) ;
+	throw msg ;
+}
 
 template< typename T >
 T throw_errno_if_minus1( T x, const char* a, const char* b = 0 )
@@ -52,13 +54,7 @@ T throw_errno_if_null( T x, const char* a, const char* b = 0 )
 template< typename T >
 T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 {
-	if( x == y )
-	{
-		std::string msg ;
-		msg.append( strerror( errno ) ).append( " while " ).append( a ) ;
-		if( b ) msg.append( " " ).append( b ) ;
-		throw msg ;
-	}
+	if( x == y ) throw_errno( a, b ) ;
 	return x ;
 }
 
@@ -86,6 +82,17 @@ T throw_if_not_null( T x, const char* a, const char* b = 0 )
 		throw msg.str() ;
 	}
 	return x ;
+}
+
+inline void throw_strerror_if_not_null( int x, const char* a, const char* b = 0 )
+{
+	if( x != 0 )
+	{
+		std::stringstream msg ;
+		msg << strerror( x ) << " while " << a ;
+		if( b ) msg << ' '<< b ;
+		throw msg.str() ;
+	}
 }
 
 //! \brief near drop-in for write(2)

@@ -24,9 +24,6 @@
 #include "../config.h"
 #endif
 
-// don't do anything unless Elk is present
-#if HAVE_ELK_SCHEME_H
-
 #include "anfo_common.h"
 #include "ducttape.h"
 #include "index.h"
@@ -247,7 +244,7 @@ WRAP( p_write_wig,    ( Object f ), (f) ) { return wrap_stream( new WigCoverageW
 
 // Processors
 WRAP( p_duct_tape, ( Object n, Object p ), (n,p) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ), Get_Double(p) ) ) ; }
-WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
+WRAP( p_add_alns, ( Object c, Object s ), (c,s) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ), Truep( s ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
 
 WRAP( p_trim, ( Object l, Object r, Object m ), (l,r,m) ) 
@@ -295,7 +292,10 @@ WRAP( p_ignore_hit, ( Object genomes, Object sequences ), (genomes,sequences) )
 { return wrap_stream( new IgnoreHit( obj_to_genomes( genomes ), obj_to_genomes( sequences ) ) ) ; }
 
 WRAP( p_only_genome,    ( Object g ), (g) ) { return wrap_stream( new OnlyGenome( obj_to_genomes( g ) ) ) ; }
-WRAP( p_filter_by_len,  ( Object l ), (l) ) { return wrap_stream( new LengthFilter( Get_Integer( l ) ) ) ; }
+WRAP( p_filter_by_len,  ( Object l, Object h ), (l,h) )
+{ return wrap_stream( new LengthFilter( Get_Integer( l ),
+		Truep(h) ? Get_Integer( h ) : numeric_limits<int>::max() ) ) ; }
+WRAP( p_filter_by_gc,   ( Object l, Object h ), (l,h) ) { return wrap_stream( new GcFilter( Get_Integer( l ), Get_Integer( h ) ) ) ; }
 WRAP( p_filter_multi,   ( Object m ), (m) ) { return wrap_stream( new MultiFilter( Get_Integer( m ) ) ) ; }
 WRAP( p_subsample,      ( Object r ), (r) ) { return wrap_stream( new Subsample( Get_Double( r ) ) ) ; }
 WRAP( p_edit_header,    ( Object e ), (e) ) { return wrap_stream( new RepairHeaderStream( object_to_string( e, "" ) ) ) ; }
@@ -436,11 +436,12 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_wig,        "prim-write-wiggle",   1, 1, EVAL ) ;
 
 	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      2, 2, EVAL ) ;
-	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
+	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       2, 2, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "prim-rmdup",          3, 3, EVAL ) ;
 	Define_Primitive( (P)p_trim,             "prim-trim",           3, 3, EVAL ) ;
 
-	Define_Primitive( (P)p_filter_by_len,    "prim-filter-length",  1, 1, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_len,    "prim-filter-length",  2, 2, EVAL ) ;
+	Define_Primitive( (P)p_filter_by_gc,     "prim-filter-gc",      2, 2, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_qual, 	 "prim-filter-qual",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_mask_by_qual,     "prim-mask-qual",      1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_multi,     "prim-filter-multi", 	1, 1, EVAL ) ;
@@ -490,4 +491,3 @@ void elk_finit_libanfo()
 
 } // extern C
 
-#endif
