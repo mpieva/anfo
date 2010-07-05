@@ -102,7 +102,7 @@ void CompactGenome::report( uint32_t o, uint32_t l, const char* msg ) {
 }
 
 FixedIndex::FixedIndex( const std::string& name )
-	: base(0), secondary(0), first_level_len(0), length(0), fd_(-1)
+	: base(0), secondary(0), first_level_len(0), length(0), fd_(-1), refcount_(0)
 {
 	void *p = 0 ;
 	try 
@@ -285,6 +285,9 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 	}
 	return total ;
 }
+
+
+std::map< std::string, FixedIndex* > MetaIndex::map_ ;
 
 const config::Sequence *CompactGenome::translate_back( DnaP pos, uint32_t& offset ) const 
 {

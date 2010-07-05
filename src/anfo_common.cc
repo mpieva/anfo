@@ -205,9 +205,14 @@ void Housekeeper::put_result( const Result& rs )
 }
 
 Indexer::Indexer( const config::Config &config, const string& index_name ) :
-	conf_( config ), index_name_( index_name ), index_( index_name )
+	conf_( config ), index_name_( index_name ), index_( MetaIndex::add_ref( index_name ) )
 {
 	if( !conf_.policy_size() ) throw "no policies---nothing to do." ;
+}
+
+Indexer::~Indexer()
+{
+	MetaIndex::free_ref( index_ ) ;
 }
 
 void Indexer::put_header( const Header& h )
