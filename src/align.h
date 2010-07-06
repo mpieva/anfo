@@ -27,87 +27,6 @@
 #include <ostream>
 #include <sstream>
 
-/*!
-\page alignment_algorithm Alignment by Dijkstra's Algorithm
-
-\section idea Basic Idea
-
-The idea, in part already realized in \c TWA, is to treat the alignment
-problem as finding the shortest path through a generic graph, which in
-our case happens to be a regular grid.  Here we have many alignments
-starting from different seeds, but we're only interested in the best one
-(or maybe a few exceptionally good ones and/or runner-ups on different
-chromosomes, species or what have you).  So what we're looking for is
-the shortest path from a number of starting places (the seeds) to a
-number of goals (any completed semi-global alignment).  This can all be
-done in parallel, and the single loop around the algorithm terminates as
-soon as at least one alignment is done.  There's no need to ever
-consider all the marginal alignments.  (Mega-)blast has to do the
-latter, so there's hope we can get a lot faster by avoiding all this.
-
-We choose to encode the complete automaton into the state.  As much as
-possible of the automaton should be static information, which is quite
-possible with only one type of automaton running at the same time.
-
-To guarantee that we find the best alignment first, all costs (aka
-scores) have to be positive (a requirement for anything derived from
-Dijkstra's Algorithm).  To put all this on a solid base, the scores are
-the negative natural logarithms of probabilities.  Naturally, all scores
-are now positive and have a sensible interpretation, though a different
-one from the blast scores.  The algorithm will run a bit quicker if we
-subtract a small constant from the scores so the minimum cost (for
-perfect matches) becomes zero.
-
-\section data_structures Data Structures 
-
-The algorithm keeps a list of \em open \em states (incomplete alignments
-that need to be extended) and \em closed \em states (incomplete
-alignments that have been extended).  The cheapest \em open \em state is
-removed from the queue, made a \em closed \em state, advanced by one
-step, and the results become new \em open \em states.  This way,
-whenever we close a state, we know that we'll never again visit it at
-lower cost.  
-
-The list of potential alignments is a priority queue, obviously sorted
-by score.  We will sort alignments of equal score additionally by the
-number of remaining nucleotides.  That way, advanced alignments will be
-considered first.  The idea here is that we quickly find the best
-alignment from the best seed and are done, maybe without even \em
-touching the other seeds.  The list of closed states is simply a set.
-
-\todo Consider number of unaligned nucleotides when ordering
-	  alignments.
-
-\subsection closed_list Closed List
-
-This list may get quite large, so we want a compact representation with
-fast lookup.  The "natural" ::std::set uses way too much memory.
-Another option would be a simple array, however, since generic pointers
-are part of our state (could be changed, but that's cumbersome), an
-array would be infeasible.  Also, our state space has a lot of
-structure, so instead of O(n<sup>2</sup>) bits, we can reasonably assume to get
-away with O(n) bits.  That's why the closed list is a Judy array (nested
-Judy arrays, actually).
-
-When supporting backtracing, every state that was closed needs a link to
-its parent.  We store that by replacing the Judy1 array with a JudyL
-array containing a pointer.  Space usage is bigger now, but we backtrace
-only a single alignment.
- 
-\subsection open_list Open List
-
-We need to be able to extract the cheapest potential alignment, need to
-add new ones, and actually we also want to \em overwrite states as soon
-as we reach the state on a cheaper route.  The correct data structure,
-therefore, is a \em Priority \em Search \em Queue.  Such a beast apparently
-doesn't exist in a nice package, so for the time being, we'll just use a
-heap and live with the fact that it fill up with additional states that
-are never removed because they are simply too bad to ever be touched.
-
-\todo Find or create a priority search queue.  
-*/
-
-
 //! \page alignment_rep Representation Of Alignments
 //!
 //! What to store for a (partial) alignment and how to do it?  We'll
@@ -853,6 +772,163 @@ void setup_alignments( const CompactGenome& g, const QSequence& ps,
 {
 	for( ; begin != end ; ++begin ) (enter<Aln>( ol ))( Aln( g, ps, *begin ) ) ;
 }
+
+
+//! \brief run an alignment in the forward direction
+//! This starts with two pointers and a cost limit, and it returns the
+//! penalty that was incurred.  The limit can be exceeded while
+//! producing an alignment (it would be foolish to throw it away), if
+//! nothing is found, UINT_MAX is returned.
+//!
+//! We align until we hit a zero in either query or reference.  Starting
+//! state is 0, late the state is inly held implicitly.
+//!
+//! If only there were real lexical closures... *sigh*
+class Run_Alignment {
+	private:
+		DnaP reference_ ;
+		const QSequence::Base *query_ ;
+
+		uint32_t limit_, result_ ;
+
+		typedef std::vector< uint32_t[ num_states ] > Line ;
+
+		Line scores_current, scores_next ;
+		int min_current, min_next ;
+
+
+		// multiple calls to put must happen in increasing order of x
+		void put( Line& l, int& m, int s, int x, uint32_t y )
+		{
+			if( y <= limit )
+			{
+				if( l.empty() ) m = x ;
+				int i = x - m ;
+				while( l.size() <= i )
+				{
+					l.push_back() ;
+					for( int j = 0 ; j != num_states ; ++j ) l.back()[j] = UINT32_MAX ;
+				}
+				l[i][s] = std::min( l[i][s], y ) 
+			}
+		}
+
+		void put_current( int s, int x, uint32_t y ) { put( scores_current, min_current ) ; }
+		void put_next   ( int s, int x, uint32_t y ) { put( scores_next   , min_next    ) ; }
+
+	public:
+		Run_Alignment( DnaP reference, const QSequence::Base *query, uint32_t limit )
+			: reference_( reference ), query( query_ ), limit_( limit ), result( UINT32_MAX )
+		{
+		
+		}
+
+		uint32_t operator()()
+		{
+			put_current( 0, 0, 0 ) ;
+			for( int y = 0 ; !scores_current.empty() ; ++y )
+			{
+				// expand the current row for each state in turn... of course,
+				// each state is a special case.
+				int m = min_current ;
+				for( int x = m ;  x != m + scores_current.size() ; ++x )
+				{
+					for( int s = 0 ; s != num_states ; ++s )
+					{
+						uint32_t score = current_score[ x - m ] ;
+						if( score < UINT32_MAX ) expand( s, x, y ) ;
+					}
+				}
+				swap( scores_current, scores_next ) ;
+				swap( min_current, min_next ) ;
+			}
+			return result_ ;
+		}
+
+	
+
+	// what to do?  
+	// If in matching state, we know there's no immediate match, so we can...
+	// - mismatch
+	// - detect deamination and change to SS state (while matching)
+	// - open ref gap
+	// - open query gap
+	//
+	// If a gap is open, we can...
+	// - extend it
+	// - close it
+	//
+	// If we hit a gap symbol, we must...
+	// - start over at second half in initial state
+
+		void forward_expand( uint32_t score, int s, int x, int y )
+		{
+			Ambicode ref = reference[ x ] ;
+			QSequence::Base qry = query[ y ] ;
+
+			// Note the penalties: The appropriate substitution penalty is
+			// applied whenever we (mis-)match two codes, the gap open penalties
+			// are applied when opening/extending a gap, the
+			// overhang_enter_penalty is applied when changing to SS mode and
+			// the overhang_ext_penalty is applied whenever moving along the
+			// query while single stranded, even when a gap is open!  This gives
+			// correct scores for a geometric distribution of overhang lengths.
+			if( !ref && qry.ambicode )
+			{
+				// We hit a gap in the reference, whatever is left of the query
+				// must be penalized.  To do this, we virtually extend the
+				// reference with Ns and align to those.  This is a white lie in
+				// that it wil overestimate the real penalty, but that's okay,
+				// because such an alignment isn't all that interesting in
+				// reality anyway.  Afterwards we're finished and adjust result
+				// and limit accordingly.
+				for( int y_ = y ; query[ y_ ].ambicode ; ++y )
+				{
+					score += subst_penalty().to_phred() ;
+					if( s & mask_ss ) score += pb.overhang_ext_penalty.to_phred() ;
+				}
+				if( score < result ) result = limit = score ;
+			}
+			else if( !qry.ambicode )
+			{
+				// hit gap in query --> we're done
+				if( score < result ) result = limit = score ;
+			}
+			else if( (s & mask_gaps) == 0 )
+			{
+				// no gaps open --> mismatch, open either gap, enter SS
+				put_next( s, x, score + subst_penalty().to_phred() 
+						+ ( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
+				put_current( s | mask_gap_qry, x+1, score + pb.gap_open_penalty.to_phred() ) ;
+				put_next( s | mask_gap_ref, x, score + pb.gap_open_penalty.to_phred() ) ;
+				if( pb.overhang_enter_penalty.is_finite() && (s & mask_ss) == 0 )
+				{
+					// To enter single stranded we require that the penalty for
+					// doing so is immediately recovered by the better match.
+					// This is easily the case for the observed deamination
+					// rates in aDNA.
+					uint32_t p0 = subst_penalty( s, x, y ).to_phred() ;
+					uint32_t p4 = ( subst_penalty( s | mask_ss, x, y ) 
+							* pb.overhang_enter_penalty * pb.overhang_ext_penalty ).to_phred() ;
+					if( p4 < p0 ) put_next( s | mask_ss, x+1, score + p4 ) ;
+				}
+			}
+			else if( (s & mask_gaps) == mask_gap_ref )
+			{
+				put_next( s, x, score + pb.gap_ext_penalty.to_phred() +
+						( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
+				put_next( s & ~mask_gap_ref, x+1, score + subst_penalty().to_phred() +
+						( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
+			}
+			else
+			{
+				put_current( s, x+1, score + pb.gap_ext_penalty.to_phred() ) ;
+				put_next( s & ~mask_gap_qry, x+1, score + subst_penalty().to_phred() +
+						( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
+			}
+		}
+} ;
+
 
 
 #endif
