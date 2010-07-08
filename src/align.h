@@ -49,6 +49,7 @@
 //! The most simple alignment is ::flat_alignment, see ::simple_adna for
 //! a more complex one.
 
+#if 0
 template< typename T > struct gen_alignment {
 	DnaP reference ; 						// entry point
 	const QSequence::Base *query ;						// entry point
@@ -106,21 +107,22 @@ template< typename T > struct gen_alignment {
 	void adv_ref() { if( state & mask_dir ) --ref_offs ; else ++ref_offs ; }
 	void adv_qry() { if( state & mask_dir ) --query_offs ; else ++query_offs ; }
 } ;
+#endif
 
 //! formats an intermediate alignment state to a stream.
 //! This is useful mostly for debugging.
 //! \internal 
-template< typename A > std::ostream& operator << ( std::ostream& s, const gen_alignment<A>& fa )
-{
-	return s << fa.reference + fa.ref_offs << " x "
-		     << fa.query + fa.query_offs << " @"
-			 << fa.state << ": " << fa.penalty ;
-}
+// template< typename A > std::ostream& operator << ( std::ostream& s, const gen_alignment<A>& fa )
+// {
+	// return s << fa.reference + fa.ref_offs << " x "
+		     // << fa.query + fa.query_offs << " @"
+			 // << fa.state << ": " << fa.penalty ;
+// }
 
 //! \brief removes cheapest alignment from list
 //! Behaviour on an empty list is undefined.
 //! \param ol open list
-template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.begin(), ol.end() ) ; ol.pop_back() ; }
+// template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.begin(), ol.end() ) ; ol.pop_back() ; }
 
 //! \page generic_alignment_ops Basic Operations over Alignment States
 //! The functions in here are still reasonably general and might be
@@ -135,49 +137,49 @@ template< typename A > void pop_top( std::deque< A >& ol ) { std::pop_heap( ol.b
 //! \param cl closed set
 //! \param s alignment state
 //! \return true iff \c s in contained in \c cl
-template< typename A > bool is_present( const typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
-{
-	return cl, s.reference.get(), (Word_t)s.query,
-			   s.reference.high() << 16 | s.ref_offs,
-			   s.query_offs | s.state << 16 ;
-}
+// template< typename A > bool is_present( const typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
+// {
+	// return cl, s.reference.get(), (Word_t)s.query,
+			   // s.reference.high() << 16 | s.ref_offs,
+			   // s.query_offs | s.state << 16 ;
+// }
 
-template< typename A > const_ref<const A*> lookup(
-		const typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s )
-{
-	return cl, s.reference.get(), (Word_t)s.query,
-			   s.reference.high() << 16 | s.ref_offs,
-			   s.query_offs | s.state << 16 ;
-}
+// template< typename A > const_ref<const A*> lookup(
+		// const typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s )
+// {
+	// return cl, s.reference.get(), (Word_t)s.query,
+			   // s.reference.high() << 16 | s.ref_offs,
+			   // // s.query_offs | s.state << 16 ;
+// }
 
-template< typename A > void set_bit( typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
-{
-	cl.insert( s.reference.get() )
-	  ->insert( (Word_t)s.query )
-	  ->insert( s.reference.high() << 16 | s.ref_offs )
-	  ->set( s.query_offs | s.state << 16 ) ;
-}
-
-template< typename A > void insert(
-		typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s, const A *p )
-{ 
-	*cl.insert( s.reference.get() )
-	   ->insert( (Word_t)s.query )
-       ->insert( s.reference.high() << 16 | s.ref_offs )
-	   ->insert( s.query_offs | s.state << 16 ) = p ;
-}
+// template< typename A > void set_bit( typename gen_alignment<A>::ClosedSet& cl, const gen_alignment<A>& s )
+// {
+	// cl.insert( s.reference.get() )
+	  // ->insert( (Word_t)s.query )
+	  // ->insert( s.reference.high() << 16 | s.ref_offs )
+	  // ->set( s.query_offs | s.state << 16 ) ;
+// }
+// 
+// template< typename A > void insert(
+		// typename gen_alignment<A>::ClosedMap& cl, const gen_alignment<A>& s, const A *p )
+// { 
+	// *cl.insert( s.reference.get() )
+	   // ->insert( (Word_t)s.query )
+       // ->insert( s.reference.high() << 16 | s.ref_offs )
+	   // ->insert( s.query_offs | s.state << 16 ) = p ;
+// }
 
 //! \brief resets alignment to initial state.
 //! The internal state is reset, the penalty set to zero and the
 //! reference and query positions to their initial values.  The alignment
 //! can be repeated now.
-template< typename A > void reset( gen_alignment<A>& fa )
-{
-	fa.ref_offs = 0 ;
-	fa.query_offs = 0 ;
-	fa.state = 0 ;
-	fa.penalty = 0 ;
-}
+// template< typename A > void reset( gen_alignment<A>& fa )
+// {
+	// fa.ref_offs = 0 ;
+	// fa.query_offs = 0 ;
+	// fa.state = 0 ;
+	// fa.penalty = 0 ;
+// }
 
 /*! \brief compares two simple alignments.
  *
@@ -185,9 +187,9 @@ template< typename A > void reset( gen_alignment<A>& fa )
  * element at the top, we want an alignment with lower penalty to
  * compare greater.
  */
-template< typename A >
-bool operator < ( const gen_alignment<A>& a, const gen_alignment<A>& b )
-{ return b.penalty < a.penalty ; }
+// template< typename A >
+// bool operator < ( const gen_alignment<A>& a, const gen_alignment<A>& b )
+// { return b.penalty < a.penalty ; }
 
 //! }@
 
@@ -206,6 +208,7 @@ bool operator < ( const gen_alignment<A>& a, const gen_alignment<A>& b )
 //! map sequences from the 454 instrument (due to the very common gaps).
 //! \see alignment_rep
 
+#if 0
 struct flat_alignment : public gen_alignment<flat_alignment> {
 	//! \brief Trivial substitution matrix.
 	//! Aligning two codes that have any overlap costs nothing, else it
@@ -283,6 +286,7 @@ template< typename F > void forward( const flat_alignment& s, F f )
 		f( s3 ) ;
 	}
 }
+#endif
 
 //! @}
 
@@ -347,6 +351,7 @@ std::ostream& operator << ( std::ostream&, const adna_parblock& ) ;
 //! set if we're gapping the query.
 //! \see alignment_rep
 
+#if 0
 struct simple_adna : public gen_alignment<simple_adna> {
 	static adna_parblock pb ;
 
@@ -773,12 +778,26 @@ void setup_alignments( const CompactGenome& g, const QSequence& ps,
 	for( ; begin != end ; ++begin ) (enter<Aln>( ol ))( Aln( g, ps, *begin ) ) ;
 }
 
+#endif
+
+template< int N, typename T > class Array
+{
+	private:
+		T arr_[N] ;
+
+	public:
+		Array() {}
+		Array( T t ) { for( int i = 0 ; i != N ; ++i ) arr_[i] = t ; }
+
+		T& operator[] ( int i ) { return arr_[i] ; }
+		const T& operator[] ( int i ) const { return arr_[i] ; }
+} ;
 
 //! \brief run an alignment in the forward direction
 //! This starts with two pointers and a cost limit, and it returns the
 //! penalty that was incurred.  The limit can be exceeded while
 //! producing an alignment (it would be foolish to throw it away), if
-//! nothing is found, UINT_MAX is returned.
+//! nothing is found, std::numeric_limits<uint32_t>::max() is returned.
 //!
 //! We align until we hit a zero in either query or reference.  Starting
 //! state is 0, late the state is inly held implicitly.
@@ -786,12 +805,24 @@ void setup_alignments( const CompactGenome& g, const QSequence& ps,
 //! If only there were real lexical closures... *sigh*
 class Run_Alignment {
 	private:
+		enum {
+			mask_ss      = 1,
+			mask_gap_ref = 2,
+			mask_gap_qry = 4,
+
+			mask_gaps = mask_gap_ref | mask_gap_ref,
+			num_states = 6
+		} ;
+
+
+		const adna_parblock *pb_ ;
 		DnaP reference_ ;
 		const QSequence::Base *query_ ;
+		uint32_t seedsize_ ;
 
-		uint32_t limit_, result_ ;
+		uint32_t limit_, result_, init_score_ ;
 
-		typedef std::vector< uint32_t[ num_states ] > Line ;
+		typedef std::vector< Array< num_states, uint32_t > > Line ;
 
 		Line scores_current, scores_next ;
 		int min_current, min_next ;
@@ -800,32 +831,92 @@ class Run_Alignment {
 		// multiple calls to put must happen in increasing order of x
 		void put( Line& l, int& m, int s, int x, uint32_t y )
 		{
-			if( y <= limit )
+			if( y <= limit_ )
 			{
 				if( l.empty() ) m = x ;
 				int i = x - m ;
-				while( l.size() <= i )
-				{
-					l.push_back() ;
-					for( int j = 0 ; j != num_states ; ++j ) l.back()[j] = UINT32_MAX ;
-				}
-				l[i][s] = std::min( l[i][s], y ) 
+				while( l.size() <= i ) l.push_back( infinite_score() ) ;
+				l[i][s] = std::min( l[i][s], y ) ;
 			}
 		}
 
-		void put_current( int s, int x, uint32_t y ) { put( scores_current, min_current ) ; }
-		void put_next   ( int s, int x, uint32_t y ) { put( scores_next   , min_next    ) ; }
+		void put_current( int s, int x, uint32_t y ) { put( scores_current, min_current, s, x, y ) ; }
+		void put_next   ( int s, int x, uint32_t y ) { put( scores_next   , min_next,    s, x, y ) ; }
 
-	public:
-		Run_Alignment( DnaP reference, const QSequence::Base *query, uint32_t limit )
-			: reference_( reference ), query( query_ ), limit_( limit ), result( UINT32_MAX )
+		Logdom subst_penalty( int s, bool flip, Ambicode r, const QSequence::Base &qry ) const
 		{
-		
+			if( !r ) r = 15 ; // if reference has a gap, pretend it was an N
+
+			Logdom prob = Logdom::null() ;
+			for( uint8_t p = 0 ; p != 4 ; ++p )
+			{
+				Ambicode q = flip ? (1<<p) : complement(1<<p) ;
+				prob += ( s & mask_ss ? pb_->ss_mat[r][q] : pb_->ds_mat[r][q] )
+					* Logdom::from_phred( qry.qscores[p] ) ;
+			}
+			return prob ;
 		}
 
-		uint32_t operator()()
+
+	public:
+		static uint32_t infinite_score() { return std::numeric_limits< uint32_t >::max() ; }
+
+		Run_Alignment() {}
+		Run_Alignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, uint32_t size )
+			: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( infinite_score() ) {}
+
+		int mismatches_in_seed()
 		{
-			put_current( 0, 0, 0 ) ;
+			// greedy initialization:
+			// count number of mismatches in the seed region and set the
+			// score accordingly
+			int mm = 0 ;
+			init_score_ = 0 ;
+			for( int i = 0 ; i != seedsize_ ; ++i )
+			{
+				if( reference_[i] != query_[i].ambicode ) ++mm ;
+				init_score_ += subst_penalty( 0, false, reference_[i], query_[i] ).to_phred() ;
+			}
+			return mm ;
+		}
+
+		// alignment proper: the intial greedy matching must have been
+		// done, here we extend this into a full alignment, as long as
+		// it doesn't score more than a prescribed limit.
+		//
+		// We first run a forward extension at half the limit.  If this
+		// succeeds, we do the backwards extension limited to whatever
+		// is left.  If forward extension fails, we do backwards
+		// extension to half the limit, then add forward.
+		//
+		// Only one alignment is produced, but we make sure it is the
+		// cheapest one.  The score may exceed the limit, if we happen
+		// to finish right when stepping over the limit.  If really
+		// nothing is found, we return infinite_score().
+		uint32_t operator()( uint32_t limit )
+		{
+			uint32_t forward_score = extend_forward( init_score_, limit / 2 ) ;
+
+			if( forward_score < infinite_score() )
+				return extend_backward( forward_score, limit ) ;
+
+			uint32_t backward_score = extend_backward( init_score_, limit / 2 ) ;
+			if( backward_score < infinite_score() )
+				return extend_forward( backward_score, limit ) ;
+
+			return infinite_score() ;
+		}
+
+		std::vector<unsigned> align_and_backtrace( uint32_t limit, DnaP &minpos, DnaP &maxpos ) 
+		{
+			std::vector<unsigned> v ;
+			return v ;
+		}
+
+		uint32_t extend_forward( uint32_t init, uint32_t limit ) 
+		{
+			limit_ = limit ;
+			put_current( 0, 0, init ) ;
 			for( int y = 0 ; !scores_current.empty() ; ++y )
 			{
 				// expand the current row for each state in turn... of course,
@@ -835,36 +926,61 @@ class Run_Alignment {
 				{
 					for( int s = 0 ; s != num_states ; ++s )
 					{
-						uint32_t score = current_score[ x - m ] ;
-						if( score < UINT32_MAX ) expand( s, x, y ) ;
+						uint32_t score = scores_current[ x - m ][ s ] ;
+						if( score < infinite_score() ) expand( 
+								score, s, x, y, false,
+								reference_[ seedsize_ + x ], query_[ seedsize_ + y ] 
+								) ;
 					}
 				}
-				swap( scores_current, scores_next ) ;
-				swap( min_current, min_next ) ;
+				std::swap( scores_current, scores_next ) ;
+				std::swap( min_current, min_next ) ;
 			}
 			return result_ ;
 		}
 
-	
-
-	// what to do?  
-	// If in matching state, we know there's no immediate match, so we can...
-	// - mismatch
-	// - detect deamination and change to SS state (while matching)
-	// - open ref gap
-	// - open query gap
-	//
-	// If a gap is open, we can...
-	// - extend it
-	// - close it
-	//
-	// If we hit a gap symbol, we must...
-	// - start over at second half in initial state
-
-		void forward_expand( uint32_t score, int s, int x, int y )
+		uint32_t extend_backward( uint32_t init, uint32_t limit ) 
 		{
-			Ambicode ref = reference[ x ] ;
-			QSequence::Base qry = query[ y ] ;
+			limit_ = limit ;
+			put_current( 0, 0, init ) ;
+			for( int y = 0 ; !scores_current.empty() ; ++y )
+			{
+				// expand the current row for each state in turn... of course,
+				// each state is a special case.
+				int m = min_current ;
+				for( int x = m ;  x != m + scores_current.size() ; ++x )
+				{
+					for( int s = 0 ; s != num_states ; ++s )
+					{
+						uint32_t score = scores_current[ x - m ][ s ] ;
+						if( score < infinite_score() ) expand( 
+								score, s, x, y, false,
+								reference_[ -x ], query_[ -y ] 
+								) ;
+					}
+				}
+				std::swap( scores_current, scores_next ) ;
+				std::swap( min_current, min_next ) ;
+			}
+			return result_ ;
+		}
+
+		// what to do?  
+		// If in matching state, we know there's no immediate match, so we can...
+		// - mismatch
+		// - detect deamination and change to SS state (while matching)
+		// - open ref gap
+		// - open query gap
+		//
+		// If a gap is open, we can...
+		// - extend it
+		// - close it
+		//
+		// If we hit a gap symbol, we must...
+		// - start over at second half in initial state
+
+		void expand( uint32_t score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
+		{
 
 			// Note the penalties: The appropriate substitution penalty is
 			// applied whenever we (mis-)match two codes, the gap open penalties
@@ -882,49 +998,56 @@ class Run_Alignment {
 				// because such an alignment isn't all that interesting in
 				// reality anyway.  Afterwards we're finished and adjust result
 				// and limit accordingly.
-				for( int y_ = y ; query[ y_ ].ambicode ; ++y )
+				// XXX Meh.  Broken in backwards direction.
+				for( int y_ = y ; query_[ y_ ].ambicode ; ++y )
 				{
-					score += subst_penalty().to_phred() ;
-					if( s & mask_ss ) score += pb.overhang_ext_penalty.to_phred() ;
+					score += subst_penalty( s, flip, ref, qry ).to_phred() ;
+					if( s & mask_ss ) score += pb_->overhang_ext_penalty.to_phred() ;
 				}
-				if( score < result ) result = limit = score ;
+				if( score < result_ ) result_ = limit_ = score ;
 			}
 			else if( !qry.ambicode )
 			{
 				// hit gap in query --> we're done
-				if( score < result ) result = limit = score ;
+				if( score < result_ ) result_ = limit_ = score ;
 			}
 			else if( (s & mask_gaps) == 0 )
 			{
 				// no gaps open --> mismatch, open either gap, enter SS
-				put_next( s, x, score + subst_penalty().to_phred() 
-						+ ( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
-				put_current( s | mask_gap_qry, x+1, score + pb.gap_open_penalty.to_phred() ) ;
-				put_next( s | mask_gap_ref, x, score + pb.gap_open_penalty.to_phred() ) ;
-				if( pb.overhang_enter_penalty.is_finite() && (s & mask_ss) == 0 )
-				{
-					// To enter single stranded we require that the penalty for
-					// doing so is immediately recovered by the better match.
-					// This is easily the case for the observed deamination
-					// rates in aDNA.
-					uint32_t p0 = subst_penalty( s, x, y ).to_phred() ;
-					uint32_t p4 = ( subst_penalty( s | mask_ss, x, y ) 
-							* pb.overhang_enter_penalty * pb.overhang_ext_penalty ).to_phred() ;
-					if( p4 < p0 ) put_next( s | mask_ss, x+1, score + p4 ) ;
+				put_next( s, x, score + subst_penalty( s, flip, ref, qry ).to_phred() 
+						+ ( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+				if( ref != qry.ambicode ) {
+					put_current( s | mask_gap_qry, x+1, score + pb_->gap_open_penalty.to_phred() ) ;
+					put_next( s | mask_gap_ref, x, score + pb_->gap_open_penalty.to_phred() ) ;
+					if( pb_->overhang_enter_penalty.is_finite() && (s & mask_ss) == 0 )
+					{
+						// To enter single stranded we require that the penalty for
+						// doing so is immediately recovered by the better match.
+						// This is easily the case for the observed deamination
+						// rates in aDNA.
+						uint32_t p0 = subst_penalty( s, flip, ref, qry ).to_phred() ;
+						uint32_t p4 = ( subst_penalty( s | mask_ss, flip, ref, qry ) 
+								* pb_->overhang_enter_penalty * pb_->overhang_ext_penalty ).to_phred() ;
+						if( p4 < p0 ) put_next( s | mask_ss, x+1, score + p4 ) ;
+					}
 				}
 			}
 			else if( (s & mask_gaps) == mask_gap_ref )
 			{
-				put_next( s, x, score + pb.gap_ext_penalty.to_phred() +
-						( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
-				put_next( s & ~mask_gap_ref, x+1, score + subst_penalty().to_phred() +
-						( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
+				if( ref != qry.ambicode ) {
+					put_next( s, x, score + pb_->gap_ext_penalty.to_phred() +
+							( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+				}
+				put_next( s & ~mask_gap_ref, x+1, score + subst_penalty( s, flip, ref, qry ).to_phred() +
+						( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
 			}
 			else
 			{
-				put_current( s, x+1, score + pb.gap_ext_penalty.to_phred() ) ;
-				put_next( s & ~mask_gap_qry, x+1, score + subst_penalty().to_phred() +
-						( s & mask_ss ? pb.overhang_ext_penalty.to_phred() : 0 ) ) ;
+				put_current( s, x+1, score + pb_->gap_ext_penalty.to_phred() ) ;
+				if( ref != qry.ambicode ) {
+					put_next( s & ~mask_gap_qry, x+1, score + subst_penalty( s, flip, ref, qry ).to_phred() +
+							( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+				}
 			}
 		}
 } ;

@@ -34,14 +34,16 @@
 //! \brief Configures type of alignment to be done.
 //! This is a hack and only intended as a stopgap.
 // typedef flat_alignment alignment_type ;
-typedef simple_adna alignment_type ;
+// typedef simple_adna alignment_type ;
 
+/*
 struct reference_overlaps {
 	DnaP x, y ;
 	reference_overlaps( DnaP u, DnaP v ) : x(u), y(v) {}
 	bool operator()( const alignment_type& a ) {
 		return a.reference >= x && a.reference <= y ; }
 } ;
+*/
 
 namespace streams {
 
@@ -98,6 +100,8 @@ class Mapper : public Stream
 	private:
 		config::Aligner conf_ ;
 		GenomeHolder genome_ ;
+		adna_parblock parblock_ ;
+
 
 	public:
 		Mapper( const config::Aligner &config, const std::string& genome_name ) ;

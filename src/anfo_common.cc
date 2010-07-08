@@ -250,6 +250,7 @@ void Indexer::put_result( const Result& r )
             {
                 ss = res_.add_seeds() ;
                 ss->set_genome_name( index_.metadata().genome_name() ) ;
+				ss->set_max_mismatches( p.max_mismatches_in_seed() ) ;
             }
 
 			PreSeeds seeds ;
@@ -274,7 +275,7 @@ void Indexer::put_result( const Result& r )
 Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
 	conf_(config), genome_( Metagenome::find_genome( genome_name ) )
 {
-	simple_adna::pb = adna_parblock( conf_ ) ;
+	parblock_ = adna_parblock( conf_ ) ;
 }
 
 void Mapper::put_header( const Header& h )
@@ -322,8 +323,9 @@ void Mapper::put_result( const Result& r )
 	}
 
 	// invariant violated, we won't deal with that
-	if( ss.ref_positions_size() != ss.query_positions_size() )
-		throw "invalid seeds: coordinates must come in pairs" ;
+	if( ss.ref_positions_size() != ss.query_positions_size() ||
+			ss.ref_positions_size() != ss.seed_sizes_size() )
+		throw "invalid seeds: coordinates must come in triples" ;
 
 	if( !ss.ref_positions_size() ) {
 		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
@@ -333,35 +335,107 @@ void Mapper::put_result( const Result& r )
 	QSequence qs( res_.read() ) ;
 	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
-	std::deque< alignment_type > ol ;
+	// XXX
+	// do actual alignments:
+	// 1 initialize each one, make sure the mismatch count is low enough
+	//   [need to pass mismatch limit through from Indexer]
+	// 2 iterate, increasing the limit if necessary:
+	// 2a evaluate alignments, keep the two best scores and associated seeds
+	// 2b remove seeds that already produced an alignment
+	// 3 redo winning alignment and backtrace it
+
+	std::deque< Run_Alignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
-		ol.push_back( alignment_type( *genome_, qs, ss.ref_positions(i), ss.query_positions(i) ) ) ;
+	{
+		Run_Alignment aln( 
+				parblock_,
+				( genome_->get_base() + ss.ref_positions(i) ).reverse_if( ss.query_positions(i) < 0 ),
+				qs.start() + abs( ss.query_positions(i) ),
+				ss.seed_sizes(i) 
+				) ;
 
-	alignment_type::ClosedSet cl ;
-	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
+		if( aln.mismatches_in_seed() <= ss.max_mismatches() )
+			seedlist.push_back( aln ) ;
+	}
 
-	as->set_open_nodes_after_alignment( o ) ;
-	as->set_closed_nodes_after_alignment( c ) ;
-	as->set_tracked_closed_nodes_after_alignment( tt ) ;
+	// iteration: we track the best score along with its seed and the
+	// second best score
+	uint32_t best_score = Run_Alignment::infinite_score(), 
+			 runnerup_score = Run_Alignment::infinite_score() ;
+	Run_Alignment best_seed ;
 
-	if( !best ) {
+	uint32_t limit = 100 ;
+	for(;;)
+	{
+		std::deque< Run_Alignment >::iterator
+			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
+		while( cur_aln != end_aln )
+		{
+			uint32_t score = (*cur_aln)( limit ) ;
+			// didn't find an alignment?  just move to next seed
+			if( score == Run_Alignment::infinite_score() ) *out_aln++ = *cur_aln++ ;
+			else {
+				// new best score?
+				if( score < best_score ) {
+					runnerup_score = best_score ;
+					best_score = score ;
+					best_seed = *cur_aln ;
+					limit = min( limit, min( best_score + conf_.max_mapq(), runnerup_score ) ) ;
+				}
+				// new second best score?
+				else if( score < runnerup_score ) {
+					runnerup_score = score ;
+					limit = min( limit, runnerup_score ) ;
+				}
+				// this seed is exhausted, we never need it again
+				++cur_aln ;
+			}
+		}
+		// two hits -> we're done
+		if( runnerup_score < Run_Alignment::infinite_score() ) break ;
+
+		// one hit and max mapq exhausted -> we're done
+		if( best_score < Run_Alignment::infinite_score() &&
+				limit >= best_score + conf_.max_mapq() ) break ;
+
+		// max penalty exhausted -> we're done
+		if( limit >= max_penalty ) break ;
+
+		// get rid of exhausted seeds, increase limit
+		seedlist.erase( out_aln, end_aln ) ;
+
+		limit = min( limit*2, max_penalty ) ;
+		if( best_score < Run_Alignment::infinite_score() )
+			limit = min( limit, best_score + conf_.max_mapq() ) ;
+	}
+
+	// alignment_type::ClosedSet cl ;
+	// alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
+
+	// as->set_open_nodes_after_alignment( o ) ;
+	// as->set_closed_nodes_after_alignment( c ) ;
+	// as->set_tracked_closed_nodes_after_alignment( tt ) ;
+
+	if( best_score == Run_Alignment::infinite_score() )
+	{
 		as->set_reason( output::bad_alignment ) ;
 		return ;
 	}
 
-	int penalty = best.penalty ;
-
-	deque< pair< alignment_type, const alignment_type* > > ol_ ;
-	reset( best ) ;
-	greedy( best ) ;
-	(enter_bt<alignment_type>( ol_ ))( best ) ;
 	DnaP minpos, maxpos ;
-	std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
-	int32_t len = maxpos - minpos - 1 ;
+	std::vector<unsigned> t = best_seed.align_and_backtrace( best_score, minpos, maxpos ) ;
+
+	// int penalty = best.penalty ;
+	// deque< pair< alignment_type, const alignment_type* > > ol_ ;
+	// reset( best ) ;
+	// greedy( best ) ;
+	// (enter_bt<alignment_type>( ol_ ))( best ) ;
+	 // find_cheapest( ol_, minpos, maxpos ) ;
 
 	output::Hit *h = res_.add_hit() ;
 
 	uint32_t start_pos ;
+	int32_t len = maxpos - minpos - 1 ;
     const config::Sequence *sequ = genome_->translate_back( minpos+1, start_pos ) ;
 	if( !sequ ) throw "Not supposed to happen:  invalid alignment coordinates" ;
 
@@ -372,7 +446,7 @@ void Mapper::put_result( const Result& r )
 
 	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
 	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-	h->set_score( penalty ) ;
+	h->set_score( best_score ) ;
 	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
 	// XXX: h->set_evalue
@@ -388,18 +462,18 @@ void Mapper::put_result( const Result& r )
 	// for the next one
 	// XXX this is cumbersome... need a better PQueue impl... or a
 	// better algorithm
-	ol.erase( 
-			std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
-			ol.end() ) ;
-	make_heap( ol.begin(), ol.end() ) ;
+	// ol.erase( 
+			// std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
+			// ol.end() ) ;
+	// make_heap( ol.begin(), ol.end() ) ;
 
 	// search long enough to make sensible mapping quality possible
-	uint32_t max_penalty_2 = conf_.max_mapq() + penalty ;
-	alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
-	as->set_open_nodes_after_alignment( o ) ;
-	as->set_closed_nodes_after_alignment( c ) ;
-	as->set_tracked_closed_nodes_after_alignment( tt ) ;
-	if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
+	// uint32_t max_penalty_2 = conf_.max_mapq() + penalty ;
+	// alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
+	// as->set_open_nodes_after_alignment( o ) ;
+	// as->set_closed_nodes_after_alignment( c ) ;
+	// as->set_tracked_closed_nodes_after_alignment( tt ) ;
+	if( runnerup_score < Run_Alignment::infinite_score() ) h->set_diff_to_next( runnerup_score - best_score ) ;
 }
 
 //! \page finding_alns How to find everything we need

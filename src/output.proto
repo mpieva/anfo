@@ -217,6 +217,9 @@ message Seeds {
 
 	// sizes of seeds
 	repeated uint32 seed_sizes = 4 [ packed=true, (show) = "show_uint32_array" ] ;
+
+	// maximum number of mismatches in seed region
+	optional uint32 max_mismatches = 5 [ default = 0 ] ;
 }
 
 message Result {

@@ -25,7 +25,7 @@
 #include <ostream>
 #include <iomanip>
 
-adna_parblock simple_adna::pb ;
+// adna_parblock simple_adna::pb ;
 
 namespace {
 	void print_subst_mat( std::ostream& s, const subst_mat mat )
