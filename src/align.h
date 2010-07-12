@@ -804,7 +804,8 @@ template< int N, typename T > class Array
 //!
 //! If only there were real lexical closures... *sigh*
 class Run_Alignment {
-	private:
+	// private:
+	public:
 		enum {
 			mask_ss      = 1,
 			mask_gap_ref = 2,
@@ -863,21 +864,23 @@ class Run_Alignment {
 
 		Run_Alignment() {}
 		Run_Alignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, uint32_t size )
-			: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( infinite_score() ) {}
-
-		int mismatches_in_seed()
+			: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( infinite_score() )
 		{
-			// greedy initialization:
-			// count number of mismatches in the seed region and set the
-			// score accordingly
-			int mm = 0 ;
+			// greedy initialization: run over the seed, accumulating a
+			// score.  then extend greedily as long as there are
+			// matches.
 			init_score_ = 0 ;
 			for( int i = 0 ; i != seedsize_ ; ++i )
-			{
-				if( reference_[i] != query_[i].ambicode ) ++mm ;
 				init_score_ += subst_penalty( 0, false, reference_[i], query_[i] ).to_phred() ;
-			}
-			return mm ;
+
+			for( ; reference_[seedsize_] && query_[seedsize_].ambicode &&
+					reference_[seedsize_] == query_[seedsize_].ambicode ; ++seedsize_ )
+				init_score_ += subst_penalty( 0, false, reference_[seedsize_], query_[seedsize_] ).to_phred() ;
+
+			for( ; reference_[-1] && query[-1].ambicode &&
+					reference_[-1] == query_[-1].ambicode ;
+					++seedsize_, --reference_, --query_ )
+				init_score_ += subst_penalty( 0, false, reference_[-1], query_[-1] ).to_phred() ;
 		}
 
 		// alignment proper: the intial greedy matching must have been

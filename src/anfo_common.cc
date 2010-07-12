@@ -251,6 +251,7 @@ void Indexer::put_result( const Result& r )
                 ss = res_.add_seeds() ;
                 ss->set_genome_name( index_.metadata().genome_name() ) ;
 				ss->set_max_mismatches( p.max_mismatches_in_seed() ) ;
+				ss->set_min_seed_length( p.min_seed_len() ) ;
             }
 
 			PreSeeds seeds ;
@@ -282,6 +283,32 @@ void Mapper::put_header( const Header& h )
 {
 	Stream::put_header( h ) ;
 	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
+}
+
+// check for a stretch of at least minsize matches with up to mm
+// mismatches
+static bool check_seed_quality( DnaP ref, const QSequence::Base *qry, int seedlen, int mm, int minsize )
+{
+	std::cerr << __PRETTY_FUNCTION__ << "( ..., ..., " << seedlen << ", " << mm << ", " << minsize << std::endl ;
+	int lengths[3] = { 0,0,0 } ;
+	for( ; seedlen ; --seedlen, --ref, --qry )
+	{
+		std::cerr << from_ambicode(*ref) << " " << from_ambicode( qry->ambicode ) << std::endl ;
+		if( *ref == qry->ambicode )
+		{
+			++lengths[0] ;
+			++lengths[1] ;
+			++lengths[2] ;
+		}
+		else
+		{
+			lengths[2] = lengths[1] + 1 ;
+			lengths[1] = lengths[0] + 1 ;
+			lengths[0] = 0 ;
+		}
+		if( lengths[mm] == minsize ) return true ;
+	}
+	return false ;
 }
 
 void Mapper::put_result( const Result& r )
@@ -335,7 +362,6 @@ void Mapper::put_result( const Result& r )
 	QSequence qs( res_.read() ) ;
 	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
-	// XXX
 	// do actual alignments:
 	// 1 initialize each one, make sure the mismatch count is low enough
 	//   [need to pass mismatch limit through from Indexer]
@@ -344,18 +370,29 @@ void Mapper::put_result( const Result& r )
 	// 2b remove seeds that already produced an alignment
 	// 3 redo winning alignment and backtrace it
 
+	std::cerr << ss.ref_positions_size() << " possible seeds." << std::endl ;
 	std::deque< Run_Alignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
 	{
-		Run_Alignment aln( 
-				parblock_,
-				( genome_->get_base() + ss.ref_positions(i) ).reverse_if( ss.query_positions(i) < 0 ),
-				qs.start() + abs( ss.query_positions(i) ),
-				ss.seed_sizes(i) 
-				) ;
+		DnaP reference = ( genome_->get_base() + ss.ref_positions(i) ).reverse_if( ss.query_positions(i) < 0 ) ;
+		const QSequence::Base *query = qs.start() + abs( ss.query_positions(i) ) ;
 
-		if( aln.mismatches_in_seed() <= ss.max_mismatches() )
-			seedlist.push_back( aln ) ;
+		uint32_t p ;
+		const config::Sequence *sequ = genome_->translate_back( reference, p ) ;
+		std::cerr << sequ->name() << " " << p << " " << ss.seed_sizes(i) <<
+			(ss.query_positions(i) < 0 ? "backward" : "forward" ) << std::endl ;
+
+		if( check_seed_quality( reference, query, ss.seed_sizes(i), 
+					ss.max_mismatches(), ss.min_seed_length() ) )
+			seedlist.push_back( Run_Alignment( parblock_, reference, query, ss.seed_sizes(i) ) ) ;
+	}
+
+	std::cerr << seedlist.size() << " actual seeds." << std::endl ;
+	for( size_t i = 0 ; i != seedlist.size() ; ++i )
+	{
+		uint32_t p ;
+		const config::Sequence *sequ = genome_->translate_back( seedlist[i].reference_, p ) ;
+		std::cerr << sequ->name() << " " << p << std::endl ;
 	}
 
 	// iteration: we track the best score along with its seed and the
@@ -365,16 +402,22 @@ void Mapper::put_result( const Result& r )
 	Run_Alignment best_seed ;
 
 	uint32_t limit = 100 ;
-	for(;;)
+	while( !seedlist.empty() ) 
 	{
+		std::cerr << "Starting alignment pass at limit " << limit << std::endl ;
 		std::deque< Run_Alignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
 		{
 			uint32_t score = (*cur_aln)( limit ) ;
 			// didn't find an alignment?  just move to next seed
-			if( score == Run_Alignment::infinite_score() ) *out_aln++ = *cur_aln++ ;
-			else {
+			if( score == Run_Alignment::infinite_score() )
+			{
+				std::cerr << "Nothing yet" << std::endl ;
+				*out_aln++ = *cur_aln++ ;
+			}
+			else 
+			{
 				// new best score?
 				if( score < best_score ) {
 					runnerup_score = best_score ;
@@ -389,6 +432,7 @@ void Mapper::put_result( const Result& r )
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
+				std::cerr << "Got something, new limit is " << limit << std::endl ;
 			}
 		}
 		// two hits -> we're done
