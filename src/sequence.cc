@@ -146,10 +146,6 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 	getline( s, *r.mutable_description() ) ;
 	r.clear_sequence() ;
 
-	// If at this point we have a valid stream, we definitely have a
-	// sequence.  Bail out iff reading of the header failed.
-	if( !s ) return s ;
-
 	// if more description follows, read it in, dropping the delimiter
 	while( descr_follows(s) ) 
 	{
@@ -159,6 +155,10 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 		r.mutable_description()->push_back( '\n' ) ;
 		*r.mutable_description() += line ;
 	}
+
+	// If at this point we have a valid stream, we definitely have a
+	// sequence.  Bail out iff reading of the header failed.
+	if( !s ) return false ;
 
 	// read sequence while it continues
 	// do not read gaps, ignore junk
@@ -184,8 +184,13 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 		// description lines can follow, since ';' is a valid Q-score
 		skipline(s) ;
 
+		// Workaround for home-made broken FastQ files
+		if( s && s.peek() == '*' )
+		{
+			skipline(s) ;
+		}
 		// Q-scores must follow unless the sequence was empty or the stream ends
-		if( s && r.sequence().length() )
+		else if( s && r.sequence().length() )
 		{
 			string line ;
 			getline( s, line ) ;
@@ -196,14 +201,15 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 			// numbers until the next header
 			if( all_ascii_qscores(line) ) 
 			{
-				for( int ix = 1 ; s ; )
+				int ix = 1 ;
+				do
 				{
 					stringstream ss( line ) ;
 					for( int q = 0 ; ss >> q ; ++ix )
 						r.mutable_quality()->push_back( solexa_scores ? sol_to_phred(q) : q ) ;
 					if( !seq_continues(s) ) break ;
 					getline( s, line ) ;
-				}
+				} while( s ) ;
 			}
 			// No ASCII coding.  Since delimiters aren't very useful
 			// now, we'll take exactly one Q-score for each nucleotide,
@@ -211,7 +217,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 			else
 			{
 				size_t total = r.sequence().length(), ix = 0 ; 
-				while( ix != total && s )
+				do
 				{
 					for( size_t j = 0 ; ix != total && j != line.size() ; ++j )
 					{
@@ -222,8 +228,9 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 							++ix ;
 						}
 					}
-					if( ix != total ) getline( s, line ) ;
-				}
+					if( ix == total ) break ;
+					getline( s, line ) ;
+				} while( s ) ;
 				// There might be some junk left over; but it will be
 				// eaten away in the next call.
 			}
@@ -232,7 +239,7 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 
 	// We did get a sequence, no matter the stream state now, so no
 	// failure.
-	return true ;
+	return r.IsInitialized() ;
 }
 
 namespace {
