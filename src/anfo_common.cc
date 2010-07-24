@@ -285,15 +285,14 @@ void Mapper::put_header( const Header& h )
 	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
 }
 
-// check for a stretch of at least minsize matches with up to mm
-// mismatches
+// Check for a stretch of at least minsize matches with up to mm
+// mismatches.  The pointers should be clean: both point to the start of
+// a decently matching region of length seedlen.
 static bool check_seed_quality( DnaP ref, const QSequence::Base *qry, int seedlen, int mm, int minsize )
 {
-	std::cerr << __PRETTY_FUNCTION__ << "( ..., ..., " << seedlen << ", " << mm << ", " << minsize << std::endl ;
 	int lengths[3] = { 0,0,0 } ;
-	for( ; seedlen ; --seedlen, --ref, --qry )
+	for( ; seedlen ; --seedlen, ++ref, ++qry )
 	{
-		std::cerr << from_ambicode(*ref) << " " << from_ambicode( qry->ambicode ) << std::endl ;
 		if( *ref == qry->ambicode )
 		{
 			++lengths[0] ;
@@ -360,7 +359,8 @@ void Mapper::put_result( const Result& r )
 	}
 
 	QSequence qs( res_.read() ) ;
-	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
+	// XXX uint32_t o, c, tt ;
+	Logdom max_penalty = Logdom::from_phred( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
 	// do actual alignments:
 	// 1 initialize each one, make sure the mismatch count is low enough
@@ -370,87 +370,103 @@ void Mapper::put_result( const Result& r )
 	// 2b remove seeds that already produced an alignment
 	// 3 redo winning alignment and backtrace it
 
-	std::cerr << ss.ref_positions_size() << " possible seeds." << std::endl ;
+	// std::cerr << ss.ref_positions_size() << " possible seeds." << std::endl ;
 	std::deque< Run_Alignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
 	{
-		DnaP reference = ( genome_->get_base() + ss.ref_positions(i) ).reverse_if( ss.query_positions(i) < 0 ) ;
-		const QSequence::Base *query = qs.start() + abs( ss.query_positions(i) ) ;
+		// Reconstruct pointers to seed region.  We want the region to
+		// be oriented forwards on the query.  That means:
+		// - for a forward seed, the ref position is correct, the query
+		//   is one too big because of the virtual gap at 0
+		// - for a reverse seed we have coordinates for the *end*
+		//   position of the seed region, and we need to reverse the
+		//   pointer on the reference
+		DnaP reference = ss.query_positions(i) > 0 ?
+			genome_->get_base() + ss.ref_positions(i) :
+			( genome_->get_base() + ss.ref_positions(i) + ss.seed_sizes(i) -1 ).reverse() ;
+			
+		const QSequence::Base *query = ss.query_positions(i) > 0 ?
+			qs.start() + ss.query_positions(i) -1 :
+			qs.start() - ss.query_positions(i) - ss.seed_sizes(i) ;
 
-		uint32_t p ;
-		const config::Sequence *sequ = genome_->translate_back( reference, p ) ;
-		std::cerr << sequ->name() << " " << p << " " << ss.seed_sizes(i) <<
-			(ss.query_positions(i) < 0 ? "backward" : "forward" ) << std::endl ;
+
+		// uint32_t p ;
+		// const config::Sequence *sequ = genome_->translate_back( reference, p ) ;
+		// std::cerr << sequ->name() << " " << p << " " << ss.seed_sizes(i) <<
+			// (ss.query_positions(i) < 0 ? "backward" : "forward" ) << std::endl ;
 
 		if( check_seed_quality( reference, query, ss.seed_sizes(i), 
 					ss.max_mismatches(), ss.min_seed_length() ) )
 			seedlist.push_back( Run_Alignment( parblock_, reference, query, ss.seed_sizes(i) ) ) ;
 	}
 
-	std::cerr << seedlist.size() << " actual seeds." << std::endl ;
-	for( size_t i = 0 ; i != seedlist.size() ; ++i )
-	{
-		uint32_t p ;
-		const config::Sequence *sequ = genome_->translate_back( seedlist[i].reference_, p ) ;
-		std::cerr << sequ->name() << " " << p << std::endl ;
-	}
+	// std::cerr << seedlist.size() << " actual seeds." << std::endl ;
+	// for( size_t i = 0 ; i != seedlist.size() ; ++i )
+	// {
+		// uint32_t p ;
+		// const config::Sequence *sequ = genome_->translate_back( seedlist[i].reference_, p ) ;
+		// std::cerr << sequ->name() << ' ' << p << ' ' << seedlist[i].seedsize_
+			// << " (" << seedlist[i].init_score_.to_phred() << ')' << std::endl ;
+	// }
 
 	// iteration: we track the best score along with its seed and the
 	// second best score
-	uint32_t best_score = Run_Alignment::infinite_score(), 
-			 runnerup_score = Run_Alignment::infinite_score() ;
 	Run_Alignment best_seed ;
 
-	uint32_t limit = 100 ;
+	Logdom best_score = Logdom::null(),
+		   runnerup_score = Logdom::null(),
+	       limit = Logdom::from_phred( 200 ) ;
 	while( !seedlist.empty() ) 
 	{
-		std::cerr << "Starting alignment pass at limit " << limit << std::endl ;
+		// std::cerr << "Starting alignment pass at limit " << limit.to_phred() << std::endl ;
 		std::deque< Run_Alignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
 		{
-			uint32_t score = (*cur_aln)( limit ) ;
+			Logdom score = (*cur_aln)( limit ) ;
 			// didn't find an alignment?  just move to next seed
-			if( score == Run_Alignment::infinite_score() )
+			if( score.is_finite() )
 			{
-				std::cerr << "Nothing yet" << std::endl ;
-				*out_aln++ = *cur_aln++ ;
+				// std::cerr << "Nothing yet" << std::endl ;
+				if( out_aln != cur_aln ) *out_aln = *cur_aln ;
+				out_aln++, cur_aln++ ;
 			}
 			else 
 			{
 				// new best score?
-				if( score < best_score ) {
+				if( score > best_score ) {
 					runnerup_score = best_score ;
 					best_score = score ;
 					best_seed = *cur_aln ;
-					limit = min( limit, min( best_score + conf_.max_mapq(), runnerup_score ) ) ;
+					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
 				}
 				// new second best score?
-				else if( score < runnerup_score ) {
+				else if( score > runnerup_score ) {
 					runnerup_score = score ;
-					limit = min( limit, runnerup_score ) ;
+					limit = max( limit, runnerup_score ) ;
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
-				std::cerr << "Got something, new limit is " << limit << std::endl ;
+				// std::cerr << "Got something, new limit is " << limit.to_phred() << std::endl ;
 			}
 		}
-		// two hits -> we're done
-		if( runnerup_score < Run_Alignment::infinite_score() ) break ;
+		// two hits -> we're done (regardless of score, we got
+		// everything)
+		if( runnerup_score.is_finite() ) break ;
 
-		// one hit and max mapq exhausted -> we're done
-		if( best_score < Run_Alignment::infinite_score() &&
-				limit >= best_score + conf_.max_mapq() ) break ;
+		// what's the current absolute limit?  if we got a hit, it's
+		// worse by max mapq, else it's the max penalty
+		Logdom abs_max = best_score.is_finite()
+			? best_score * Logdom::from_phred( conf_.max_mapq() ) : max_penalty ;
 
-		// max penalty exhausted -> we're done
-		if( limit >= max_penalty ) break ;
+		// already over? -> we're done
+		if( limit <= abs_max ) break ;
 
 		// get rid of exhausted seeds, increase limit
 		seedlist.erase( out_aln, end_aln ) ;
 
-		limit = min( limit*2, max_penalty ) ;
-		if( best_score < Run_Alignment::infinite_score() )
-			limit = min( limit, best_score + conf_.max_mapq() ) ;
+		// new limit: twice as high, but not unnecessarily high
+		limit = max( limit*limit, abs_max ) ;
 	}
 
 	// alignment_type::ClosedSet cl ;
@@ -460,14 +476,14 @@ void Mapper::put_result( const Result& r )
 	// as->set_closed_nodes_after_alignment( c ) ;
 	// as->set_tracked_closed_nodes_after_alignment( tt ) ;
 
-	if( best_score == Run_Alignment::infinite_score() )
+	if( !best_score.is_finite() )
 	{
 		as->set_reason( output::bad_alignment ) ;
 		return ;
 	}
 
 	DnaP minpos, maxpos ;
-	std::vector<unsigned> t = best_seed.align_and_backtrace( best_score, minpos, maxpos ) ;
+	std::vector<unsigned> t = best_seed.align_and_backtrace( minpos, maxpos ) ;
 
 	// int penalty = best.penalty ;
 	// deque< pair< alignment_type, const alignment_type* > > ol_ ;
@@ -490,7 +506,7 @@ void Mapper::put_result( const Result& r )
 
 	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
 	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-	h->set_score( best_score ) ;
+	h->set_score( best_score.to_phred() ) ;
 	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
 	// XXX: h->set_evalue
@@ -517,7 +533,7 @@ void Mapper::put_result( const Result& r )
 	// as->set_open_nodes_after_alignment( o ) ;
 	// as->set_closed_nodes_after_alignment( c ) ;
 	// as->set_tracked_closed_nodes_after_alignment( tt ) ;
-	if( runnerup_score < Run_Alignment::infinite_score() ) h->set_diff_to_next( runnerup_score - best_score ) ;
+	if( runnerup_score.is_finite() ) h->set_diff_to_next( (runnerup_score/best_score).to_phred() ) ;
 }
 
 //! \page finding_alns How to find everything we need

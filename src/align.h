@@ -821,33 +821,36 @@ class Run_Alignment {
 		const QSequence::Base *query_ ;
 		uint32_t seedsize_ ;
 
-		uint32_t limit_, result_, init_score_ ;
+		Logdom limit_, result_, init_score_ ;
 
-		typedef std::vector< Array< num_states, uint32_t > > Line ;
+		typedef std::vector< Array< num_states, Logdom > > Line ;
 
 		Line scores_current, scores_next ;
 		int min_current, min_next ;
 
 
 		// multiple calls to put must happen in increasing order of x
-		void put( Line& l, int& m, int s, int x, uint32_t y )
+		void put( Line& l, int& m, int s, int x, Logdom y )
 		{
 			if( y <= limit_ )
 			{
 				if( l.empty() ) m = x ;
 				int i = x - m ;
-				while( l.size() <= i ) l.push_back( infinite_score() ) ;
-				l[i][s] = std::min( l[i][s], y ) ;
+				while( l.size() <= i ) l.push_back( Logdom::null() ) ;
+				l[i][s] = std::max( l[i][s], y ) ;
 			}
 		}
 
-		void put_current( int s, int x, uint32_t y ) { put( scores_current, min_current, s, x, y ) ; }
-		void put_next   ( int s, int x, uint32_t y ) { put( scores_next   , min_next,    s, x, y ) ; }
+		void put_current( int s, int x, Logdom y ) { put( scores_current, min_current, s, x, y ) ; }
+		void put_next   ( int s, int x, Logdom y ) { put( scores_next   , min_next,    s, x, y ) ; }
 
 		Logdom subst_penalty( int s, bool flip, Ambicode r, const QSequence::Base &qry ) const
 		{
 			if( !r ) r = 15 ; // if reference has a gap, pretend it was an N
+			return pb_->ds_mat[r][qry.ambicode] ;
 
+			// XXX this is fucked up, don't know whats broken right now
+			/*
 			Logdom prob = Logdom::null() ;
 			for( uint8_t p = 0 ; p != 4 ; ++p )
 			{
@@ -856,31 +859,32 @@ class Run_Alignment {
 					* Logdom::from_phred( qry.qscores[p] ) ;
 			}
 			return prob ;
+			*/
 		}
 
 
 	public:
-		static uint32_t infinite_score() { return std::numeric_limits< uint32_t >::max() ; }
+		// static uint32_t infinite_score() { return std::numeric_limits< uint32_t >::max() ; }
 
 		Run_Alignment() {}
 		Run_Alignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, uint32_t size )
-			: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( infinite_score() )
+			: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( Logdom::null() )
+			  , init_score_( Logdom::one() ) 
 		{
 			// greedy initialization: run over the seed, accumulating a
 			// score.  then extend greedily as long as there are
-			// matches.
-			init_score_ = 0 ;
+			// matches, store the resulting score.
 			for( int i = 0 ; i != seedsize_ ; ++i )
-				init_score_ += subst_penalty( 0, false, reference_[i], query_[i] ).to_phred() ;
+				init_score_ *= subst_penalty( 0, false, reference_[i], query_[i] ) ;
 
 			for( ; reference_[seedsize_] && query_[seedsize_].ambicode &&
 					reference_[seedsize_] == query_[seedsize_].ambicode ; ++seedsize_ )
-				init_score_ += subst_penalty( 0, false, reference_[seedsize_], query_[seedsize_] ).to_phred() ;
+				init_score_ *= subst_penalty( 0, false, reference_[seedsize_], query_[seedsize_] ) ;
 
 			for( ; reference_[-1] && query[-1].ambicode &&
 					reference_[-1] == query_[-1].ambicode ;
 					++seedsize_, --reference_, --query_ )
-				init_score_ += subst_penalty( 0, false, reference_[-1], query_[-1] ).to_phred() ;
+				init_score_ *= subst_penalty( 0, false, reference_[-1], query_[-1] ) ;
 		}
 
 		// alignment proper: the intial greedy matching must have been
@@ -896,27 +900,24 @@ class Run_Alignment {
 		// cheapest one.  The score may exceed the limit, if we happen
 		// to finish right when stepping over the limit.  If really
 		// nothing is found, we return infinite_score().
-		uint32_t operator()( uint32_t limit )
+		Logdom operator()( Logdom limit )
 		{
-			uint32_t forward_score = extend_forward( init_score_, limit / 2 ) ;
+			Logdom forward_score = extend_forward( init_score_, limit / 2 ) ;
+			if( forward_score.is_finite() ) return extend_backward( forward_score, limit ) ;
 
-			if( forward_score < infinite_score() )
-				return extend_backward( forward_score, limit ) ;
+			Logdom backward_score = extend_backward( init_score_, limit / 2 ) ;
+			if( backward_score.is_finite() ) return extend_forward( backward_score, limit ) ;
 
-			uint32_t backward_score = extend_backward( init_score_, limit / 2 ) ;
-			if( backward_score < infinite_score() )
-				return extend_forward( backward_score, limit ) ;
-
-			return infinite_score() ;
+			return Logdom::null() ;
 		}
 
-		std::vector<unsigned> align_and_backtrace( uint32_t limit, DnaP &minpos, DnaP &maxpos ) 
+		std::vector<unsigned> align_and_backtrace( DnaP &minpos, DnaP &maxpos ) 
 		{
 			std::vector<unsigned> v ;
 			return v ;
 		}
 
-		uint32_t extend_forward( uint32_t init, uint32_t limit ) 
+		Logdom extend_forward( Logdom init, Logdom limit ) 
 		{
 			limit_ = limit ;
 			put_current( 0, 0, init ) ;
@@ -929,8 +930,8 @@ class Run_Alignment {
 				{
 					for( int s = 0 ; s != num_states ; ++s )
 					{
-						uint32_t score = scores_current[ x - m ][ s ] ;
-						if( score < infinite_score() ) expand( 
+						Logdom score = scores_current[ x - m ][ s ] ;
+						if( score.is_finite() ) expand( 
 								score, s, x, y, false,
 								reference_[ seedsize_ + x ], query_[ seedsize_ + y ] 
 								) ;
@@ -942,7 +943,7 @@ class Run_Alignment {
 			return result_ ;
 		}
 
-		uint32_t extend_backward( uint32_t init, uint32_t limit ) 
+		Logdom extend_backward( Logdom init, Logdom limit ) 
 		{
 			limit_ = limit ;
 			put_current( 0, 0, init ) ;
@@ -955,8 +956,8 @@ class Run_Alignment {
 				{
 					for( int s = 0 ; s != num_states ; ++s )
 					{
-						uint32_t score = scores_current[ x - m ][ s ] ;
-						if( score < infinite_score() ) expand( 
+						Logdom score = scores_current[ x - m ][ s ] ;
+						if( score.is_finite() ) expand( 
 								score, s, x, y, false,
 								reference_[ -x ], query_[ -y ] 
 								) ;
@@ -982,7 +983,7 @@ class Run_Alignment {
 		// If we hit a gap symbol, we must...
 		// - start over at second half in initial state
 
-		void expand( uint32_t score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
+		void expand( Logdom score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
 		{
 
 			// Note the penalties: The appropriate substitution penalty is
@@ -1004,52 +1005,52 @@ class Run_Alignment {
 				// XXX Meh.  Broken in backwards direction.
 				for( int y_ = y ; query_[ y_ ].ambicode ; ++y )
 				{
-					score += subst_penalty( s, flip, ref, qry ).to_phred() ;
-					if( s & mask_ss ) score += pb_->overhang_ext_penalty.to_phred() ;
+					score *= subst_penalty( s, flip, ref, qry ) ;
+					if( s & mask_ss ) score *= pb_->overhang_ext_penalty ;
 				}
-				if( score < result_ ) result_ = limit_ = score ;
+				if( score > result_ ) result_ = limit_ = score ;
 			}
 			else if( !qry.ambicode )
 			{
 				// hit gap in query --> we're done
-				if( score < result_ ) result_ = limit_ = score ;
+				if( score > result_ ) result_ = limit_ = score ;
 			}
 			else if( (s & mask_gaps) == 0 )
 			{
 				// no gaps open --> mismatch, open either gap, enter SS
-				put_next( s, x, score + subst_penalty( s, flip, ref, qry ).to_phred() 
-						+ ( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+				put_next( s, x, score * subst_penalty( s, flip, ref, qry ) 
+						* ( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
 				if( ref != qry.ambicode ) {
-					put_current( s | mask_gap_qry, x+1, score + pb_->gap_open_penalty.to_phred() ) ;
-					put_next( s | mask_gap_ref, x, score + pb_->gap_open_penalty.to_phred() ) ;
+					put_current( s | mask_gap_qry, x+1, score * pb_->gap_open_penalty ) ;
+					put_next( s | mask_gap_ref, x, score * pb_->gap_open_penalty ) ;
 					if( pb_->overhang_enter_penalty.is_finite() && (s & mask_ss) == 0 )
 					{
 						// To enter single stranded we require that the penalty for
 						// doing so is immediately recovered by the better match.
 						// This is easily the case for the observed deamination
 						// rates in aDNA.
-						uint32_t p0 = subst_penalty( s, flip, ref, qry ).to_phred() ;
-						uint32_t p4 = ( subst_penalty( s | mask_ss, flip, ref, qry ) 
-								* pb_->overhang_enter_penalty * pb_->overhang_ext_penalty ).to_phred() ;
-						if( p4 < p0 ) put_next( s | mask_ss, x+1, score + p4 ) ;
+						Logdom p0 = subst_penalty( s, flip, ref, qry ) ;
+						Logdom p4 = subst_penalty( s | mask_ss, flip, ref, qry ) 
+								* pb_->overhang_enter_penalty * pb_->overhang_ext_penalty ;
+						if( p4 > p0 ) put_next( s | mask_ss, x+1, score * p4 ) ;
 					}
 				}
 			}
 			else if( (s & mask_gaps) == mask_gap_ref )
 			{
 				if( ref != qry.ambicode ) {
-					put_next( s, x, score + pb_->gap_ext_penalty.to_phred() +
-							( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+					put_next( s, x, score * pb_->gap_ext_penalty *
+							( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
 				}
-				put_next( s & ~mask_gap_ref, x+1, score + subst_penalty( s, flip, ref, qry ).to_phred() +
-						( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+				put_next( s & ~mask_gap_ref, x+1, score * subst_penalty( s, flip, ref, qry ) *
+						( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
 			}
 			else
 			{
-				put_current( s, x+1, score + pb_->gap_ext_penalty.to_phred() ) ;
+				put_current( s, x+1, score * pb_->gap_ext_penalty ) ;
 				if( ref != qry.ambicode ) {
-					put_next( s & ~mask_gap_qry, x+1, score + subst_penalty( s, flip, ref, qry ).to_phred() +
-							( s & mask_ss ? pb_->overhang_ext_penalty.to_phred() : 0 ) ) ;
+					put_next( s & ~mask_gap_qry, x+1, score * subst_penalty( s, flip, ref, qry ) *
+							( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
 				}
 			}
 		}

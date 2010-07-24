@@ -255,8 +255,7 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 	unsigned filled = 0 ;
 	unsigned total = 0 ;
 
-	int32_t fraglen = dna.length()-p.wordsize+1 ;
-	for( int32_t offset = 1-p.wordsize ; offset != fraglen ; ++offset )
+	for( int32_t offset = 0 ; offset != dna.length() ; ++offset )
 	{
 		o_f >>= 2 ;
 		o_r = (o_r << 2) & mask ;
@@ -272,15 +271,18 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 		}
 		if( filled >= p.wordsize ) 
 		{
+			int32_t off_f = offset - p.wordsize + 2 ;
+			int32_t off_r = - offset - 1 ;
+
 			if( p.allow_mismatches >= 2 )
-				total += lookup2m( o_f, v, p,   offset, num_useless ) 
-					   + lookup2m( o_r, v, p, - offset, num_useless ) ;
+				total += lookup2m( o_f, v, p, off_f, num_useless ) 
+					   + lookup2m( o_r, v, p, off_r, num_useless ) ;
 			else if( p.allow_mismatches )
-				total += lookup1m( o_f, v, p,   offset, num_useless ) 
-					   + lookup1m( o_r, v, p, - offset, num_useless ) ;
+				total += lookup1m( o_f, v, p, off_f, num_useless ) 
+					   + lookup1m( o_r, v, p, off_r, num_useless ) ;
 			else
-				total += lookup1( o_f, v, p,   offset, num_useless ) 
-					   + lookup1( o_r, v, p, - offset, num_useless ) ;
+				total += lookup1( o_f, v, p, off_f, num_useless ) 
+					   + lookup1( o_r, v, p, off_r, num_useless ) ;
 		}
 	}
 	return total ;
