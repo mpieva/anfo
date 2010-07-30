@@ -130,7 +130,7 @@ extern "C" void show_noop( const Message& m, const Reflection*, const FieldDescr
 // CIGAR line: decode to string, same way SAM would do it
 extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
-	s << string( indent, ' ' ) << f->name() << ": " ;
+	s << string( indent, ' ' ) << f->name() << ":\t" ;
 	for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i )
 	{
 		uint32_t c = r->GetRepeatedUInt32( m, f, i ) ;
@@ -143,7 +143,7 @@ extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDe
 // array of ints: formatted into comma-separated line
 extern "C" void show_uint32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
-	s << string( indent, ' ' ) << f->name() << ": " ;
+	s << string( indent, ' ' ) << f->name() << ":\t" ;
 	if( int l = r->FieldSize( m, f ) ) 
 	{
 		s << r->GetRepeatedUInt32( m, f, 0 ) ;
@@ -154,7 +154,7 @@ extern "C" void show_uint32_array( const Message& m, const Reflection* r, const 
 }
 extern "C" void show_int32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
-	s << string( indent, ' ' ) << f->name() << ": " ;
+	s << string( indent, ' ' ) << f->name() << ":\t" ;
 	if( int l = r->FieldSize( m, f ) ) 
 	{
 		s << r->GetRepeatedInt32( m, f, 0 ) ;
@@ -170,7 +170,7 @@ extern "C" void show_seen_bases( const Message& m, const Reflection* r, const Fi
 {
 	for( int i = 0 ; i != 4 ; ++i )
 	{
-		s << string( indent, ' ' ) << f->name() << '_' << "ACGT"[i] << ": " ;
+		s << string( indent, ' ' ) << f->name() << '_' << "ACGT"[i] << ":\t" ;
 		int l = r->FieldSize( m, f ) ;
 		if( i <= l )
 		{
@@ -198,9 +198,9 @@ extern "C" void show_hit( const Message& m, const Reflection* r, const FieldDesc
 			for( size_t k = 0 ; k < r.size() ; k += 50 )
 			{
 				s << '\n' ;
-				s << string( i+2, ' ' ) << "REF: " << r.substr( k, 50 ) << '\n' ;
-				s << string( i+2, ' ' ) << "QRY: " << q.substr( k, 50 ) << '\n' ;
-				s << string( i+2, ' ' ) << "CNS: " ;
+				s << string( i+2, ' ' ) << "REF:\t" << r.substr( k, 50 ) << '\n' ;
+				s << string( i+2, ' ' ) << "QRY:\t" << q.substr( k, 50 ) << '\n' ;
+				s << string( i+2, ' ' ) << "CNS:\t" ;
 				for( size_t l = k ; l != k+50 && l != r.size() ; ++l )
 					s << " *"[ r[l] == q[l] ] ;
 				s << '\n' ;
@@ -237,7 +237,7 @@ void generic_show_string( const string& s, std::ostream& o, int off = 0 )
 
 extern "C" void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
-	s << string( i, ' ' ) << f->name() << ": " ;
+	s << string( i, ' ' ) << f->name() << ":\t" ;
 	generic_show_string( r->GetString( m, f ), s, 33 ) ;
 	s << '\n' ;
 }

@@ -400,14 +400,17 @@ void Mapper::put_result( const Result& r )
 			seedlist.push_back( Run_Alignment( parblock_, reference, query, ss.seed_sizes(i) ) ) ;
 	}
 
-	// std::cerr << seedlist.size() << " actual seeds." << std::endl ;
-	// for( size_t i = 0 ; i != seedlist.size() ; ++i )
-	// {
-		// uint32_t p ;
-		// const config::Sequence *sequ = genome_->translate_back( seedlist[i].reference_, p ) ;
-		// std::cerr << sequ->name() << ' ' << p << ' ' << seedlist[i].seedsize_
-			// << " (" << seedlist[i].init_score_.to_phred() << ')' << std::endl ;
-	// }
+#if 0
+	// XXX
+	std::cerr << r.read().seqid() << ": " << seedlist.size() << " actual seeds." << std::endl ;
+	for( size_t i = 0 ; i != seedlist.size() ; ++i )
+	{
+		uint32_t p ;
+		const config::Sequence *sequ = genome_->translate_back( seedlist[i].reference_, p ) ;
+		std::cerr << sequ->name() << ' ' << p << ' ' << seedlist[i].seedsize_
+			<< " (" << seedlist[i].init_score_.to_phred() << ')' << std::endl ;
+	}
+#endif 
 
 	// iteration: we track the best score along with its seed and the
 	// second best score
@@ -418,7 +421,7 @@ void Mapper::put_result( const Result& r )
 	       limit = Logdom::from_phred( 200 ) ;
 	while( !seedlist.empty() ) 
 	{
-		// std::cerr << "Starting alignment pass at limit " << limit.to_phred() << std::endl ;
+		std::cerr << "Starting alignment pass at limit " << limit.to_phred() << std::endl ;
 		std::deque< Run_Alignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
@@ -426,12 +429,6 @@ void Mapper::put_result( const Result& r )
 			Logdom score = (*cur_aln)( limit ) ;
 			// didn't find an alignment?  just move to next seed
 			if( score.is_finite() )
-			{
-				// std::cerr << "Nothing yet" << std::endl ;
-				if( out_aln != cur_aln ) *out_aln = *cur_aln ;
-				out_aln++, cur_aln++ ;
-			}
-			else 
 			{
 				// new best score?
 				if( score > best_score ) {
@@ -447,7 +444,13 @@ void Mapper::put_result( const Result& r )
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
-				// std::cerr << "Got something, new limit is " << limit.to_phred() << std::endl ;
+				std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() << std::endl ;
+			}
+			else 
+			{
+				// std::cerr << "Nothing yet" << std::endl ;
+				if( out_aln != cur_aln ) *out_aln = *cur_aln ;
+				out_aln++, cur_aln++ ;
 			}
 		}
 		// two hits -> we're done (regardless of score, we got

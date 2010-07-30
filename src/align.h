@@ -832,10 +832,11 @@ class Run_Alignment {
 		// multiple calls to put must happen in increasing order of x
 		void put( Line& l, int& m, int s, int x, Logdom y )
 		{
-			if( y <= limit_ )
+			if( y >= limit_ )
 			{
-				if( l.empty() ) m = x ;
+				if( l.empty() ) m = x-1 ;
 				int i = x - m ;
+				if( i < 0 ) throw "fuck all!" ;
 				while( l.size() <= i ) l.push_back( Logdom::null() ) ;
 				l[i][s] = std::max( l[i][s], y ) ;
 			}
@@ -847,10 +848,9 @@ class Run_Alignment {
 		Logdom subst_penalty( int s, bool flip, Ambicode r, const QSequence::Base &qry ) const
 		{
 			if( !r ) r = 15 ; // if reference has a gap, pretend it was an N
-			return pb_->ds_mat[r][qry.ambicode] ;
+			// return pb_->ds_mat[r][qry.ambicode] ;
 
 			// XXX this is fucked up, don't know whats broken right now
-			/*
 			Logdom prob = Logdom::null() ;
 			for( uint8_t p = 0 ; p != 4 ; ++p )
 			{
@@ -859,13 +859,10 @@ class Run_Alignment {
 					* Logdom::from_phred( qry.qscores[p] ) ;
 			}
 			return prob ;
-			*/
 		}
 
 
 	public:
-		// static uint32_t infinite_score() { return std::numeric_limits< uint32_t >::max() ; }
-
 		Run_Alignment() {}
 		Run_Alignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, uint32_t size )
 			: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( Logdom::null() )
@@ -913,16 +910,22 @@ class Run_Alignment {
 
 		std::vector<unsigned> align_and_backtrace( DnaP &minpos, DnaP &maxpos ) 
 		{
+			minpos = reference_ ;
+			maxpos = reference_ + seedsize_ ;
+
 			std::vector<unsigned> v ;
 			return v ;
 		}
 
 		Logdom extend_forward( Logdom init, Logdom limit ) 
 		{
-			limit_ = limit ;
+			limit_ = limit ; result_ = Logdom::null() ; 
+			scores_current.clear() ;
 			put_current( 0, 0, init ) ;
 			for( int y = 0 ; !scores_current.empty() ; ++y )
 			{
+				scores_next.clear() ;
+				// std::cerr << y << std::endl ;
 				// expand the current row for each state in turn... of course,
 				// each state is a special case.
 				int m = min_current ;
@@ -945,10 +948,13 @@ class Run_Alignment {
 
 		Logdom extend_backward( Logdom init, Logdom limit ) 
 		{
-			limit_ = limit ;
+			limit_ = limit ; result_ = Logdom::null() ; 
+			scores_current.clear() ;
 			put_current( 0, 0, init ) ;
-			for( int y = 0 ; !scores_current.empty() ; ++y )
+			for( int y = 1 ; !scores_current.empty() ; ++y )
 			{
+				scores_next.clear() ;
+				// std::cerr << y << std::endl ;
 				// expand the current row for each state in turn... of course,
 				// each state is a special case.
 				int m = min_current ;
@@ -958,7 +964,7 @@ class Run_Alignment {
 					{
 						Logdom score = scores_current[ x - m ][ s ] ;
 						if( score.is_finite() ) expand( 
-								score, s, x, y, false,
+								score, s, x, -y, true,
 								reference_[ -x ], query_[ -y ] 
 								) ;
 					}
@@ -985,6 +991,9 @@ class Run_Alignment {
 
 		void expand( Logdom score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
 		{
+			// std::cerr << __PRETTY_FUNCTION__ << "( "
+				// << score.to_phred() << ", " << s << ", " << x << ", " << y 
+				// << ", " << flip << ", ..., ... )" << std::endl ;
 
 			// Note the penalties: The appropriate substitution penalty is
 			// applied whenever we (mis-)match two codes, the gap open penalties
@@ -1002,10 +1011,9 @@ class Run_Alignment {
 				// because such an alignment isn't all that interesting in
 				// reality anyway.  Afterwards we're finished and adjust result
 				// and limit accordingly.
-				// XXX Meh.  Broken in backwards direction.
-				for( int y_ = y ; query_[ y_ ].ambicode ; ++y )
+				for( int yy = y ; query_[ yy ].ambicode ; flip ? --yy : ++yy )
 				{
-					score *= subst_penalty( s, flip, ref, qry ) ;
+					score *= subst_penalty( s, flip, ref, query_[ yy ] ) ;
 					if( s & mask_ss ) score *= pb_->overhang_ext_penalty ;
 				}
 				if( score > result_ ) result_ = limit_ = score ;
