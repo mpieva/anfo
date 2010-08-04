@@ -291,8 +291,23 @@ template <class Comp> class SortStream : public Stream
 				std::stringstream s ;
 				s << "SortingStream: qsorting " << scratch_space_.size() << " results" ; 
 				console.output( Console::notice, s.str() ) ;
+
+				sort( scratch_space_.begin(), scratch_space_.end(), comp_ ) ;
+
+				ScratchSpace::const_iterator i = scratch_space_.begin()+1,
+						e = scratch_space_.end() ;
+				ScratchSpace::iterator o = scratch_space_.begin() ;
+				for( ; i != e ; ++i )
+				{
+					if( (*i)->read().seqid() == (*o)->read().seqid() )
+						merge_sensibly( **o, **i ) ;
+					else {
+						++o ;
+						*o = *i ;
+					}
+				}
+				scratch_space_.erase( o, scratch_space_.end() ) ;
 			}
-			sort( scratch_space_.begin(), scratch_space_.end(), comp_ ) ;
 		}
 
 		void enqueue_stream( StreamHolder, int = 0 ) ;

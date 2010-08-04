@@ -79,10 +79,11 @@ class Indexer : public Filter
 	private:
 		config::Config conf_ ;
 		std::string index_name_ ;
-		FixedIndex index_ ;
+		const FixedIndex& index_ ;
 
 	public:
 		Indexer( const config::Config &config, const std::string& index_name ) ;
+		virtual ~Indexer() ;
 
 		virtual void priv_put_header( auto_ptr< Header > ) ;
 		virtual bool xform( Result& ) ;

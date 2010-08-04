@@ -1,4 +1,4 @@
-- Standalone version (mutithreaded) is broken.
 - Stream processing has an unclear interface.
 - SAM output does not generate MD field and context (XU,XD)
-- select_seeds is fouled up
+- Aligner needs to double-check quality of seeds in first stage
+- A better Aligner is sorely needed

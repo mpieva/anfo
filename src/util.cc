@@ -31,10 +31,10 @@ std::string program_name ;
 
 Console console ;
 
-int wrap_main( int argc, const char * argv[], int (*main_)( int, const char *[] ) )
+int wrap_main( int argc, const char * argv[], int (*main1)( int, const char *[] ) )
 {
 	program_name = argv[0] ;
-	try { return main_( argc, argv ) ; }
+	try { return main1( argc, argv ) ; }
 	catch( const std::string& e ) { perr( e ) ; }
 	catch( const char *e ) { perr( e ) ; }
 	catch( char *e ) { perr( e ) ; }

@@ -240,7 +240,7 @@
 (define (anfo-with-input in)
   (cond
     ((procedure? in) in)
-    (else (bracket-stream (prim-read-file in *default-solexa-scale* *default-origin*)))))
+    (else (bracket-stream (prim-read-file in *default-solexa-scale* *default-origin* "" #f)))))
 
 (define (anfo-with-output out)
   (cond

@@ -204,9 +204,14 @@ bool Housekeeper::xform( Result& rs )
 }
 
 Indexer::Indexer( const config::Config &config, const string& index_name ) :
-	conf_( config ), index_name_( index_name ), index_( index_name )
+	conf_( config ), index_name_( index_name ), index_( MetaIndex::add_ref( index_name ) )
 {
 	if( !conf_.policy_size() ) throw "no policies---nothing to do." ;
+}
+
+Indexer::~Indexer()
+{
+	MetaIndex::free_ref( index_ ) ;
 }
 
 void Indexer::priv_put_header( auto_ptr< Header > h )
@@ -281,7 +286,7 @@ bool Mapper::xform( auto_ptr< Result > r )
 {
 	AlnStats *as = 0 ;
     for( int i = 0 ; i != r->aln_stats_size() ; ++i )
-		if( res_.aln_stats(i).tag() == genome_->name() )
+		if( r->aln_stats(i).tag() == genome_->name() )
 			as = r->mutable_aln_stats(i) ;
 	
 	if( !as ) {
@@ -292,7 +297,7 @@ bool Mapper::xform( auto_ptr< Result > r )
 	Seeds ss ;
     for( int i = 0 ; i != r->seeds_size() ; ++i )
 	{
-		if( res_.seeds(i).genome_name() == genome_->name() )
+		if( r->seeds(i).genome_name() == genome_->name() )
 		{
 			ss.Swap( r->mutable_seeds(i) ) ;
             if( i != r->seeds_size()-1 ) r->mutable_seeds()->SwapElements( i, r->seeds_size()-1 ) ;

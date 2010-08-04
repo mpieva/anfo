@@ -276,7 +276,7 @@ class FixedIndex
 
 		enum { signature = 0x33584449u } ; // "IDX3"
 
-		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0) {}
+		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), refcount_(0) {}
 
 		//! \brief loads an index from a file
 		//! \param name filename
@@ -309,7 +309,37 @@ class FixedIndex
 		config::CompactIndex meta_ ;
 
 		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless, size_t ) const ;
+
+	public:
+		int refcount_ ;
 } ;
+
+class MetaIndex
+{
+	private:
+		static std::map< std::string, FixedIndex* > map_ ;
+
+	public:
+		static const FixedIndex& add_ref( const std::string& name ) 
+		{
+			FixedIndex*& ix = map_[ name ] ;
+			if( !ix ) ix = new FixedIndex( name ) ;
+			++ix->refcount_ ;
+			return *ix ;
+		}
+
+		static void free_ref( const FixedIndex& ix ) 
+		{
+			for( std::map< std::string, FixedIndex* >::iterator i = map_.begin() ; i != map_.end() ; ++i )
+				if( i->second == &ix && !--i->second->refcount_ )
+				{
+					delete i->second ;
+					map_.erase( i ) ;
+					return ;
+				}
+		}
+} ;
+
 
 template< typename F, typename G > void CompactGenome::scan_words(
 		unsigned w, F mk_word, G mk_gap, int slice, int slices, const char* msg ) const
