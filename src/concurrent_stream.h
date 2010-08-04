@@ -98,8 +98,6 @@ class ConcurrentStream : public Stream
 		void init() ;
 		void dequeue( Stream* ) ;
 		void enqueue( Result* ) ;
-		void* run_thread( Stream* ) ;
-		static void *start_routine( void* ) ;
 
 	public:
 		//! \brief starts streams in parallel in the background
@@ -126,6 +124,8 @@ class ConcurrentStream : public Stream
 		virtual Result fetch_result() ;
 		virtual Footer fetch_footer() ;
 		virtual Object get_summary() ;
+
+		void* run_thread( Stream* ) ;
 } ;
 
 } ; // namespace streams

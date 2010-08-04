@@ -96,6 +96,21 @@ Stream::state ConcurrentStream::get_state()
 	return s ;
 }
 
+extern "C" void *ConcurrentStream_start_routine( void* param ) {
+	try {
+		pair< StreamHolder, ConcurrentStream* > *p = 
+			(pair< StreamHolder, ConcurrentStream* >*) param ;
+		return p->second->run_thread( &*p->first ) ;
+	}
+	catch( const std::string& e ) { perr( e ) ; }
+	catch( const char *e ) { perr( e ) ; }
+	catch( char *e ) { perr( e ) ; }
+	catch( const Exception& e ) { perr( e ) ; }
+	catch( const std::exception& e ) { perr( e.what() ) ; }
+	catch( ... ) { perr( "Oh noes!" ) ; }
+	return 0 ;
+}
+
 //! Putting a header means we put the header to each stream, then
 //! fire off separate threads for each one.  Threads are started in a
 //! detached state, we get results from the stream objects themselves.
@@ -109,7 +124,7 @@ void ConcurrentStream::put_header( const Header& h )
 
 			pthread_t tid ;
 			throw_strerror_if_not_null(
-					pthread_create( &tid, 0, &start_routine, &streams_[i] ),
+					pthread_create( &tid, 0, &ConcurrentStream_start_routine, &streams_[i] ),
 					"pthread_create" ) ;
 			throw_strerror_if_not_null( pthread_detach( tid ), "pthread_detach" ) ;
 		}
@@ -182,21 +197,6 @@ Footer ConcurrentStream::fetch_footer()
 	}
 	f.set_exit_code( exit_code ) ;
 	return f ;
-}
-
-void *ConcurrentStream::start_routine( void* param ) {
-	try {
-		pair< StreamHolder, ConcurrentStream* > *p = 
-			(pair< StreamHolder, ConcurrentStream* >*) param ;
-		return p->second->run_thread( &*p->first ) ;
-	}
-	catch( const std::string& e ) { perr( e ) ; }
-	catch( const char *e ) { perr( e ) ; }
-	catch( char *e ) { perr( e ) ; }
-	catch( const Exception& e ) { perr( e ) ; }
-	catch( const std::exception& e ) { perr( e.what() ) ; }
-	catch( ... ) { perr( "Oh noes!" ) ; }
-	return 0 ;
 }
 
 //! \brief dequeues a record from incoming and passes it on

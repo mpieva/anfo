@@ -564,7 +564,12 @@ void sanitize( Result& r )
 		sanitize_read( *r.mutable_members(i) ) ;
 
 	for( int i = 0 ; i != r.seeds_size() ; ++i )
-		lower_string( *r.mutable_seeds(i)->mutable_genome_name() ) ;
+	{
+		string& g = *r.mutable_seeds(i)->mutable_genome_name() ;
+		lower_string( g ) ;
+		if( g.substr( g.size()-4 ) == ".dna" )
+			g = g.substr( 0, g.size()-4 ) ;
+	}
 }
     
 //! \brief merges two hits by keeping the better one
