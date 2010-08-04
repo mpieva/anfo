@@ -173,3 +173,189 @@ std::ostream& operator << ( std::ostream& s, const adna_parblock& p )
 }
 
 
+Run_Alignment::Run_Alignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, uint32_t size )
+	: pb_(&pb), reference_( reference ), query_( query ), seedsize_( size ), result_( Logdom::null() )
+	, init_score_( Logdom::one() ) 
+{
+	// greedy initialization: run over the seed, accumulating a
+	// score.  then extend greedily as long as there are
+	// matches, store the resulting score.
+	for( int i = 0 ; i != seedsize_ ; ++i )
+		init_score_ *= subst_penalty( 0, false, reference_[i], query_[i] ) ;
+
+	for( ; reference_[seedsize_] && query_[seedsize_].ambicode &&
+			reference_[seedsize_] == query_[seedsize_].ambicode ; ++seedsize_ )
+		init_score_ *= subst_penalty( 0, false, reference_[seedsize_], query_[seedsize_] ) ;
+
+	for( ; reference_[-1] && query[-1].ambicode &&
+			reference_[-1] == query_[-1].ambicode ;
+			++seedsize_, --reference_, --query_ )
+		init_score_ *= subst_penalty( 0, false, reference_[-1], query_[-1] ) ;
+}
+
+// alignment proper: the intial greedy matching must have been done,
+// here we extend this into a full alignment, as long as it doesn't
+// score more than a prescribed limit.
+//
+// We first run a forward extension at half the limit.  If this
+// succeeds, we do the backwards extension limited to whatever is left.
+// If forward extension fails, we do backwards extension to half the
+// limit, then add forward.
+//
+// Only one alignment is produced, but we make sure it is the cheapest
+// one.  The score may exceed the limit, if we happen to finish right
+// when stepping over the limit.  If really nothing is found, we return
+// infinite_score().
+Logdom Run_Alignment::operator()( Logdom limit )
+{
+	Logdom forward_score = extend_forward( init_score_, limit / 2 ) ;
+	if( forward_score.is_finite() ) return extend_backward( forward_score, limit ) ;
+
+	Logdom backward_score = extend_backward( init_score_, limit / 2 ) ;
+	if( backward_score.is_finite() ) return extend_forward( backward_score, limit ) ;
+
+	return Logdom::null() ;
+}
+
+Logdom Run_Alignment::extend_forward( Logdom init, Logdom limit ) 
+{
+	limit_ = limit ; result_ = Logdom::null() ; 
+	scores_current.clear() ;
+	put_current( 0, 0, init ) ;
+	for( int y = 0 ; !scores_current.empty() ; ++y )
+	{
+		scores_next.clear() ;
+		// std::cerr << y << std::endl ;
+		// expand the current row for each state in turn... of course,
+		// each state is a special case.
+		int m = min_current ;
+		for( int x = m ;  x != m + scores_current.size() ; ++x )
+		{
+			for( int s = 0 ; s != num_states ; ++s )
+			{
+				Logdom score = scores_current[ x - m ][ s ] ;
+				if( score.is_finite() ) expand( 
+						score, s, x, y, false,
+						reference_[ seedsize_ + x ], query_[ seedsize_ + y ] 
+						) ;
+			}
+		}
+		std::swap( scores_current, scores_next ) ;
+		std::swap( min_current, min_next ) ;
+	}
+	return result_ ;
+}
+
+Logdom Run_Alignment::extend_backward( Logdom init, Logdom limit ) 
+{
+	limit_ = limit ; result_ = Logdom::null() ; 
+	scores_current.clear() ;
+	put_current( 0, 0, init ) ;
+	for( int y = 1 ; !scores_current.empty() ; ++y )
+	{
+		scores_next.clear() ;
+		// std::cerr << y << std::endl ;
+		// expand the current row for each state in turn... of course,
+		// each state is a special case.
+		int m = min_current ;
+		for( int x = m ;  x != m + scores_current.size() ; ++x )
+		{
+			for( int s = 0 ; s != num_states ; ++s )
+			{
+				Logdom score = scores_current[ x - m ][ s ] ;
+				if( score.is_finite() ) expand( 
+						score, s, x, -y, true,
+						reference_[ -x ], query_[ -y ] 
+						) ;
+			}
+		}
+		std::swap( scores_current, scores_next ) ;
+		std::swap( min_current, min_next ) ;
+	}
+	return result_ ;
+}
+
+// what to do?  
+// If in matching state, we know there's no immediate match, so we can...
+// - mismatch
+// - detect deamination and change to SS state (while matching)
+// - open ref gap
+// - open query gap
+//
+// If a gap is open, we can...
+// - extend it
+// - close it
+//
+// If we hit a gap symbol, we must...
+// - start over at second half in initial state
+
+void Run_Alignment::expand( Logdom score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
+{
+	// std::cerr << __PRETTY_FUNCTION__ << "( "
+	// << score.to_phred() << ", " << s << ", " << x << ", " << y 
+	// << ", " << flip << ", ..., ... )" << std::endl ;
+
+	// Note the penalties: The appropriate substitution penalty is
+	// applied whenever we (mis-)match two codes, the gap open penalties
+	// are applied when opening/extending a gap, the
+	// overhang_enter_penalty is applied when changing to SS mode and
+	// the overhang_ext_penalty is applied whenever moving along the
+	// query while single stranded, even when a gap is open!  This gives
+	// correct scores for a geometric distribution of overhang lengths.
+	if( !ref && qry.ambicode )
+	{
+		// We hit a gap in the reference, whatever is left of the query
+		// must be penalized.  To do this, we virtually extend the
+		// reference with Ns and align to those.  This is a white lie in
+		// that it wil overestimate the real penalty, but that's okay,
+		// because such an alignment isn't all that interesting in
+		// reality anyway.  Afterwards we're finished and adjust result
+		// and limit accordingly.
+		for( int yy = y ; query_[ yy ].ambicode ; flip ? --yy : ++yy )
+		{
+			score *= subst_penalty( s, flip, ref, query_[ yy ] ) ;
+			if( s & mask_ss ) score *= pb_->overhang_ext_penalty ;
+		}
+		if( score > result_ ) result_ = limit_ = score ;
+	}
+	else if( !qry.ambicode )
+	{
+		// hit gap in query --> we're done
+		if( score > result_ ) result_ = limit_ = score ;
+	}
+	else if( (s & mask_gaps) == 0 )
+	{
+		// no gaps open --> mismatch, open either gap, enter SS
+		put_next( s, x, score * subst_penalty( s, flip, ref, qry ) 
+				* ( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
+		if( ref != qry.ambicode ) {	// on a match, don't try anything fancy
+			put_current( s | mask_gap_qry, x+1, score * pb_->gap_open_penalty ) ;
+			put_next( s | mask_gap_ref, x, score * pb_->gap_open_penalty ) ;
+			if( pb_->overhang_enter_penalty.is_finite() && (s & mask_ss) == 0 )
+			{
+				// To enter single stranded we require that the penalty for
+				// doing so is immediately recovered by the better match.
+				// This is easily the case for the observed deamination
+				// rates in aDNA.
+				Logdom p0 = subst_penalty( s, flip, ref, qry ) ;
+				Logdom p4 = subst_penalty( s | mask_ss, flip, ref, qry ) 
+					* pb_->overhang_enter_penalty * pb_->overhang_ext_penalty ;
+				if( p4 > p0 ) put_next( s | mask_ss, x+1, score * p4 ) ;
+			}
+		}
+	}
+	else if( (s & mask_gaps) == mask_gap_ref )
+	{
+		put_next( s, x, score * pb_->gap_ext_penalty *
+				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
+		put_next( s & ~mask_gap_ref, x+1, score * subst_penalty( s, flip, ref, qry ) *
+				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
+	}
+	else
+	{
+		put_current( s, x+1, score * pb_->gap_ext_penalty ) ;
+		put_next( s & ~mask_gap_qry, x+1, score * subst_penalty( s, flip, ref, qry ) *
+				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
+	}
+}
+
