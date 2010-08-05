@@ -8,10 +8,10 @@
 
 namespace streams {
 
-	using namespace std ;
+using namespace std ;
 
-	inline int eff_length( const Read& r )
-	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
+inline int eff_length( const Read& r )
+{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
 
 //! \brief compares hits by smallest genome coordinate
 //! Comparison is first done lexically on the subject name, then on the
@@ -19,77 +19,86 @@ namespace streams {
 //! alignment length.  A particular genome can be selected, if this
 //! isn't done, we sort on the best hit and compare the genome name even
 //! before the subject name.
-struct by_genome_coordinate {
-	vector<string> gs_ ;
+class by_genome_coordinate {
+	private:
+		const vector<string> gs_ ;
 
-	by_genome_coordinate( const string &g ) : gs_() { gs_.push_back( g ) ; }
-	by_genome_coordinate( const vector<string> &gs ) : gs_(gs) {}
-	by_genome_coordinate() : gs_() {}
-
-	bool operator() ( const Result *a, const Result *b ) {
-		if( gs_.empty() ) return compare( *a, *b ) ;
-		for( vector<string>::const_iterator i = gs_.begin(), e = gs_.end() ; i != e ; ++i )
+		bool compare( const Result &a, const Result &b )
 		{
-			if( compare( *a, *b, *i ) ) return true ;
-			if( compare( *b, *a, *i ) ) return false ;
+			const Hit *u = hit_to( a ), *v = hit_to( b ) ;
+			if( u && !v ) return true ;
+			if( !u ) return false ;
+			if( u->genome_name() < v->genome_name() ) return true ;
+			if( v->genome_name() < u->genome_name() ) return false ;
+			return compare( *u, *v, a.read(), b.read(), false ) ;
 		}
-		return false ;
-	}
 
-	bool compare( const Result &a, const Result &b )
-	{
-		const Hit *u = hit_to( a ), *v = hit_to( b ) ;
-
-		return compare( u, v, a.read(), b.read() ) ;
-	}
-
-	bool compare( const Hit* u, const Hit* v, const Read& a, const Read& b )
-	{
-		if( u && !v ) return true ;
-		if( !u ) return false ;
-		if( u->genome_name() < v->genome_name() ) return true ;
-		if( v->genome_name() < u->genome_name() ) return false ;
-		if( u->sequence() < v->sequence() ) return true ;
-		if( v->sequence() < u->sequence() ) return false ;
-		if( u->start_pos() < v->start_pos() ) return true ;
-		if( v->start_pos() < u->start_pos() ) return false ;
-		if( u->aln_length() < v->aln_length() ) return true ;
-		if( v->aln_length() < u->aln_length() ) return false ;
-		return eff_length( a ) < eff_length( b ) ;
-	}
-
-	bool compare( const Result &a, const Result &b, const string& g )
-	{
-		const Hit *u = hit_to( a, g ), *v = hit_to( b, g ) ;
-		if( u && !v ) return true ;
-		if( !u ) return false ;
-		return compare( u, v, a.read(), b.read() ) ;
-	}
-
-	void tag_header( output::Header& h ) {
-		h.clear_is_sorted_by_name() ;
-		h.clear_is_sorted_by_coordinate() ;
-		if( gs_.empty() ) {
-			h.set_is_sorted_by_all_genomes( true ) ;
-		}
-		else
+		bool compare( const Result &a, const Result &b, const string& g )
 		{
-			h.clear_is_sorted_by_all_genomes() ;
+			const Hit *u = hit_to( a, g ), *v = hit_to( b, g ) ;
+			if( u && !v ) return true ;
+			if( !u ) return false ;
+			return compare( *u, *v, a.read(), b.read(), false ) ;
+		}
+
+		bool compare( const Hit& u, const Hit& v, const Read& a, const Read& b, bool def )
+		{
+			if( u.sequence() < v.sequence() ) return true ;
+			if( v.sequence() < u.sequence() ) return false ;
+			if( u.start_pos() < v.start_pos() ) return true ;
+			if( v.start_pos() < u.start_pos() ) return false ;
+			if( u.aln_length() < v.aln_length() ) return true ;
+			if( v.aln_length() < u.aln_length() ) return false ;
+			return def ;
+		}
+
+	public:
+		by_genome_coordinate( const string &g ) : gs_( &g, &g+1 ) {}
+		by_genome_coordinate( const vector<string> &gs ) : gs_(gs) {}
+		by_genome_coordinate() : gs_() {}
+
+		bool operator() ( const Result *a, const Result *b ) {
+			if( gs_.empty() ) return compare( *a, *b ) ;
 			for( vector<string>::const_iterator i = gs_.begin(), e = gs_.end() ; i != e ; ++i )
-				h.add_is_sorted_by_coordinate( *i ) ;
+			{
+				if( compare( *a, *b, *i ) ) return true ;
+				if( compare( *b, *a, *i ) ) return false ;
+			}
+			return false ;
 		}
-	}
 
-    bool is_sorted( const output::Header& h ) {
-		if( gs_.empty() ) return h.is_sorted_by_all_genomes() ;
-		
-		if( (int)gs_.size() != h.is_sorted_by_coordinate_size() ) return false ;
-		return equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) ;
-	}
+		void tag_header( output::Header& h ) {
+			h.clear_is_sorted_by_name() ;
+			h.clear_is_sorted_by_coordinate() ;
+			if( gs_.empty() ) {
+				h.set_is_sorted_by_all_genomes( true ) ;
+			}
+			else
+			{
+				h.clear_is_sorted_by_all_genomes() ;
+				for( vector<string>::const_iterator i = gs_.begin(), e = gs_.end() ; i != e ; ++i )
+					h.add_is_sorted_by_coordinate( *i ) ;
+			}
+		}
+
+		bool is_sorted( const output::Header& h ) {
+			if( gs_.empty() ) return h.is_sorted_by_all_genomes() ;
+
+			if( (int)gs_.size() != h.is_sorted_by_coordinate_size() ) return false ;
+			return equal( gs_.begin(), gs_.end(), h.is_sorted_by_coordinate().begin() ) ;
+		}
+
+		bool operator()( const Hit& u, const Hit& v, const Read& a, const Read& b )
+		{
+			if( u.genome_name() < v.genome_name() ) return true ;
+			if( v.genome_name() < u.genome_name() ) return false ;
+			return compare( u, v, a, b, eff_length( a ) < eff_length( b ) ) ;
+		}
 } ;
 
 struct by_seqid {
 	bool operator() ( const Result *a, const Result *b ) {
+		assert( a && b ) ;
 		return a->read().seqid() < b->read().seqid() ;
 	}
 	void tag_header( output::Header& h ) {
@@ -241,19 +250,15 @@ template <class Comp> class SortingStream : public Stream
 
 				sort( scratch_space_.begin(), scratch_space_.end(), comp_ ) ;
 
-				ScratchSpace::const_iterator i = scratch_space_.begin()+1,
-						e = scratch_space_.end() ;
 				ScratchSpace::iterator o = scratch_space_.begin() ;
-				for( ; i != e ; ++i )
+				for( ScratchSpace::const_iterator i = scratch_space_.begin()+1,
+						e = scratch_space_.end() ;i != e ; ++i )
 				{
 					if( (*i)->read().seqid() == (*o)->read().seqid() )
 						merge_sensibly( **o, **i ) ;
-					else {
-						++o ;
-						*o = *i ;
-					}
+					else *(++o) = *i ;
 				}
-				scratch_space_.erase( o, scratch_space_.end() ) ;
+				scratch_space_.erase( ++o, scratch_space_.end() ) ;
 			}
 		}
 
@@ -366,53 +371,78 @@ template < typename Comp > void SortingStream<Comp>::put_footer( const Footer& f
 {
 	Stream::put_footer( f ) ;
 
-	// We have to be careful about buffering; if more than one
-	// SortingStream is active, we could run out of RAM.  Therefore, if
-	// we're alone, we sort and add a a stream.  Else we flush to
-	// temporary storage.  (Also, if the temporay space is empty, we
-	// *always* add the ContainerStream, otherwise we get strange
-	// effects if the output turns out to be empty.)
-    Holder< MergeStream > m( new MergeStream ) ;
-	if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
+	bool need_merge = false ;
+	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ;
+			!need_merge && i != mergeable_queues_.end() ; ++i )
+		if( !i->second.empty() ) need_merge = true ;
+
+	if( need_merge ) 
+	{
+		// We have to be careful about buffering; if more than one
+		// SortingStream is active, we could run out of RAM.  Therefore, if
+		// we're alone, we sort and add a a stream.  Else we flush to
+		// temporary storage.  (Also, if the temporay space is empty, we
+		// *always* add the ContainerStream, otherwise we get strange
+		// effects if the output turns out to be empty.)
+		Holder< MergeStream > m( new MergeStream ) ;
+		if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
+			flush_scratch() ; 
+		else {
+			console.output( Console::notice, "SortingStream: final sort" ) ;
+			sort_scratch() ;
+			m->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
+						hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
+		}
+
+		// add any streams that have piled up
+		for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
+			for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
+				m->add_stream( *j ) ;
+		mergeable_queues_.clear() ;
+
+		if( SortingStream__ninstances == 1 )
+		{
+			// we're alone.  delegate directly to MergeStream
+			console.output( Console::notice, "SortingStream: merging everything to output" ) ;
+			final_stream_ = m ;
+		}
+		else
+		{
+			// not alone.  We'll conserve file handles by merging everything
+			// into a temporary file and opening that.
+			string fname ;
+			int fd = mktempfile( &fname ) ;
+			std::stringstream s ;
+			s << "SortingStream: Merging everything to tempfile " << fname ;
+			console.output( Console::notice, s.str() ) ;
+			ChunkedWriter out( fd, 25, fname.c_str() ) ;
+			transfer( *m, out ) ;
+			num_open_files_ = 1 ;
+			throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
+			google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
+			is->SetCloseOnDelete( true ) ;
+			final_stream_ = new UniversalReader( fname, is ) ; 
+		}
+	}
+	// nothing to merge, just the scratch space
+	else if( scratch_space_.begin() != scratch_space_.end() && SortingStream__ninstances > 1 )
+	{
+		// not alone.  We'll conserve memory by writing to a
+		// temporary file and opening that.
 		flush_scratch() ; 
+		console.output( Console::notice, "SortingStream: output comes from single temporary file" ) ;
+		final_stream_ = mergeable_queues_[1].front() ;
+	}
 	else {
+		// alone, we'll use a container stream directly
 		console.output( Console::notice, "SortingStream: final sort" ) ;
 		sort_scratch() ;
-		m->add_stream( new ContainerStream< deque< Result* >::const_iterator >(
-					hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ) ;
+		final_stream_ = new ContainerStream< deque< Result* >::const_iterator >(
+				hdr_, scratch_space_.begin(), scratch_space_.end(), foot_ ) ;
+		console.output( Console::notice, "SortingStream: using scratch space for output" ) ;
 	}
-
-	// add any streams that have piled up
-	for( MergeableQueues::const_iterator i = mergeable_queues_.begin() ; i != mergeable_queues_.end() ; ++i )
-		for( MergeableQueue::const_iterator j = i->second.begin() ; j != i->second.end() ; ++j )
-			m->add_stream( *j ) ;
-	mergeable_queues_.clear() ;
-	m->fetch_header() ;
-
-    if( SortingStream__ninstances == 1 )
-    {
-        // we're alone.  delegate directly to MergeStream
-        console.output( Console::notice, "SortingStream: merging everything to output" ) ;
-        state_ = m->get_state() ;
-        final_stream_ = m ;
-    }
-    else
-    {
-        // not alone.  We'll conserve file handles by merging everything
-        // into a temporary file and opening that.
-        string fname ;
-        int fd = mktempfile( &fname ) ;
-        std::stringstream s ;
-        s << "SortingStream: Merging everything to tempfile " << fname ;
-        console.output( Console::notice, s.str() ) ;
-        ChunkedWriter out( fd, 25, fname.c_str() ) ;
-        transfer( *m, out ) ;
-        num_open_files_ = 1 ;
-        throw_errno_if_minus1( lseek( fd, 0, SEEK_SET ), "seeking in ", fname.c_str() ) ;
-        google::protobuf::io::FileInputStream* is = new google::protobuf::io::FileInputStream( fd ) ;
-        is->SetCloseOnDelete( true ) ;
-        final_stream_ = new UniversalReader( fname, is ) ; 
-    }
+	final_stream_->fetch_header() ;
+	state_ = final_stream_->get_state() ;
 }
 
 

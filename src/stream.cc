@@ -802,8 +802,8 @@ bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) const
 	const output::Hit *l = hit_to( lhs, gs_.begin(), gs_.end() ), *r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
 	by_genome_coordinate comp ;
 	return l && r && 
-		!comp.compare( l, r, lhs.read(), rhs.read() ) &&
-		!comp.compare( r, l, rhs.read(), lhs.read() ) ;
+		!comp( *l, *r, lhs.read(), rhs.read() ) &&
+		!comp( *r, *l, rhs.read(), lhs.read() ) ;
 }
 
 //! \todo How do we deal with ambiguity codes?  What's the meaning of

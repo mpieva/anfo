@@ -60,6 +60,21 @@ Header MergeStream::fetch_header()
 			streams_.erase( streams_.begin() + i ) ;
 		}
 	}
+	stringstream ss ;
+	ss << "MergeStream: " ;
+	if( mode_ == by_name ) ss << "merge sorting on name" ;
+	else if( mode_ == by_coordinate ) {
+		ss << "merge sorting on coordinates of " ;
+		if( gs_.empty() ) ss << "best hit" ;
+		else {
+			ss << '[' << gs_.front() ;
+			for( size_t i = 1 ; i != gs_.size() ; ++i )
+				ss << ',' << gs_[i] ;
+			ss << ']' ;
+		}
+	}
+	else ss << "cannot merge" ;
+	console.output( mode_ == unknown ? Console::error : Console::info, ss.str() ) ;
 	return hdr_ ;
 }
 

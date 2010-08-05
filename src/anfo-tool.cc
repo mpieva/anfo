@@ -102,7 +102,7 @@ vector<string> split_string( const string& s )
 
 	for( string::size_type r, l = 0 ; ; l = r+1 )
 	{
-		r = s.find( ':', l ) ;
+		r = min( s.find( ':', l ), s.find( ',', l ) ) ;
 		t.push_back( s.substr( l, r-l ) ) ;
 		if( r == string::npos ) break ;
 	}
