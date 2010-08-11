@@ -359,7 +359,6 @@ void Mapper::put_result( const Result& r )
 	}
 
 	QSequence qs( res_.read() ) ;
-	// XXX uint32_t o, c, tt ;
 	Logdom max_penalty = Logdom::from_phred( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
 	// do actual alignments:
@@ -369,6 +368,9 @@ void Mapper::put_result( const Result& r )
 	// 2a evaluate alignments, keep the two best scores and associated seeds
 	// 2b remove seeds that already produced an alignment
 	// 3 redo winning alignment and backtrace it
+	//
+	// XXX: if we find the first alignment close to the limit, we must
+	// increase(!) the limit to best_score*maxq and do another iteration
 
 	// std::cerr << ss.ref_positions_size() << " possible seeds." << std::endl ;
 	std::deque< Run_Alignment > seedlist ;
@@ -418,10 +420,10 @@ void Mapper::put_result( const Result& r )
 
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
-	       limit = Logdom::from_phred( 200 ) ;
+	       limit = Logdom::from_phred( 30 ) ;
 	while( !seedlist.empty() ) 
 	{
-		std::cerr << "Starting alignment pass at limit " << limit.to_phred() << std::endl ;
+		std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
 		std::deque< Run_Alignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )

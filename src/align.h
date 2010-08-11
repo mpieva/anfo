@@ -202,6 +202,10 @@ template< int N, typename T > class Array
 //! state is 0, late the state is inly held implicitly.
 //!
 //! If only there were real lexical closures... *sigh*
+//!
+//! \todo This forward/backward business is brittle.  We should just
+//!       flip the pointers: easy for the genome, for the query we
+//!       should simply duplicate the sequence.
 class Run_Alignment {
 	// private:
 	public:
@@ -222,27 +226,41 @@ class Run_Alignment {
 
 		Logdom limit_, result_, init_score_ ;
 
-		typedef std::vector< Array< num_states, Logdom > > Line ;
+		struct Cell {
+			Logdom score ;
+			uint8_t from_state ;
+			uint8_t from_x_offset ;
+			uint8_t from_y_offset ;
 
-		Line scores_current, scores_next ;
-		int min_current, min_next ;
+			Cell() : score( Logdom::null() ) {}
+			bool operator < ( const Cell& rhs ) const { return score < rhs.score ; }
+		} ;
 
+		struct Line {
+			std::vector< Array< num_states, Cell > > cells ;
+			int min ;
+		} ;
+
+		std::deque< Line > matrix_forward, matrix_backward ;
 
 		// multiple calls to put must happen in increasing order of x
-		void put( Line& l, int& m, int s, int x, Logdom y )
+		void put( Line& l, int s, int x, int xo, Logdom z, int yo, int os )
 		{
-			if( y >= limit_ )
+			if( z >= limit_ )
 			{
-				if( l.empty() ) m = x-1 ;
-				int i = x - m ;
-				if( i < 0 ) throw "fuck all!" ;
-				while( l.size() <= i ) l.push_back( Logdom::null() ) ;
-				l[i][s] = std::max( l[i][s], y ) ;
+				if( l.cells.empty() ) l.min = x ;
+				int i = x + xo - l.min ;
+				assert( i >= 0 ) ;
+				while( l.cells.size() <= i ) l.cells.push_back( Cell() ) ;
+				if( l.cells[i][s].score > z )
+				{
+					l.cells[i][s].score = z ;
+					l.cells[i][s].from_state = os ;
+					l.cells[i][s].from_x_offset = xo ;
+					l.cells[i][s].from_y_offset = yo ;
+				}
 			}
 		}
-
-		void put_current( int s, int x, Logdom y ) { put( scores_current, min_current, s, x, y ) ; }
-		void put_next   ( int s, int x, Logdom y ) { put( scores_next   , min_next,    s, x, y ) ; }
 
 		Logdom subst_penalty( int s, bool flip, Ambicode r, const QSequence::Base &qry ) const
 		{
@@ -264,7 +282,9 @@ class Run_Alignment {
 
 		Logdom extend_forward( Logdom init, Logdom limit ) ;
 		Logdom extend_backward( Logdom init, Logdom limit ) ;
-		void expand( Logdom score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry );
+		void expand( std::deque<Line>&, Logdom score, int s,
+				int x, int y, bool flip, Ambicode ref, const
+				QSequence::Base &qry );
 
 	public:
 		Run_Alignment() {}

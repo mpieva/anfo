@@ -220,28 +220,28 @@ Logdom Run_Alignment::operator()( Logdom limit )
 Logdom Run_Alignment::extend_forward( Logdom init, Logdom limit ) 
 {
 	limit_ = limit ; result_ = Logdom::null() ; 
-	scores_current.clear() ;
-	put_current( 0, 0, init ) ;
-	for( int y = 0 ; !scores_current.empty() ; ++y )
+	matrix_forward.clear() ;
+	matrix_forward.push_back( Line() ) ;
+	put( matrix_forward[0], 0, 0, 0, init, 0, 0 ) ;
+	for( int y = 0 ; !matrix_forward[y].cells.empty() ; ++y )
 	{
-		scores_next.clear() ;
+		assert( matrix_forward.size() == y+1 ) ;
+		matrix_forward.push_back( Line() ) ;
 		// std::cerr << y << std::endl ;
 		// expand the current row for each state in turn... of course,
 		// each state is a special case.
-		int m = min_current ;
-		for( int x = m ;  x != m + scores_current.size() ; ++x )
+		int m = matrix_forward[y].min ;
+		for( int x = m ;  x != m + matrix_forward[y].cells.size() ; ++x )
 		{
 			for( int s = 0 ; s != num_states ; ++s )
 			{
-				Logdom score = scores_current[ x - m ][ s ] ;
-				if( score.is_finite() ) expand( 
+				Logdom score = matrix_forward[y].cells[ x - m ][ s ].score ;
+				if( score.is_finite() ) expand( matrix_forward,
 						score, s, x, y, false,
 						reference_[ seedsize_ + x ], query_[ seedsize_ + y ] 
 						) ;
 			}
 		}
-		std::swap( scores_current, scores_next ) ;
-		std::swap( min_current, min_next ) ;
 	}
 	return result_ ;
 }
@@ -249,28 +249,28 @@ Logdom Run_Alignment::extend_forward( Logdom init, Logdom limit )
 Logdom Run_Alignment::extend_backward( Logdom init, Logdom limit ) 
 {
 	limit_ = limit ; result_ = Logdom::null() ; 
-	scores_current.clear() ;
-	put_current( 0, 0, init ) ;
-	for( int y = 1 ; !scores_current.empty() ; ++y )
+	matrix_backward.clear() ;
+	matrix_backward.push_back( Line() ) ;
+	put( matrix_backward[0], 0, 0, 0, init, 0, 0 ) ;
+	for( int y = 0 ; !matrix_backward[y].cells.empty() ; ++y )
 	{
-		scores_next.clear() ;
+		assert( matrix_backward.size() == y+1 ) ;
+		matrix_backward.push_back( Line() ) ;
 		// std::cerr << y << std::endl ;
 		// expand the current row for each state in turn... of course,
 		// each state is a special case.
-		int m = min_current ;
-		for( int x = m ;  x != m + scores_current.size() ; ++x )
+		int m = matrix_backward[y].min ;
+		for( int x = m ;  x != m + matrix_backward[y].cells.size() ; ++x )
 		{
 			for( int s = 0 ; s != num_states ; ++s )
 			{
-				Logdom score = scores_current[ x - m ][ s ] ;
-				if( score.is_finite() ) expand( 
-						score, s, x, -y, true,
-						reference_[ -x ], query_[ -y ] 
+				Logdom score = matrix_backward[y].cells[ x - m ][ s ].score ;
+				if( score.is_finite() ) expand( matrix_backward,
+						score, s, x, y, true,
+						reference_[ -x-1 ], query_[ -y-1 ] 
 						) ;
 			}
 		}
-		std::swap( scores_current, scores_next ) ;
-		std::swap( min_current, min_next ) ;
 	}
 	return result_ ;
 }
@@ -289,7 +289,7 @@ Logdom Run_Alignment::extend_backward( Logdom init, Logdom limit )
 // If we hit a gap symbol, we must...
 // - start over at second half in initial state
 
-void Run_Alignment::expand( Logdom score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
+void Run_Alignment::expand( std::deque<Line>& matrix, Logdom score, int s, int x, int y, bool flip, Ambicode ref, const QSequence::Base &qry )
 {
 	// std::cerr << __PRETTY_FUNCTION__ << "( "
 	// << score.to_phred() << ", " << s << ", " << x << ", " << y 
@@ -311,7 +311,7 @@ void Run_Alignment::expand( Logdom score, int s, int x, int y, bool flip, Ambico
 		// because such an alignment isn't all that interesting in
 		// reality anyway.  Afterwards we're finished and adjust result
 		// and limit accordingly.
-		for( int yy = y ; query_[ yy ].ambicode ; flip ? --yy : ++yy )
+		for( int yy = flip ? -y-1 : y + seedsize_ ; query_[ yy ].ambicode ; flip ? --yy : ++yy )
 		{
 			score *= subst_penalty( s, flip, ref, query_[ yy ] ) ;
 			if( s & mask_ss ) score *= pb_->overhang_ext_penalty ;
@@ -326,11 +326,11 @@ void Run_Alignment::expand( Logdom score, int s, int x, int y, bool flip, Ambico
 	else if( (s & mask_gaps) == 0 )
 	{
 		// no gaps open --> mismatch, open either gap, enter SS
-		put_next( s, x, score * subst_penalty( s, flip, ref, qry ) 
-				* ( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
-		if( ref != qry.ambicode ) {	// on a match, don't try anything fancy
-			put_current( s | mask_gap_qry, x+1, score * pb_->gap_open_penalty ) ;
-			put_next( s | mask_gap_ref, x, score * pb_->gap_open_penalty ) ;
+		put( matrix[y+1], s, x, 1, score * subst_penalty( s, flip, ref, qry ) 
+				* ( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ), 1, s ) ;
+		if( ref != qry.ambicode ) {	// only on a mismatch try anything fancy
+			put( matrix[ y ], s | mask_gap_qry, x, 1, score * pb_->gap_open_penalty, 0, s ) ;
+			put( matrix[y+1], s | mask_gap_ref, x, 0, score * pb_->gap_open_penalty, 1, s ) ;
 			if( pb_->overhang_enter_penalty.is_finite() && (s & mask_ss) == 0 )
 			{
 				// To enter single stranded we require that the penalty for
@@ -340,22 +340,22 @@ void Run_Alignment::expand( Logdom score, int s, int x, int y, bool flip, Ambico
 				Logdom p0 = subst_penalty( s, flip, ref, qry ) ;
 				Logdom p4 = subst_penalty( s | mask_ss, flip, ref, qry ) 
 					* pb_->overhang_enter_penalty * pb_->overhang_ext_penalty ;
-				if( p4 > p0 ) put_next( s | mask_ss, x+1, score * p4 ) ;
+				if( p4 > p0 ) put( matrix[y+1], s | mask_ss, x, 1, score * p4, 1, s ) ;
 			}
 		}
 	}
 	else if( (s & mask_gaps) == mask_gap_ref )
 	{
-		put_next( s, x, score * pb_->gap_ext_penalty *
-				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
-		put_next( s & ~mask_gap_ref, x+1, score * subst_penalty( s, flip, ref, qry ) *
-				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
+		put( matrix[y+1], s, x, 0, score * pb_->gap_ext_penalty *
+				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ), 1, s ) ;
+		put( matrix[y+1], s & ~mask_gap_ref, x, 1, score * subst_penalty( s, flip, ref, qry ) *
+				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ), 1, s ) ;
 	}
 	else
 	{
-		put_current( s, x+1, score * pb_->gap_ext_penalty ) ;
-		put_next( s & ~mask_gap_qry, x+1, score * subst_penalty( s, flip, ref, qry ) *
-				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ) ) ;
+		put( matrix[y], s, x, 1, score * pb_->gap_ext_penalty, 0, s ) ;
+		put( matrix[y+1], s & ~mask_gap_qry, x, 1, score * subst_penalty( s, flip, ref, qry ) *
+				( s & mask_ss ? pb_->overhang_ext_penalty : Logdom::one() ), 1, s ) ;
 	}
 }
 
