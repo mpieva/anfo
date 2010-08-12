@@ -52,6 +52,15 @@ namespace config { class Aligner ; } ;
 //! various support tools shunt additional structures around.
 struct adna_parblock
 {
+	enum {
+		mask_ss      = 1,
+		mask_gap_ref = 2,
+		mask_gap_qry = 4,
+
+		mask_gaps = mask_gap_ref | mask_gap_ref,
+		num_states = 6
+	} ;
+
 	adna_parblock() {} 
 	adna_parblock( const config::Aligner& conf ) ;
 
@@ -80,6 +89,19 @@ struct adna_parblock
 
 	//! \brief gap extension penalty
 	Logdom gap_ext_penalty ;
+
+
+	Logdom subst_penalty( int s, Ambicode r, const QSequence::Base &qry ) const
+	{
+		// if reference has a gap, pretend it was an N
+		r = !r ? 15 : r ;
+
+		Logdom prob = Logdom::null() ;
+		for( uint8_t p = 0 ; p != 4 ; ++p )
+			prob += ( s & mask_ss ? ss_mat[r][1<<p] : ds_mat[r][1<<p] )
+				* Logdom::from_phred( qry.qscores[p] ) ;
+		return prob ;
+	}
 } ;
 
 std::ostream& operator << ( std::ostream&, const adna_parblock& ) ;
@@ -192,7 +214,22 @@ template< int N, typename T > class Array
 		const T& operator[] ( int i ) const { return arr_[i] ; }
 } ;
 
-//! \brief run an alignment in the forward direction
+//! \brief an alignment that has been seeded
+//! When initializing an alignment, the seed region is traversed and
+//! then extended greedily.  We store the final seed region (a pointer
+//! into the reference, an offset into the query, the seeded length) and
+//! the score over the seed region.
+struct SeededAlignment {
+	DnaP reference_ ;
+	Logdom score_ ;
+	int qoffs_ ;
+	int size_ ;
+
+	SeededAlignment() {}
+	SeededAlignment( const adna_parblock& pb, DnaP reference, const QSequence& query, int qoffs_, int size ) ;
+} ;
+
+//! \brief extension of an alignment through DP
 //! This starts with two pointers and a cost limit, and it returns the
 //! penalty that was incurred.  The limit can be exceeded while
 //! producing an alignment (it would be foolish to throw it away), if
@@ -206,26 +243,9 @@ template< int N, typename T > class Array
 //! \todo This forward/backward business is brittle.  We should just
 //!       flip the pointers: easy for the genome, for the query we
 //!       should simply duplicate the sequence.
-class Run_Alignment {
+class ExtendAlignment {
 	// private:
 	public:
-		enum {
-			mask_ss      = 1,
-			mask_gap_ref = 2,
-			mask_gap_qry = 4,
-
-			mask_gaps = mask_gap_ref | mask_gap_ref,
-			num_states = 6
-		} ;
-
-
-		const adna_parblock *pb_ ;
-		DnaP reference_ ;
-		const QSequence::Base *query_ ;
-		uint32_t seedsize_ ;
-
-		Logdom limit_, result_, init_score_ ;
-
 		struct Cell {
 			Logdom score ;
 			uint8_t from_state ;
@@ -237,11 +257,12 @@ class Run_Alignment {
 		} ;
 
 		struct Line {
-			std::vector< Array< num_states, Cell > > cells ;
+			std::vector< Array< adna_parblock::num_states, Cell > > cells ;
 			int min ;
 		} ;
 
-		std::deque< Line > matrix_forward, matrix_backward ;
+		Logdom limit_, result_ ;
+		std::deque< Line > matrix ;
 
 		// multiple calls to put must happen in increasing order of x
 		void put( Line& l, int s, int x, int xo, Logdom z, int yo, int os )
@@ -251,7 +272,7 @@ class Run_Alignment {
 				if( l.cells.empty() ) l.min = x ;
 				int i = x + xo - l.min ;
 				assert( i >= 0 ) ;
-				while( l.cells.size() <= i ) l.cells.push_back( Cell() ) ;
+				while( l.cells.size() <= (unsigned)i ) l.cells.push_back( Cell() ) ;
 				if( l.cells[i][s].score > z )
 				{
 					l.cells[i][s].score = z ;
@@ -262,45 +283,51 @@ class Run_Alignment {
 			}
 		}
 
-		Logdom subst_penalty( int s, bool flip, Ambicode r, const QSequence::Base &qry ) const
-		{
-			// if reference has a gap, pretend it was an N, else
-			// complement if necessary
-			r = !r ? 15 : flip ? r : complement( r ) ;
-
-			// return pb_->ds_mat[r][qry.ambicode] ;
-			// XXX this may be fucked up, don't know whats broken right now
-			Logdom prob = Logdom::null() ;
-			for( uint8_t p = 0 ; p != 4 ; ++p )
-			{
-				Ambicode q = flip ? (1<<p) : complement(1<<p) ;
-				prob += ( s & mask_ss ? pb_->ss_mat[r][q] : pb_->ds_mat[r][q] )
-					* Logdom::from_phred( qry.qscores[p] ) ;
-			}
-			return prob ;
-		}
-
-		Logdom extend_forward( Logdom init, Logdom limit ) ;
-		Logdom extend_backward( Logdom init, Logdom limit ) ;
-		void expand( std::deque<Line>&, Logdom score, int s,
-				int x, int y, bool flip, Ambicode ref, const
-				QSequence::Base &qry );
+		void extend( const adna_parblock &pb_, Logdom score, int s, int x, int y, DnaP ref, const QSequence::Base *qry );
 
 	public:
-		Run_Alignment() {}
-		Run_Alignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, uint32_t size ) ;
+		ExtendAlignment() {}
+		ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) ;
 
-		Logdom operator()( Logdom limit ) ;
+		Logdom get_result() const { return result_ ; }
 
-		std::vector<unsigned> align_and_backtrace( DnaP &minpos, DnaP &maxpos ) 
+		std::vector<unsigned> backtrace( DnaP &minpos, DnaP &maxpos ) 
 		{
-			minpos = reference_ ;
-			maxpos = reference_ + seedsize_ ;
+			// minpos = reference_ ;
+			// maxpos = reference_ + seedsize_ ;
 
-			std::vector<unsigned> v ;
-			return v ;
+			return std::vector<unsigned>() ;
 		}
 
+		void swap( ExtendAlignment& rhs ) 
+		{
+			std::swap( limit_, rhs.limit_ ) ;
+			std::swap( result_, rhs.result_ ) ;
+			std::swap( matrix, rhs.matrix ) ;
+		}
+} ;
+
+struct ExtendBothEnds {
+	ExtendAlignment forwards_, backwards_ ;
+	Logdom score_ ;
+
+	ExtendBothEnds() {}
+	ExtendBothEnds( const adna_parblock& pb, const QSequence& query, const SeededAlignment& seed, Logdom limit ) ;
+	
+	std::vector<unsigned> backtrace( const SeededAlignment& seed, DnaP &minpos, DnaP &maxpos ) 
+	{
+		// minpos = reference_ ;
+		// maxpos = reference_ + seedsize_ ;
+
+		return std::vector<unsigned>() ;
+	}
+
+	void swap( ExtendBothEnds &rhs )
+	{
+		forwards_.swap( rhs.forwards_ ) ;
+		backwards_.swap( rhs.backwards_ ) ;
+		score_.swap( rhs.score_ ) ;
+	}
 } ;
 
 #endif

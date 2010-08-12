@@ -118,18 +118,31 @@ QSequence::QSequence( const output::Read& r, int default_q )
 	std::string::const_iterator p = r.sequence().begin() + r.trim_left(),
 		pe = r.has_trim_right() ? r.sequence().begin() + r.trim_right() : r.sequence().end() ;
 
-	seq_.push_back( Base() ) ;
+	seq_.push_back( Base() ) ;				// front terminator
+
+	if( r.has_quality() ) 
+	{
+		std::string::const_iterator qa = r.quality().begin() + r.trim_left(),
+			qq = r.has_trim_right() ? r.quality().begin() + r.trim_right() : r.quality().end() ;
+		for( std::string::const_iterator pp = pe ; pp != p && qq != qa ; --pp, --qq )
+			seq_.push_back( Base( complement( to_ambicode( pp[-1] ) ), qq[-1] ) ) ;
+	}
+	else for( std::string::const_iterator pp = pe ; pp != p ; --pp )
+			seq_.push_back( Base( complement( to_ambicode( pp[-1] ) ), default_q ) ) ;
+
+	seq_.push_back( Base() ) ;				// central separator
+
 	if( r.has_quality() ) 
 	{
 		std::string::const_iterator q = r.quality().begin() + r.trim_left(),
 			qe = r.has_trim_right() ? r.quality().begin() + r.trim_right() : r.quality().end() ;
-		for( ; p != pe ; ++p, ++q )
+		for( ; p != pe && q != qe ; ++p, ++q )
 			seq_.push_back( Base( to_ambicode( *p ), *q ) ) ;
 	}
 	else for( ; p != pe ; ++p )
 			seq_.push_back( Base( to_ambicode( *p ), default_q ) ) ;
 
-	seq_.push_back( Base() ) ;
+	seq_.push_back( Base() ) ;				// back terminator
 }
 					
 bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r, bool solexa_scores, char origin )

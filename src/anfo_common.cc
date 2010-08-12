@@ -368,12 +368,9 @@ void Mapper::put_result( const Result& r )
 	// 2a evaluate alignments, keep the two best scores and associated seeds
 	// 2b remove seeds that already produced an alignment
 	// 3 redo winning alignment and backtrace it
-	//
-	// XXX: if we find the first alignment close to the limit, we must
-	// increase(!) the limit to best_score*maxq and do another iteration
 
 	// std::cerr << ss.ref_positions_size() << " possible seeds." << std::endl ;
-	std::deque< Run_Alignment > seedlist ;
+	std::deque< SeededAlignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
 	{
 		// Reconstruct pointers to seed region.  We want the region to
@@ -383,23 +380,18 @@ void Mapper::put_result( const Result& r )
 		// - for a reverse seed we have coordinates for the *end*
 		//   position of the seed region, and we need to reverse the
 		//   pointer on the reference
-		DnaP reference = ss.query_positions(i) > 0 ?
-			genome_->get_base() + ss.ref_positions(i) :
-			( genome_->get_base() + ss.ref_positions(i) + ss.seed_sizes(i) -1 ).reverse() ;
+		DnaP reference = genome_->get_base() + ss.ref_positions(i) ;
+		int32_t qoffs = ss.query_positions(i) ;
+		uint32_t size = ss.seed_sizes(i) ;
 			
-		const QSequence::Base *query = ss.query_positions(i) > 0 ?
-			qs.start() + ss.query_positions(i) -1 :
-			qs.start() - ss.query_positions(i) - ss.seed_sizes(i) ;
-
-
 		// uint32_t p ;
 		// const config::Sequence *sequ = genome_->translate_back( reference, p ) ;
 		// std::cerr << sequ->name() << " " << p << " " << ss.seed_sizes(i) <<
 			// (ss.query_positions(i) < 0 ? "backward" : "forward" ) << std::endl ;
 
-		if( check_seed_quality( reference, query, ss.seed_sizes(i), 
+		if( check_seed_quality( reference, qs.start() + qoffs, size,
 					ss.max_mismatches(), ss.min_seed_length() ) )
-			seedlist.push_back( Run_Alignment( parblock_, reference, query, ss.seed_sizes(i) ) ) ;
+			seedlist.push_back( SeededAlignment( parblock_, reference, qs, qoffs, size ) ) ;
 	}
 
 #if 0
@@ -416,7 +408,11 @@ void Mapper::put_result( const Result& r )
 
 	// iteration: we track the best score along with its seed and the
 	// second best score
-	Run_Alignment best_seed ;
+	// XXX: if we find the first alignment close to the limit, we must
+	// increase(!) the limit to best_score*maxq and do another iteration
+	
+	SeededAlignment best_seed ;
+	ExtendBothEnds best_ext ;
 
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
@@ -424,11 +420,13 @@ void Mapper::put_result( const Result& r )
 	while( !seedlist.empty() ) 
 	{
 		std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
-		std::deque< Run_Alignment >::iterator
+		std::deque< SeededAlignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
 		{
-			Logdom score = (*cur_aln)( limit ) ;
+			ExtendBothEnds extension( parblock_, qs, *cur_aln, limit ) ;
+			Logdom score = extension.score_ ;
+
 			// didn't find an alignment?  just move to next seed
 			if( score.is_finite() )
 			{
@@ -437,6 +435,7 @@ void Mapper::put_result( const Result& r )
 					runnerup_score = best_score ;
 					best_score = score ;
 					best_seed = *cur_aln ;
+					best_ext.swap( extension ) ;
 					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
 				}
 				// new second best score?
@@ -488,7 +487,7 @@ void Mapper::put_result( const Result& r )
 	}
 
 	DnaP minpos, maxpos ;
-	std::vector<unsigned> t = best_seed.align_and_backtrace( minpos, maxpos ) ;
+	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 
 	// int penalty = best.penalty ;
 	// deque< pair< alignment_type, const alignment_type* > > ol_ ;

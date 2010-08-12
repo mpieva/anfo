@@ -255,7 +255,7 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 	unsigned filled = 0 ;
 	unsigned total = 0 ;
 
-	for( int32_t offset = 0 ; offset != dna.length() ; ++offset )
+	for( int32_t offset = 0 ; offset != (int32_t)dna.length() ; ++offset )
 	{
 		o_f >>= 2 ;
 		o_r = (o_r << 2) & mask ;
