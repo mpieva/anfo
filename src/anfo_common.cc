@@ -410,16 +410,19 @@ void Mapper::put_result( const Result& r )
 	// second best score
 	// XXX: if we find the first alignment close to the limit, we must
 	// increase(!) the limit to best_score*maxq and do another iteration
+	// (actually the whole limit business is shaky right now)
 	
 	SeededAlignment best_seed ;
 	ExtendBothEnds best_ext ;
 
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
-	       limit = Logdom::from_phred( 30 ) ;
-	while( !seedlist.empty() ) 
+	       limit = Logdom::from_phred( 60 ) ;
+	for(;;)
 	{
 		std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
+		if( seedlist.empty() ) break ;
+
 		std::deque< SeededAlignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
@@ -427,7 +430,7 @@ void Mapper::put_result( const Result& r )
 			ExtendBothEnds extension( parblock_, qs, *cur_aln, limit ) ;
 			Logdom score = extension.score_ ;
 
-			// didn't find an alignment?  just move to next seed
+			// found an alignment?  finish with this seed
 			if( score.is_finite() )
 			{
 				// new best score?
@@ -445,9 +448,10 @@ void Mapper::put_result( const Result& r )
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
-				std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() << std::endl ;
+				std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
+					<< ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
 			}
-			else 
+			else // no alignment: move to next seed
 			{
 				// std::cerr << "Nothing yet" << std::endl ;
 				if( out_aln != cur_aln ) *out_aln = *cur_aln ;

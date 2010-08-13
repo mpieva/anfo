@@ -197,64 +197,53 @@ SeededAlignment::SeededAlignment(
 		score_ *= pb.subst_penalty( 0, reference_[-1], query[qoffs_-1] ) ;
 }
 
+// multiple calls to put must happen in increasing order of x
+inline void ExtendAlignment::put( Line& l, int s, int x, int xo, Logdom z, int yo, int os )
+{
+	if( z >= limit_ )
+	{
+		if( l.cells.empty() ) l.min = x ;
+		int i = x + xo - l.min ;
+		assert( i >= 0 ) ;
+		while( l.cells.size() <= (unsigned)i ) l.cells.push_back( Cell() ) ;
+		if( l.cells[i][s].score < z )
+		{
+			l.cells[i][s].score = z ;
+			l.cells[i][s].from_state = os ;
+			l.cells[i][s].from_x_offset = xo ;
+			l.cells[i][s].from_y_offset = yo ;
+		}
+	}
+}
+
 // Alignment proper: the intial greedy matching must have been done,
 // here we extend one side of this into a full alignment, as long as it
 // doesn't score more than a prescribed limit.
 ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) 
+	: limit_( limit ), result_( Logdom::null() )
 {
-	limit_ = limit ; result_ = Logdom::null() ; 
-	matrix.push_back( Line() ) ;
-	put( matrix[0], 0, 0, 0, Logdom::one(), 0, 0 ) ;
-	for( size_t y = 0 ; !matrix[y].cells.empty() ; ++y )
-	{
-		assert( matrix.size() == y+1 ) ;
+	if( limit <= Logdom::one() ) {
 		matrix.push_back( Line() ) ;
-		// std::cerr << y << std::endl ;
-		// expand the current row for each state in turn... of course,
-		// each state is a special case.
-		int m = matrix[y].min ;
-		for( uint32_t x = m ;  x != m + matrix[y].cells.size() ; ++x )
+		put( matrix[0], 0, 0, 0, Logdom::one(), 0, 0 ) ;
+		for( size_t y = 0 ; !matrix[y].cells.empty() ; ++y )
 		{
-			for( size_t s = 0 ; s != adna_parblock::num_states ; ++s )
+			assert( matrix.size() == y+1 ) ;
+			matrix.push_back( Line() ) ;
+			// std::cerr << y << std::endl ;
+			// expand the current row for each state in turn... of course,
+			// each state is a special case.
+			int m = matrix[y].min ;
+			for( uint32_t x = m ;  x != m + matrix[y].cells.size() ; ++x )
 			{
-				Logdom score = matrix[y].cells[ x - m ][ s ].score ;
-				if( score.is_finite() ) extend( pb, score, s, x, y, reference+x, query+y) ;
+				for( size_t s = 0 ; s != adna_parblock::num_states ; ++s )
+				{
+					Logdom score = matrix[y].cells[ x - m ][ s ].score ;
+					if( score.is_finite() ) extend( pb, score, s, x, y, reference+x, query+y) ;
+				}
 			}
 		}
 	}
 }
-
-#if 0
-Logdom Run_Alignment::extend_backward( Logdom init, Logdom limit ) 
-{
-	limit_ = limit ; result_ = Logdom::null() ; 
-	matrix_backward.clear() ;
-	matrix_backward.push_back( Line() ) ;
-	put( matrix_backward[0], 0, 0, 0, init, 0, 0 ) ;
-	for( size_t y = 0 ; !matrix_backward[y].cells.empty() ; ++y )
-	{
-		assert( matrix_backward.size() == y+1 ) ;
-		matrix_backward.push_back( Line() ) ;
-		// std::cerr << y << std::endl ;
-		// expand the current row for each state in turn... of course,
-		// each state is a special case.
-		int m = matrix_backward[y].min ;
-		for( size_t x = m ;  x != m + matrix_backward[y].cells.size() ; ++x )
-		{
-			for( size_t s = 0 ; s != num_states ; ++s )
-			{
-				Logdom score = matrix_backward[y].cells[ x - m ][ s ].score ;
-				if( score.is_finite() ) expand( matrix_backward,
-						score, s, x, y, true,
-						reference_[ -x-1 ], query_[ -y-1 ] 
-						) ;
-			}
-		}
-	}
-	return result_ ;
-}
-#endif
-
 
 // what to do?  
 // If in matching state, we know there's no immediate match, so we can...
@@ -272,9 +261,9 @@ Logdom Run_Alignment::extend_backward( Logdom init, Logdom limit )
 
 void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int x, int y, DnaP ref, const QSequence::Base *qry )
 {
-	// std::cerr << __PRETTY_FUNCTION__ << "( "
-	// << score.to_phred() << ", " << s << ", " << x << ", " << y 
-	// << ", " << flip << ", ..., ... )" << std::endl ;
+	// std::cerr << __PRETTY_FUNCTION__ << "( " << score.to_phred() << ", "
+		// << s << ", " << x << ", " << y << ", " << ", ..., ... )" <<
+		// std::endl ;
 
 	// Note the penalties: The appropriate substitution penalty is
 	// applied whenever we (mis-)match two codes, the gap open penalties

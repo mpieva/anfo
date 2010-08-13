@@ -264,26 +264,8 @@ class ExtendAlignment {
 		Logdom limit_, result_ ;
 		std::deque< Line > matrix ;
 
-		// multiple calls to put must happen in increasing order of x
-		void put( Line& l, int s, int x, int xo, Logdom z, int yo, int os )
-		{
-			if( z >= limit_ )
-			{
-				if( l.cells.empty() ) l.min = x ;
-				int i = x + xo - l.min ;
-				assert( i >= 0 ) ;
-				while( l.cells.size() <= (unsigned)i ) l.cells.push_back( Cell() ) ;
-				if( l.cells[i][s].score > z )
-				{
-					l.cells[i][s].score = z ;
-					l.cells[i][s].from_state = os ;
-					l.cells[i][s].from_x_offset = xo ;
-					l.cells[i][s].from_y_offset = yo ;
-				}
-			}
-		}
-
-		void extend( const adna_parblock &pb_, Logdom score, int s, int x, int y, DnaP ref, const QSequence::Base *qry );
+		void put( Line& l, int s, int x, int xo, Logdom z, int yo, int os ) ;
+		void extend(const adna_parblock &pb_,Logdom score,int s,int x,int y,DnaP ref,const QSequence::Base *qry );
 
 	public:
 		ExtendAlignment() {}
@@ -316,8 +298,8 @@ struct ExtendBothEnds {
 	
 	std::vector<unsigned> backtrace( const SeededAlignment& seed, DnaP &minpos, DnaP &maxpos ) 
 	{
-		// minpos = reference_ ;
-		// maxpos = reference_ + seedsize_ ;
+		minpos = seed.reference_ ;
+		maxpos = seed.reference_ + seed.size_ ;
 
 		return std::vector<unsigned>() ;
 	}
