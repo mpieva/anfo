@@ -109,7 +109,7 @@ message CompactIndexSpec {
 
     // number of mismatches to allow per seed
     // Only values of 0, 1 or 2 are currently supported, and more
-	// probably doesn't make any sense.
+	// probably doesn't make any sense anyway.
     optional uint32 allow_near_perfect = 5 [ default = 0 ] ;
 }
 
