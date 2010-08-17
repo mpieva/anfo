@@ -195,15 +195,7 @@ class DnaP
 		DnaP &operator -= ( uint32_t o ) { p_ -= o ; return *this ; }
 		DnaP &operator -= ( int32_t  o ) { p_ -= o ; return *this ; }
 
-		// hack to make this compatible with Judy arrays on both 32 and
-		// 64 bit machines
-#if SMALL_SYS
-		unsigned long get() const { return p_ & ULONG_MAX ; }
-		unsigned long high() const { return p_ >> sizeof( unsigned long ) * CHAR_BIT ; }
-#else
 		unsigned long get() const { return p_ ; }
-		unsigned long high() const { return 0 ; }
-#endif
 
 		friend inline int64_t operator -  ( const DnaP &a, const DnaP &b ) { return a.p_  - b.p_ ; }
 		friend inline bool    operator == ( const DnaP &a, const DnaP &b ) { return a.p_ == b.p_ ; }

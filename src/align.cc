@@ -272,26 +272,26 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 	// the overhang_ext_penalty is applied whenever moving along the
 	// query while single stranded, even when a gap is open!  This gives
 	// correct scores for a geometric distribution of overhang lengths.
-	if( !*ref && qry->ambicode )
+	if( !*ref || !qry->ambicode ) 
 	{
-		// We hit a gap in the reference, whatever is left of the query
-		// must be penalized.  To do this, we virtually extend the
-		// reference with Ns and align to those.  This is a white lie in
-		// that it wil overestimate the real penalty, but that's okay,
-		// because such an alignment isn't all that interesting in
-		// reality anyway.  Afterwards we're finished and adjust result
-		// and limit accordingly.
+		// We hit a gap in either the reference or the query.  Whatever
+		// is left of the query (if any) must be penalized.  To do this,
+		// we virtually extend the reference with Ns and align to those.
+		// This is a white lie in that it will overestimate the real
+		// penalty, but that's okay, because such an alignment isn't all
+		// that interesting in reality anyway.  Afterwards we're
+		// finished and adjust result and limit accordingly.
 		for( int yy = 0 ; qry[ yy ].ambicode ; ++yy )
 		{
 			score *= pb_.subst_penalty( s, *ref, qry[ yy ] ) ;
 			if( s & adna_parblock::mask_ss ) score *= pb_.overhang_ext_penalty ;
 		}
-		if( score > result_ ) result_ = limit_ = score ;
-	}
-	else if( !qry->ambicode )
-	{
-		// hit gap in query --> we're done
-		if( score > result_ ) result_ = limit_ = score ;
+		if( score > result_ ) {
+			result_ = limit_ = score ;
+			max_s_ = s ;
+			max_x_ = x ;
+			max_y_ = y ;
+		}
 	}
 	else if( (s & adna_parblock::mask_gaps) == 0 )
 	{
@@ -326,6 +326,23 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 		put( matrix[y], s, x, 1, score * pb_.gap_ext_penalty, 0, s ) ;
 		put( matrix[y+1], s & ~adna_parblock::mask_gap_qry, x, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
 				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ), 1, s ) ;
+	}
+}
+
+void ExtendAlignment::backtrace( std::vector<unsigned>& out ) const
+{
+	for( size_t x = max_x_, y = max_y_, s = max_s_ ; x || y ; )
+	{
+		const Cell& c = matrix[y].cells[ x - matrix[y].min ][s] ;
+		if( !c.from_x_offset && !c.from_y_offset ) throw "stuck in backtracing" ;
+		else if( !c.from_x_offset ) streams::push_d( out, c.from_x_offset ) ;
+		else if( !c.from_y_offset ) streams::push_i( out, c.from_y_offset ) ;
+		else if( c.from_y_offset == c.from_x_offset ) streams::push_m( out, c.from_x_offset ) ;
+		else throw "inconsistency in backtracing" ;
+
+		x -= c.from_x_offset ;
+		y -= c.from_y_offset ;
+		s = c.from_state ;
 	}
 }
 
@@ -376,4 +393,92 @@ ExtendBothEnds::ExtendBothEnds(
 		backwards_.swap( backwards2 ) ;
 	}
 }
+
+std::vector<unsigned> ExtendBothEnds::backtrace( const SeededAlignment& seed, DnaP &minpos, DnaP &maxpos ) const 
+{
+	minpos = seed.reference_ - backwards_.max_y() - 1 ;
+	maxpos = seed.reference_ + seed.size_ + forwards_.max_y() ;
+
+	std::vector<unsigned> trace ;
+	backwards_.backtrace( trace ) ;
+
+	trace.push_back( 0 ) ;
+	streams::push_m( trace, seed.size_ ) ;
+	trace.push_back( 0 ) ;
+
+	std::vector<unsigned> rtrace ;
+	forwards_.backtrace( rtrace ) ;
+	std::copy( rtrace.rbegin(), rtrace.rend(), back_inserter( trace ) ) ;
+	return trace ;
+}
+
+#if 0
+
+template< typename State > std::vector<unsigned>
+backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, DnaP &maxpos )
+{
+	std::vector<unsigned> fwd, rev ;
+
+	// When the alignment finished, it pointed to the minimum
+	// coordinate (to a gap actually).  Just store it.
+	minpos = a->reference + a->ref_offs ;
+
+	// Only trace back second state here, this ends up at the front of
+	// the alignment, but we add stuff to the back as we generate it in
+	// the wrong order.
+	while( const State *b = *lookup( cl, *a ) ) 
+	{
+		if( (b->state & simple_adna::mask_dir) == 0 ) break ;
+		int dr = b->ref_offs - a->ref_offs ;
+		int dq = b->query_offs - a-> query_offs ;
+		if( int m = std::min( dr, dq ) ) {
+			dr -= m ;
+			dq -= m ;
+			streams::push_m( fwd, m ) ;
+		}
+		streams::push_i( fwd, dq ) ;
+		streams::push_d( fwd, dr ) ;
+		a = b ;
+	}
+
+	if( a->ref_offs != a->query_offs ) throw  "logic error: first half of backtrace has drifted" ;
+
+	streams::push_m( fwd, -a->ref_offs-1 ) ;
+	fwd.push_back( 0 ) ;
+
+	// Skip one state, this is the one aligning the terminal gap.
+	a = *lookup( cl, *a ) ; 
+		
+	// Now at the end of the first phase, we got a pointer to the
+	// maximum coordinate (again a gap).  Store it.
+	maxpos = a->reference + a->ref_offs ;
+
+	// Trace back first state now, generating a new trace which needs to
+	// be reversed in the end.
+	while( const State *b = *lookup( cl, *a ) ) 
+	{
+		int dr = a->ref_offs - b->ref_offs ;
+		int dq = a->query_offs - b-> query_offs ;
+		if( int m = std::min( dr, dq ) ) {
+			dr -= m ;
+			dq -= m ;
+			streams::push_m( rev, m ) ; 
+		}
+		streams::push_i( rev, dq ) ;
+		streams::push_d( rev, dr ) ;
+		a = b ;
+	}
+
+	if( a->ref_offs != a->query_offs ) throw "logic error: second half of backtrace has drifted" ;
+
+	// Now (*b) is null, (*a) is the last state ever generated.  Now
+	// trace further until we hit the initial state (both offsets
+	// vanish).  We can again add this to t2, as we're going in the same
+	// direction.
+	streams::push_m( rev, a->ref_offs ) ;
+
+	fwd.insert( fwd.end(), rev.rbegin(), rev.rend() ) ;
+	return fwd ;
+}
+#endif
 

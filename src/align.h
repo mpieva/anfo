@@ -106,101 +106,6 @@ struct adna_parblock
 
 std::ostream& operator << ( std::ostream&, const adna_parblock& ) ;
 
-#if 0
-//! \brief backtraces an alignment and return a CIGAR line
-//!
-//! This backtraces an alignment after it has been created by
-//! find_cheapest() called with a backtracing structure.  Backtracing
-//! works by looking at two intermediate states, the \em current one and
-//! its \em predecessor.  In between those two states, exactly one
-//! invocation of forward() and one of greedy() have happened.  To
-//! backtrace, we first check in which direction we moved (depends on
-//! which half of the alignment we were in).  Next, if both the reference
-//! and the query offsets differ between states, we copy symbols from
-//! both (this corresponds to the greedy extension or a mismatch).  If
-//! only one differs, we copy one symbol and fill it up with a gap.
-//! Depending on the direction we moved in, the pair is added at the
-//! front or the end of the trace.  If the internal state changed, we
-//! don't trace at all (we just jump).  See output.proto for the
-//! encoding of these CIGAR lines.
-//!
-//! \param cl the ClosedMap that was used in find_cheapest()
-//! \param a final state to start backtracing from
-//! \param minpos will be filled by position of smaller end of alignment
-//! \param maxpos will be filled by position of greater end of alignment
-//! \return binary CIGAR string
-//! \internal
-//! \todo Write mismatches with different code (to allow various
-//!       calculations without the genome being available).
-
-template< typename State > std::vector<unsigned>
-backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, DnaP &maxpos )
-{
-	std::vector<unsigned> fwd, rev ;
-
-	// When the alignment finished, it pointed to the minimum
-	// coordinate (to a gap actually).  Just store it.
-	minpos = a->reference + a->ref_offs ;
-
-	// Only trace back second state here, this ends up at the front of
-	// the alignment, but we add stuff to the back as we generate it in
-	// the wrong order.
-	while( const State *b = *lookup( cl, *a ) ) 
-	{
-		if( (b->state & simple_adna::mask_dir) == 0 ) break ;
-		int dr = b->ref_offs - a->ref_offs ;
-		int dq = b->query_offs - a-> query_offs ;
-		if( int m = std::min( dr, dq ) ) {
-			dr -= m ;
-			dq -= m ;
-			streams::push_m( fwd, m ) ;
-		}
-		streams::push_i( fwd, dq ) ;
-		streams::push_d( fwd, dr ) ;
-		a = b ;
-	}
-
-	if( a->ref_offs != a->query_offs ) throw  "logic error: first half of backtrace has drifted" ;
-
-	streams::push_m( fwd, -a->ref_offs-1 ) ;
-	fwd.push_back( 0 ) ;
-
-	// Skip one state, this is the one aligning the terminal gap.
-	a = *lookup( cl, *a ) ; 
-		
-	// Now at the end of the first phase, we got a pointer to the
-	// maximum coordinate (again a gap).  Store it.
-	maxpos = a->reference + a->ref_offs ;
-
-	// Trace back first state now, generating a new trace which needs to
-	// be reversed in the end.
-	while( const State *b = *lookup( cl, *a ) ) 
-	{
-		int dr = a->ref_offs - b->ref_offs ;
-		int dq = a->query_offs - b-> query_offs ;
-		if( int m = std::min( dr, dq ) ) {
-			dr -= m ;
-			dq -= m ;
-			streams::push_m( rev, m ) ; 
-		}
-		streams::push_i( rev, dq ) ;
-		streams::push_d( rev, dr ) ;
-		a = b ;
-	}
-
-	if( a->ref_offs != a->query_offs ) throw "logic error: second half of backtrace has drifted" ;
-
-	// Now (*b) is null, (*a) is the last state ever generated.  Now
-	// trace further until we hit the initial state (both offsets
-	// vanish).  We can again add this to t2, as we're going in the same
-	// direction.
-	streams::push_m( rev, a->ref_offs ) ;
-
-	fwd.insert( fwd.end(), rev.rbegin(), rev.rend() ) ;
-	return fwd ;
-}
-#endif
-
 template< int N, typename T > class Array
 {
 	private:
@@ -262,6 +167,7 @@ class ExtendAlignment {
 		} ;
 
 		Logdom limit_, result_ ;
+		int max_s_, max_x_, max_y_ ;
 		std::deque< Line > matrix ;
 
 		void put( Line& l, int s, int x, int xo, Logdom z, int yo, int os ) ;
@@ -272,20 +178,18 @@ class ExtendAlignment {
 		ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) ;
 
 		Logdom get_result() const { return result_ ; }
+		int max_y() const { return max_y_ ; }
 
-		std::vector<unsigned> backtrace( DnaP &minpos, DnaP &maxpos ) 
-		{
-			// minpos = reference_ ;
-			// maxpos = reference_ + seedsize_ ;
-
-			return std::vector<unsigned>() ;
-		}
+		void backtrace( std::vector<unsigned>& ) const ;
 
 		void swap( ExtendAlignment& rhs ) 
 		{
 			std::swap( limit_, rhs.limit_ ) ;
 			std::swap( result_, rhs.result_ ) ;
 			std::swap( matrix, rhs.matrix ) ;
+			std::swap( max_s_, rhs.max_s_ ) ;
+			std::swap( max_x_, rhs.max_x_ ) ;
+			std::swap( max_y_, rhs.max_y_ ) ;
 		}
 } ;
 
@@ -296,13 +200,19 @@ struct ExtendBothEnds {
 	ExtendBothEnds() {}
 	ExtendBothEnds( const adna_parblock& pb, const QSequence& query, const SeededAlignment& seed, Logdom limit ) ;
 	
-	std::vector<unsigned> backtrace( const SeededAlignment& seed, DnaP &minpos, DnaP &maxpos ) 
-	{
-		minpos = seed.reference_ ;
-		maxpos = seed.reference_ + seed.size_ ;
-
-		return std::vector<unsigned>() ;
-	}
+	//! \brief backtraces an alignment and return a CIGAR line
+	//!
+	//! Backtracing works by simply walking the chain of ols states and
+	//! x/y offsets stored in the DP matrix.  See output.proto for the
+	//! encoding of the produced CIGAR lines.
+	//!
+	//! \param minpos will be filled by position of smaller end of alignment
+	//! \param maxpos will be filled by position of greater end of alignment
+	//! \return binary CIGAR string
+	//! \internal
+	//! \todo Write mismatches with different code (to allow various
+	//!       calculations without the genome being available).
+	std::vector<unsigned> backtrace( const SeededAlignment& seed, DnaP &minpos, DnaP &maxpos ) const ;
 
 	void swap( ExtendBothEnds &rhs )
 	{
