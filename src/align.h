@@ -206,8 +206,11 @@ struct ExtendBothEnds {
 	//! x/y offsets stored in the DP matrix.  See output.proto for the
 	//! encoding of the produced CIGAR lines.
 	//!
-	//! \param minpos will be filled by position of smaller end of alignment
-	//! \param maxpos will be filled by position of greater end of alignment
+	//! \param minpos will be filled by position of first aligned
+	//!               reference base
+	//! \param maxpos will be filled by position of first non-aligned
+	//!               reference base, so that maxpos-minpos gives the
+	//!               aligned length
 	//! \return binary CIGAR string
 	//! \internal
 	//! \todo Write mismatches with different code (to allow various

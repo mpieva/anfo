@@ -369,7 +369,6 @@ void Mapper::put_result( const Result& r )
 	// 2b remove seeds that already produced an alignment
 	// 3 redo winning alignment and backtrace it
 
-	// std::cerr << ss.ref_positions_size() << " possible seeds." << std::endl ;
 	std::deque< SeededAlignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
 	{
@@ -384,27 +383,10 @@ void Mapper::put_result( const Result& r )
 		int32_t qoffs = ss.query_positions(i) ;
 		uint32_t size = ss.seed_sizes(i) ;
 			
-		// uint32_t p ;
-		// const config::Sequence *sequ = genome_->translate_back( reference, p ) ;
-		// std::cerr << sequ->name() << " " << p << " " << ss.seed_sizes(i) <<
-			// (ss.query_positions(i) < 0 ? "backward" : "forward" ) << std::endl ;
-
 		if( check_seed_quality( reference, qs.start() + qoffs, size,
 					ss.max_mismatches(), ss.min_seed_length() ) )
 			seedlist.push_back( SeededAlignment( parblock_, reference, qs, qoffs, size ) ) ;
 	}
-
-#if 0
-	// XXX
-	std::cerr << r.read().seqid() << ": " << seedlist.size() << " actual seeds." << std::endl ;
-	for( size_t i = 0 ; i != seedlist.size() ; ++i )
-	{
-		uint32_t p ;
-		const config::Sequence *sequ = genome_->translate_back( seedlist[i].reference_, p ) ;
-		std::cerr << sequ->name() << ' ' << p << ' ' << seedlist[i].seedsize_
-			<< " (" << seedlist[i].init_score_.to_phred() << ')' << std::endl ;
-	}
-#endif 
 
 	// iteration: we track the best score along with its seed and the
 	// second best score
@@ -418,11 +400,10 @@ void Mapper::put_result( const Result& r )
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
 	       limit = Logdom::from_phred( 60 ) ;
-	for(;;)
-	{
-		std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
-		if( seedlist.empty() ) break ;
 
+	while( !seedlist.empty() )
+	{
+		// std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
 		std::deque< SeededAlignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
@@ -448,8 +429,8 @@ void Mapper::put_result( const Result& r )
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
-				std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
-					<< ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
+				// std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
+					// << ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
 			}
 			else // no alignment: move to next seed
 			{
@@ -477,13 +458,6 @@ void Mapper::put_result( const Result& r )
 		limit = max( limit*limit, abs_max ) ;
 	}
 
-	// alignment_type::ClosedSet cl ;
-	// alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
-
-	// as->set_open_nodes_after_alignment( o ) ;
-	// as->set_closed_nodes_after_alignment( c ) ;
-	// as->set_tracked_closed_nodes_after_alignment( tt ) ;
-
 	if( !best_score.is_finite() )
 	{
 		as->set_reason( output::bad_alignment ) ;
@@ -492,19 +466,13 @@ void Mapper::put_result( const Result& r )
 
 	DnaP minpos, maxpos ;
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
-
-	// int penalty = best.penalty ;
-	// deque< pair< alignment_type, const alignment_type* > > ol_ ;
-	// reset( best ) ;
-	// greedy( best ) ;
-	// (enter_bt<alignment_type>( ol_ ))( best ) ;
-	 // find_cheapest( ol_, minpos, maxpos ) ;
+	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
+	assert( len >= 0 && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
 
 	output::Hit *h = res_.add_hit() ;
 
 	uint32_t start_pos ;
-	int32_t len = maxpos - minpos - 1 ;
-    const config::Sequence *sequ = genome_->translate_back( minpos+1, start_pos ) ;
+	const config::Sequence *sequ = genome_->translate_back( minpos, start_pos ) ;
 	if( !sequ ) throw "Not supposed to happen:  invalid alignment coordinates" ;
 
 	if( genome_->g_.has_name() ) h->set_genome_name( genome_->g_.name() ) ;
@@ -512,12 +480,13 @@ void Mapper::put_result( const Result& r )
 	if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
 	else if( genome_->g_.has_taxid() ) h->set_taxid( genome_->g_.taxid() ) ;
 
-	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
-	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
+	h->set_start_pos( start_pos ) ;
+	h->set_aln_length( len ) ;
 	h->set_score( best_score.to_phred() ) ;
 	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
-	// XXX: h->set_evalue
+	//! \todo calculate a real E-value
+	// XXX h->set_evalue
 
 	//! \todo Find second best hit and similar stuff.
 	//! We want the distance to the next best hit; also,
@@ -526,21 +495,6 @@ void Mapper::put_result( const Result& r )
 
 	// XXX set diff_to_next_species, diff_to_next_order
 
-	// get rid of overlaps of that first alignment, then look
-	// for the next one
-	// XXX this is cumbersome... need a better PQueue impl... or a
-	// better algorithm
-	// ol.erase( 
-			// std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
-			// ol.end() ) ;
-	// make_heap( ol.begin(), ol.end() ) ;
-
-	// search long enough to make sensible mapping quality possible
-	// uint32_t max_penalty_2 = conf_.max_mapq() + penalty ;
-	// alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
-	// as->set_open_nodes_after_alignment( o ) ;
-	// as->set_closed_nodes_after_alignment( c ) ;
-	// as->set_tracked_closed_nodes_after_alignment( tt ) ;
 	if( runnerup_score.is_finite() ) h->set_diff_to_next( (runnerup_score/best_score).to_phred() ) ;
 }
 
@@ -550,7 +504,7 @@ void Mapper::put_result( const Result& r )
 //! we can operate in a loop of cleaning out the stuff we don't need
 //! anymore and finding more alignments.
 //!
-//! Cleanup:
+//! Cleanup: XXX this is outdated
 //! - If we don't have a best hit, everything is needed.
 //! - If we don't have a hit to a different species, alignments to any
 //!   different species are needed.
