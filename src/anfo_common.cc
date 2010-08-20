@@ -467,7 +467,7 @@ void Mapper::put_result( const Result& r )
 	DnaP minpos, maxpos ;
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
-	assert( len >= 0 && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
+	assert( maxpos > minpos && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
 
 	output::Hit *h = res_.add_hit() ;
 

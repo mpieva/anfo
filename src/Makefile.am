@@ -4,7 +4,7 @@ lib_LTLIBRARIES = libanfo.la
 dist_pkgdata_DATA = config.proto output.proto 
 pkginclude_HEADERS = align.h anfo_common.h compress_stream.h conffile.h \
 		     ducttape.h index.h logdom.h misc_streams.h output_streams.h \
-		     sequence.h stream.h trim.h util.h config.pb.h output.pb.h judy++.h
+		     sequence.h stream.h trim.h util.h config.pb.h output.pb.h 
 
 schemedir = $(prefix)/share/elk
 scheme_SCRIPTS = anfo.scm
@@ -25,7 +25,7 @@ libanfo_la_SOURCES = config.pb.h output.pb.h \
 		     align.cc anfo_common.cc config.pb.cc ducttape.cc \
 		     index.cc misc_streams.cc output.pb.cc output_streams.cc \
 		     sequence.cc stream.cc util.cc anfo-elk.cc concurrent_stream.cc \
-		     judy++.h fastlz.h fastlz.c
+		     fastlz.h fastlz.c
 
 anfo_SOURCES = anfo.cc queue.h 
 anfo_tool_SOURCES = anfo-tool.cc

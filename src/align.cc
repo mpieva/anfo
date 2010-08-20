@@ -329,8 +329,8 @@ void ExtendAlignment::backtrace( std::vector<unsigned>& out ) const
 	{
 		const Cell& c = matrix[y].cells[ x - matrix[y].min ][s] ;
 		if( !c.from_x_offset && !c.from_y_offset ) throw "stuck in backtracing" ;
-		else if( !c.from_x_offset ) streams::push_d( out, c.from_x_offset ) ;
-		else if( !c.from_y_offset ) streams::push_i( out, c.from_y_offset ) ;
+		else if( !c.from_x_offset ) streams::push_i( out, c.from_y_offset ) ;
+		else if( !c.from_y_offset ) streams::push_d( out, c.from_x_offset ) ;
 		else if( c.from_y_offset == c.from_x_offset ) streams::push_m( out, c.from_x_offset ) ;
 		else throw "inconsistency in backtracing" ;
 
