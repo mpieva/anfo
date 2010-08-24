@@ -144,10 +144,6 @@ struct SeededAlignment {
 //! state is 0, late the state is inly held implicitly.
 //!
 //! If only there were real lexical closures... *sigh*
-//!
-//! \todo This forward/backward business is brittle.  We should just
-//!       flip the pointers: easy for the genome, for the query we
-//!       should simply duplicate the sequence.
 class ExtendAlignment {
 	// private:
 	public:
@@ -178,7 +174,7 @@ class ExtendAlignment {
 		ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) ;
 
 		Logdom get_result() const { return result_ ; }
-		int max_y() const { return max_y_ ; }
+		int max_x() const { return max_x_ ; }
 
 		void backtrace( std::vector<unsigned>& ) const ;
 

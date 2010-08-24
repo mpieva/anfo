@@ -390,8 +390,8 @@ ExtendBothEnds::ExtendBothEnds(
 
 std::vector<unsigned> ExtendBothEnds::backtrace( const SeededAlignment& seed, DnaP &minpos, DnaP &maxpos ) const 
 {
-	minpos = seed.reference_ - backwards_.max_y() ;
-	maxpos = seed.reference_ + seed.size_ + forwards_.max_y() ;
+	minpos = seed.reference_ - backwards_.max_x() ;
+	maxpos = seed.reference_ + seed.size_ + forwards_.max_x() ;
 
 	std::vector<unsigned> trace ;
 	backwards_.backtrace( trace ) ;
