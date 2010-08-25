@@ -18,6 +18,8 @@
 #include "../config.h"
 #endif
 
+#define NDEBUG
+
 #include "align.h"
 
 #include "config.pb.h"
@@ -196,47 +198,67 @@ SeededAlignment::SeededAlignment(
 }
 
 // multiple calls to put must happen in increasing order of x
-inline void ExtendAlignment::put( Line& l, int s, int x, int xo, Logdom z, int yo, int os )
+inline void ExtendAlignment::put( int s, int os, int x, int xo, int y, int yo, Logdom z )
 {
 	if( z >= limit_ )
 	{
-		if( l.cells.empty() ) l.min = x ;
-		int i = x + xo - l.min ;
-		assert( i >= 0 ) ;
-		while( l.cells.size() <= (unsigned)i ) l.cells.push_back( Cell() ) ;
-		if( l.cells[i][s].score < z )
+		if( mins_[ y+yo ] == maxs_[ y+yo ] ) mins_[y+yo] = maxs_[y+yo] = x ;
+		for( ; maxs_[y+yo] != x ; ++maxs_[y+yo] )
+			for( int s = 0 ; s != adna_parblock::num_states ; ++s )
+				cells_[ width_*(y+yo) + maxs_[y+yo] ][ s ].score = Logdom::null() ;
+
+		assert( y+yo < width_+1 ) ;
+		assert( x+xo < width_ ) ;
+		assert( width_*(y+yo) + x+xo < (1+width_) * width_ ) ;
+
+		Cell& c = cells_[ width_*(y+yo) + x+xo ][ s ] ;
+		if( c.score < z )
 		{
-			l.cells[i][s].score = z ;
-			l.cells[i][s].from_state = os ;
-			l.cells[i][s].from_x_offset = xo ;
-			l.cells[i][s].from_y_offset = yo ;
+			c.score = z ;
+			c.from_state = os ;
+			c.from_x_offset = xo ;
+			c.from_y_offset = yo ;
 		}
 	}
+}
+
+static inline int query_length( const QSequence::Base *query )
+{
+	int r = 0 ;
+	while( query->ambicode ) ++query, ++r ;
+	return r ;
 }
 
 // Alignment proper: the intial greedy matching must have been done,
 // here we extend one side of this into a full alignment, as long as it
 // doesn't score more than a prescribed limit.
-ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) 
-	: limit_( limit ), result_( Logdom::null() )
+ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) :
+	width_( query_length( query )+1 ), cells_( (1+width_)*width_ ), mins_( 1+width_ ), maxs_( 1+width_ ), 
+	limit_( limit ), result_( Logdom::null() )
 {
 	if( limit <= Logdom::one() ) {
-		matrix.push_back( Line() ) ;
-		put( matrix[0], 0, 0, 0, Logdom::one(), 0, 0 ) ;
-		for( size_t y = 0 ; !matrix[y].cells.empty() ; ++y )
+		mins_[0] = maxs_[0] = 0 ;
+		put( 0, 0, 0, 0, 0, 0, Logdom::one() ) ;
+		for( size_t y = 0 ; y != width_ && mins_[y] != maxs_[y] ; ++y )
 		{
-			assert( matrix.size() == y+1 ) ;
-			matrix.push_back( Line() ) ;
+			assert( y <= width_ ) ;
+			assert( mins_[y] >= 0 ) ;
+			assert( maxs_[y] <= width_ ) ;
+			assert( mins_[y] <= maxs_[y] ) ;
+
+			mins_[y+1] = maxs_[y+1] = 0 ;
 			// std::cerr << y << std::endl ;
 			// expand the current row for each state in turn... of course,
 			// each state is a special case.
-			int m = matrix[y].min ;
-			for( uint32_t x = m ;  x != m + matrix[y].cells.size() ; ++x )
+			for( uint32_t x = mins_[y] ; x != width_-1 && x != maxs_[y] ; ++x )
 			{
 				for( size_t s = 0 ; s != adna_parblock::num_states ; ++s )
 				{
-					Logdom score = matrix[y].cells[ x - m ][ s ].score ;
-					if( score.is_finite() ) extend( pb, score, s, x, y, reference+x, query+y) ;
+					assert( width_*y + x < (1+width_) * width_ ) ;
+					assert( width_*y + x < cells_.size() ) ;
+
+					Logdom score = cells_[ width_*y + x ][ s ].score ;
+					if( score.is_finite() ) extend( pb, score, s, x, y, reference+x, query+y ) ;
 				}
 			}
 		}
@@ -290,11 +312,11 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 	else if( (s & adna_parblock::mask_gaps) == 0 )
 	{
 		// no gaps open --> mismatch, open either gap, enter SS
-		put( matrix[y+1], s, x, 1, score * pb_.subst_penalty( s, *ref, *qry ) 
-				* ( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ), 1, s ) ;
+		put( s, s, x, 1, y, 1, score * pb_.subst_penalty( s, *ref, *qry ) 
+				* ( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
 		if( *ref != qry->ambicode ) {	// only on a mismatch try anything fancy
-			put( matrix[ y ], s | adna_parblock::mask_gap_qry, x, 1, score * pb_.gap_open_penalty, 0, s ) ;
-			put( matrix[y+1], s | adna_parblock::mask_gap_ref, x, 0, score * pb_.gap_open_penalty, 1, s ) ;
+			put( s | adna_parblock::mask_gap_qry, s, x, 1, y, 0, score * pb_.gap_open_penalty ) ;
+			put( s | adna_parblock::mask_gap_ref, s, x, 0, y, 1, score * pb_.gap_open_penalty ) ;
 			if( pb_.overhang_enter_penalty.is_finite() && (s & adna_parblock::mask_ss) == 0 )
 			{
 				// To enter single stranded we require that the penalty for
@@ -304,22 +326,22 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 				Logdom p0 = pb_.subst_penalty( s, *ref, *qry ) ;
 				Logdom p4 = pb_.subst_penalty( s | adna_parblock::mask_ss, *ref, *qry ) 
 					* pb_.overhang_enter_penalty * pb_.overhang_ext_penalty ;
-				if( p4 > p0 ) put( matrix[y+1], s | adna_parblock::mask_ss, x, 1, score * p4, 1, s ) ;
+				if( p4 > p0 ) put( s | adna_parblock::mask_ss, s, x, 1, y, 1, score * p4 ) ;
 			}
 		}
 	}
 	else if( (s & adna_parblock::mask_gaps) == adna_parblock::mask_gap_ref )
 	{
-		put( matrix[y+1], s, x, 0, score * pb_.gap_ext_penalty *
-				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ), 1, s ) ;
-		put( matrix[y+1], s & ~adna_parblock::mask_gap_ref, x, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
-				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ), 1, s ) ;
+		put( s, s, x, 0, y, 1, score * pb_.gap_ext_penalty *
+				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
+		put( s & ~adna_parblock::mask_gap_ref, s, x, 1, y, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
+				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
 	}
 	else
 	{
-		put( matrix[y], s, x, 1, score * pb_.gap_ext_penalty, 0, s ) ;
-		put( matrix[y+1], s & ~adna_parblock::mask_gap_qry, x, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
-				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ), 1, s ) ;
+		put( s, s, x, 1, y, 0, score * pb_.gap_ext_penalty ) ;
+		put( s & ~adna_parblock::mask_gap_qry, s, x, 1, y, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
+				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
 	}
 }
 
@@ -327,7 +349,7 @@ void ExtendAlignment::backtrace( std::vector<unsigned>& out ) const
 {
 	for( size_t x = max_x_, y = max_y_, s = max_s_ ; x || y ; )
 	{
-		const Cell& c = matrix[y].cells[ x - matrix[y].min ][s] ;
+		const Cell& c = cells_[ width_*y + x ][ s ] ;
 		if( !c.from_x_offset && !c.from_y_offset ) throw "stuck in backtracing" ;
 		else if( !c.from_x_offset ) streams::push_i( out, c.from_y_offset ) ;
 		else if( !c.from_y_offset ) streams::push_d( out, c.from_x_offset ) ;

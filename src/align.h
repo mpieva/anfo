@@ -153,20 +153,17 @@ class ExtendAlignment {
 			uint8_t from_x_offset ;
 			uint8_t from_y_offset ;
 
-			Cell() : score( Logdom::null() ) {}
 			bool operator < ( const Cell& rhs ) const { return score < rhs.score ; }
 		} ;
 
-		struct Line {
-			std::vector< Array< adna_parblock::num_states, Cell > > cells ;
-			int min ;
-		} ;
+		int width_ ;
+		std::vector< Array< adna_parblock::num_states, Cell > > cells_ ;
+		std::vector< int > mins_, maxs_ ;
 
 		Logdom limit_, result_ ;
 		int max_s_, max_x_, max_y_ ;
-		std::deque< Line > matrix ;
 
-		void put( Line& l, int s, int x, int xo, Logdom z, int yo, int os ) ;
+		void put( int s, int os, int x, int xo, int y, int y0, Logdom z ) ;
 		void extend(const adna_parblock &pb_,Logdom score,int s,int x,int y,DnaP ref,const QSequence::Base *qry );
 
 	public:
@@ -180,9 +177,12 @@ class ExtendAlignment {
 
 		void swap( ExtendAlignment& rhs ) 
 		{
+			std::swap( width_, rhs.width_ ) ;
+			std::swap( cells_, rhs.cells_ ) ;
+			std::swap( mins_, rhs.mins_ ) ;
+			std::swap( maxs_, rhs.maxs_ ) ;
 			std::swap( limit_, rhs.limit_ ) ;
 			std::swap( result_, rhs.result_ ) ;
-			std::swap( matrix, rhs.matrix ) ;
 			std::swap( max_s_, rhs.max_s_ ) ;
 			std::swap( max_x_, rhs.max_x_ ) ;
 			std::swap( max_y_, rhs.max_y_ ) ;
