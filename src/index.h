@@ -89,6 +89,7 @@ class CompactGenome
 		}
 
 		uint32_t total_size() const { return g_.total_size() ; }
+		uint32_t raw_size() const { return length_ ; }
 		DnaP get_base() const { return base_ ; }
 
 		//! \brief scan over finite words of the dna

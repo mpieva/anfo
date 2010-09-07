@@ -395,8 +395,6 @@ void Mapper::put_result( const Result& r )
 	// (actually the whole limit business is shaky right now)
 	
 	SeededAlignment best_seed ;
-	ExtendBothEnds best_ext ;
-
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
 	       limit = Logdom::from_phred( 60 ) ;
@@ -404,11 +402,12 @@ void Mapper::put_result( const Result& r )
 	while( !seedlist.empty() )
 	{
 		// std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
+
 		std::deque< SeededAlignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
 		{
-			ExtendBothEnds extension( parblock_, qs, *cur_aln, limit ) ;
+			ExtendBothEnds<SimpleCell> extension( parblock_, qs, *cur_aln, limit ) ;
 			Logdom score = extension.score_ ;
 
 			// found an alignment?  finish with this seed
@@ -419,7 +418,7 @@ void Mapper::put_result( const Result& r )
 					runnerup_score = best_score ;
 					best_score = score ;
 					best_seed = *cur_aln ;
-					best_ext.swap( extension ) ;
+					// best_ext.swap( extension ) ;
 					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
 				}
 				// new second best score?
@@ -429,6 +428,7 @@ void Mapper::put_result( const Result& r )
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
+
 				// std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
 					// << ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
 			}
@@ -464,12 +464,17 @@ void Mapper::put_result( const Result& r )
 		return ;
 	}
 
+	output::Hit *h = res_.add_hit() ;
+
+	// Redo the best alignment, this time with provisions for
+	// backtracing.  Use a tight limit, but not so tight we miss the
+	// alignment for lack of accuracy.
 	DnaP minpos, maxpos ;
+	ExtendBothEnds<FullCell> best_ext( parblock_, qs, best_seed, best_score * Logdom::from_phred(1) ) ;
+	assert( best_ext.score_.is_finite() ) ;
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
 	assert( maxpos > minpos && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
-
-	output::Hit *h = res_.add_hit() ;
 
 	uint32_t start_pos ;
 	const config::Sequence *sequ = genome_->translate_back( minpos, start_pos ) ;

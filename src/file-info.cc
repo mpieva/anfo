@@ -18,7 +18,7 @@
 #include "../config.h"
 #endif
 
-#include "align.h"
+#include "align_fwd.h"
 #include "conffile.h"
 #include "config.pb.h"
 #include "index.h"

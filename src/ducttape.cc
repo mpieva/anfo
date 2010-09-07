@@ -19,8 +19,6 @@
 #endif
 
 #include "ducttape.h"
-
-#include "align.h"
 #include "index.h"
 
 #include <algorithm>
