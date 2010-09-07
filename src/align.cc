@@ -203,13 +203,13 @@ inline void ExtendAlignment::put( int s, int os, int x, int xo, int y, int yo, L
 	if( z >= limit_ )
 	{
 		if( mins_[ y+yo ] == maxs_[ y+yo ] ) mins_[y+yo] = maxs_[y+yo] = x ;
-		for( ; maxs_[y+yo] != x ; ++maxs_[y+yo] )
+		for( ; maxs_[y+yo] != x+1 ; ++maxs_[y+yo] )
 			for( int s = 0 ; s != adna_parblock::num_states ; ++s )
 				cells_[ width_*(y+yo) + maxs_[y+yo] ][ s ].score = Logdom::null() ;
 
-		assert( y+yo < width_+1 ) ;
+		assert( y+yo < width_ ) ;
 		assert( x+xo < width_ ) ;
-		assert( width_*(y+yo) + x+xo < (1+width_) * width_ ) ;
+		assert( width_*(y+yo) + x+xo < width_ * width_ ) ;
 
 		Cell& c = cells_[ width_*(y+yo) + x+xo ][ s ] ;
 		if( c.score < z )
@@ -233,13 +233,13 @@ static inline int query_length( const QSequence::Base *query )
 // here we extend one side of this into a full alignment, as long as it
 // doesn't score more than a prescribed limit.
 ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) :
-	width_( query_length( query )+1 ), cells_( (1+width_)*width_ ), mins_( 1+width_ ), maxs_( 1+width_ ), 
+	width_( query_length( query )+2 ), cells_( width_*width_ ), mins_( width_ ), maxs_( width_ ), 
 	limit_( limit ), result_( Logdom::null() )
 {
 	if( limit <= Logdom::one() ) {
 		mins_[0] = maxs_[0] = 0 ;
 		put( 0, 0, 0, 0, 0, 0, Logdom::one() ) ;
-		for( size_t y = 0 ; y != width_ && mins_[y] != maxs_[y] ; ++y )
+		for( size_t y = 0 ; y != width_-1 && mins_[y] != maxs_[y] ; ++y )
 		{
 			assert( y <= width_ ) ;
 			assert( mins_[y] >= 0 ) ;
@@ -254,7 +254,7 @@ ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const
 			{
 				for( size_t s = 0 ; s != adna_parblock::num_states ; ++s )
 				{
-					assert( width_*y + x < (1+width_) * width_ ) ;
+					assert( width_*y + x < width_ * width_ ) ;
 					assert( width_*y + x < cells_.size() ) ;
 
 					Logdom score = cells_[ width_*y + x ][ s ].score ;
