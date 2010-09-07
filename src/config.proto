@@ -134,6 +134,9 @@ message Policy {
 
     // pattern to match names against
     optional string name_pattern = 9 ;
+
+    // ignored
+    optional uint32 max_mismatches_in_seed = 10 [ default = 0 ] ;
 }
 
 message Aligner {
