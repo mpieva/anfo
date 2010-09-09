@@ -191,7 +191,7 @@ namespace {
 // doesn't score more than a prescribed limit.
 template< typename Cell >
 ExtendAlignment<Cell>::ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) :
-	width_( query_length( query )+2 ), cells_( width_*width_ ), mins_( width_ ), maxs_( width_ ), 
+	width_( 2*query_length( query )+2 ), cells_( width_*width_ ), mins_( width_ ), maxs_( width_ ), 
 	limit_( limit ), result_( Logdom::null() )
 {
 	if( limit > Logdom::one() ) return ;
@@ -209,20 +209,18 @@ ExtendAlignment<Cell>::ExtendAlignment( const adna_parblock& pb, DnaP reference,
 		assert( mins_[y] <= maxs_[y] ) ;
 
 		mins_[y+1] = maxs_[y+1] = 0 ;
-		// std::cerr << y << ' ' << mins_[y] << ' ' << maxs_[y] << std::endl ;
 
 		// expand the current row for each state in turn... of course,
 		// each state is a special case.
 		for( int x = mins_[y] ; x != width_-1 && x != maxs_[y] ; ++x )
 		{
-			// std::cerr << y << ", " << x << std::endl ;
 			for( int s = 0 ; s != adna_parblock::num_states ; ++s )
 			{
-				assert( width_*y + x < (1+width_) * width_ ) ;
+				assert( width_*y + x < width_ * width_ ) ;
 				assert( width_*y + x < (int)cells_.size() ) ;
 
 				Logdom score = cells_[ width_*y + x ][ s ].score ;
-				if( score.is_finite() ) extend( pb, score, s, x, y, reference+x, query+y ) ;
+				if( score > limit_ ) extend( pb, score, s, x, y, reference+x, query+y ) ;
 			}
 		}
 	}
@@ -230,17 +228,19 @@ ExtendAlignment<Cell>::ExtendAlignment( const adna_parblock& pb, DnaP reference,
 
 #define PUT(ns,xo,yo,z) 																\
 	if( (z) >= limit_ ) { 																\
-		if( mins_[ y+(yo) ] == maxs_[ y+(yo) ] ) mins_[y+(yo)] = maxs_[y+(yo)] = x ; 	\
-		for( ; maxs_[y+(yo)] != x+1 ; ++maxs_[y+(yo)] ) 								\
+		if( mins_[ y+(yo) ] == maxs_[ y+(yo) ] ) 										\
+			mins_[ y+(yo) ] = maxs_[ y+(yo) ] = x+(xo) ; 								\
+																						\
+		for( ; maxs_[ y+(yo) ] <= x+(xo) ; ++maxs_[ y+(yo) ] ) 							\
 			for( int ss = 0 ; ss != adna_parblock::num_states ; ++ss ) 					\
-				cells_[ width_*(y+(yo)) + maxs_[y+(yo)] ][ ss ].clear() ; 				\
+				cells_[ width_*(y+(yo)) + maxs_[ y+(yo) ] ][ ss ].clear() ; 			\
 																						\
-		assert( y+(yo) < width_+1 ) ; 													\
+		assert( y+(yo) < width_ ) ; 													\
 		assert( x+(xo) < width_ ) ; 													\
-		assert( width_*(y+(yo)) + x+(xo) < (1+width_) * width_ ) ; 						\
+		assert( width_*(y+(yo)) + x+(xo) < width_ * width_ ) ; 							\
 																						\
-		cells_[ width_*(y+(yo)) + x+(xo) ][ ns ].assign( z, s, (xo), (yo) ) ; 			\
-	} 
+		cells_[ width_*(y+(yo)) + x+(xo) ][ ns ].assign( z, s, xo, yo ) ; 				\
+	} else {}
 
 
 // what to do?  
@@ -276,11 +276,11 @@ void ExtendAlignment<Cell>::extend( const adna_parblock &pb_, Logdom score, int 
 		// penalty, but that's okay, because such an alignment isn't all
 		// that interesting in reality anyway.  Afterwards we're
 		// finished and adjust result and limit accordingly.
-		for( int yy = 0 ; qry[ yy ].ambicode ; ++yy )
-		{
-			score *= pb_.subst_penalty( s, *ref, qry[ yy ] ) ;
-			if( s & adna_parblock::mask_ss ) score *= pb_.overhang_ext_penalty ;
-		}
+		// for( int yy = 0 ; qry[ yy ].ambicode ; ++yy )
+		// {
+			// score *= pb_.subst_penalty( s, 15, qry[ yy ] ) ;
+			// if( s & adna_parblock::mask_ss ) score *= pb_.overhang_ext_penalty ;
+		// }
 		if( score > result_ ) {
 			result_ = limit_ = score ;
 			max_s_ = s ;
@@ -296,8 +296,7 @@ void ExtendAlignment<Cell>::extend( const adna_parblock &pb_, Logdom score, int 
 		if( *ref != qry->ambicode ) {	// only on a mismatch try anything fancy
 			PUT( s | adna_parblock::mask_gap_qry, 1, 0, score * pb_.gap_open_penalty ) ;
 			PUT( s | adna_parblock::mask_gap_ref, 0, 1, score * pb_.gap_open_penalty ) ;
-			if( pb_.overhang_enter_penalty.is_finite() && (s & adna_parblock::mask_ss) == 0 )
-			{
+			if( pb_.overhang_enter_penalty.is_finite() && (s & adna_parblock::mask_ss) == 0 ) {
 				// To enter single stranded we require that the penalty for
 				// doing so is immediately recovered by the better match.
 				// This is easily the case for the observed deamination
@@ -305,7 +304,7 @@ void ExtendAlignment<Cell>::extend( const adna_parblock &pb_, Logdom score, int 
 				Logdom p0 = pb_.subst_penalty( s, *ref, *qry ) ;
 				Logdom p4 = pb_.subst_penalty( s | adna_parblock::mask_ss, *ref, *qry ) 
 					* pb_.overhang_enter_penalty * pb_.overhang_ext_penalty ;
-				if( p4 > p0 ) PUT( s | adna_parblock::mask_ss, 1, 1, score * p4 ) ;
+				if( p4 > p0 ) { PUT( s | adna_parblock::mask_ss, 1, 1, score * p4 ) ; }
 			}
 		}
 	}
@@ -351,8 +350,8 @@ ExtendBothEnds<Cell>::ExtendBothEnds(
 			pb,
 			seed.reference_.reverse() + 1,
 			query.start() - seed.qoffs_ + 1,
-			limit / forwards_.get_result() / seed.score_ ),
-	score_( forwards_.get_result() * backwards_.get_result() * seed.score_ )
+			limit / seed.score_ / forwards_.get_result() ),
+	score_( seed.score_ * forwards_.get_result() * backwards_.get_result() )
 {
 	if( score_.is_finite() ) return ;
 
@@ -366,6 +365,7 @@ ExtendBothEnds<Cell>::ExtendBothEnds(
 			seed.reference_ + seed.size_,
 			query.start() + seed.qoffs_ + seed.size_,
 			limit / backwards2.get_result() / seed.score_ ) ;
+
 	Logdom score2 = forwards2.get_result() * backwards2.get_result() * seed.score_ ;
 	if( score2.is_finite() )
 	{
@@ -375,6 +375,9 @@ ExtendBothEnds<Cell>::ExtendBothEnds(
 	}
 }
 
+//! \todo If a tail of the query overhung a contig edge, it wasn't
+//!       aligned and is lost to the backtracing logic.  Needs to be
+//!       compensated for, somehow.
 template<> inline void ExtendAlignment<FullCell>::backtrace( std::vector<unsigned>& out ) const
 {
 	for( size_t x = max_x_, y = max_y_, s = max_s_ ; x || y ; )

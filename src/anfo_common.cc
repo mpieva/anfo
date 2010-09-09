@@ -397,11 +397,12 @@ void Mapper::put_result( const Result& r )
 	SeededAlignment best_seed ;
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
+		   best_limit = Logdom::null(),
 	       limit = Logdom::from_phred( 60 ) ;
 
 	while( !seedlist.empty() )
 	{
-		// std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
+		// XXX std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
 
 		std::deque< SeededAlignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
@@ -418,7 +419,7 @@ void Mapper::put_result( const Result& r )
 					runnerup_score = best_score ;
 					best_score = score ;
 					best_seed = *cur_aln ;
-					// best_ext.swap( extension ) ;
+					best_limit = limit ;
 					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
 				}
 				// new second best score?
@@ -429,12 +430,12 @@ void Mapper::put_result( const Result& r )
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
 
-				// std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
+				// XXX std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
 					// << ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
 			}
 			else // no alignment: move to next seed
 			{
-				// std::cerr << "Nothing yet" << std::endl ;
+				// XXX std::cerr << "Nothing yet" << std::endl ;
 				if( out_aln != cur_aln ) *out_aln = *cur_aln ;
 				out_aln++, cur_aln++ ;
 			}
@@ -470,8 +471,15 @@ void Mapper::put_result( const Result& r )
 	// backtracing.  Use a tight limit, but not so tight we miss the
 	// alignment for lack of accuracy.
 	DnaP minpos, maxpos ;
-	ExtendBothEnds<FullCell> best_ext( parblock_, qs, best_seed, best_score * Logdom::from_phred(1) ) ;
+	ExtendBothEnds<FullCell> best_ext( parblock_, qs, best_seed, best_limit ) ; // best_score * Logdom::from_phred(5) ) ;
+	if( !best_ext.score_.is_finite() )
+	{
+		ExtendBothEnds<FullCell>( parblock_, qs, best_seed, Logdom::null() ).swap( best_ext ) ;
+		std::cerr << "repeated alignment failed: " << best_score.to_phred()
+			<< " / " << best_ext.score_.to_phred() << std::endl ;
+	}
 	assert( best_ext.score_.is_finite() ) ;
+
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
 	assert( maxpos > minpos && !maxpos.is_reversed() && !minpos.is_reversed() ) ;

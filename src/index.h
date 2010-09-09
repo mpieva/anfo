@@ -410,6 +410,10 @@ template< typename F, typename G > void CompactGenome::scan_words(
 //!       everything, well, tough luck, this only an approximation
 //!       anyway.
 //!
+//! \todo Seeds on neighboring diagonals can give rise to effectively
+//!       the same alignment.  If that happens, the map quality goes
+//!       down the drain...  Need a solution for that.
+//!
 //! \param v container of seeds, will be consumed
 //! \param m minimum length of a good seed
 //! \param ss output container for seed positions

@@ -18,10 +18,7 @@
 #include "../config.h"
 #endif
 
-#define NDEBUG
-
 #include "align.h"
-
 #include "config.pb.h"
 
 #include <ostream>
