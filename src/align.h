@@ -93,9 +93,6 @@ struct adna_parblock
 
 	Logdom subst_penalty( int s, Ambicode r, const QSequence::Base &qry ) const
 	{
-		// if reference has a gap, pretend it was an N
-		r = !r ? 15 : r ;
-
 		Logdom prob = Logdom::null() ;
 		for( uint8_t p = 0 ; p != 4 ; ++p )
 			prob += ( s & mask_ss ? ss_mat[r][1<<p] : ds_mat[r][1<<p] )

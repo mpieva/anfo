@@ -233,7 +233,7 @@ static inline int query_length( const QSequence::Base *query )
 // here we extend one side of this into a full alignment, as long as it
 // doesn't score more than a prescribed limit.
 ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const QSequence::Base *query, Logdom limit ) :
-	width_( query_length( query )+2 ), cells_( width_*width_ ), mins_( width_ ), maxs_( width_ ), 
+	width_( 2*query_length( query )+2 ), cells_( width_*width_ ), mins_( width_ ), maxs_( width_ ), 
 	limit_( limit ), result_( Logdom::null() )
 {
 	if( limit <= Logdom::one() ) {
@@ -247,7 +247,6 @@ ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const
 			assert( mins_[y] <= maxs_[y] ) ;
 
 			mins_[y+1] = maxs_[y+1] = 0 ;
-			// std::cerr << y << std::endl ;
 			// expand the current row for each state in turn... of course,
 			// each state is a special case.
 			for( uint32_t x = mins_[y] ; x != width_-1 && x != maxs_[y] ; ++x )
@@ -258,7 +257,7 @@ ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const
 					assert( width_*y + x < cells_.size() ) ;
 
 					Logdom score = cells_[ width_*y + x ][ s ].score ;
-					if( score.is_finite() ) extend( pb, score, s, x, y, reference+x, query+y ) ;
+					if( score > limit_ ) extend( pb, score, s, x, y, reference+x, query+y ) ;
 				}
 			}
 		}
@@ -317,8 +316,7 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 		if( *ref != qry->ambicode ) {	// only on a mismatch try anything fancy
 			put( s | adna_parblock::mask_gap_qry, s, x, 1, y, 0, score * pb_.gap_open_penalty ) ;
 			put( s | adna_parblock::mask_gap_ref, s, x, 0, y, 1, score * pb_.gap_open_penalty ) ;
-			if( pb_.overhang_enter_penalty.is_finite() && (s & adna_parblock::mask_ss) == 0 )
-			{
+			if( pb_.overhang_enter_penalty.is_finite() && (s & adna_parblock::mask_ss) == 0 ) {
 				// To enter single stranded we require that the penalty for
 				// doing so is immediately recovered by the better match.
 				// This is easily the case for the observed deamination
