@@ -84,7 +84,6 @@ class ExtendAlignment {
 		Logdom limit_, result_ ;
 		int max_s_, max_x_, max_y_, max_tail_ ;
 
-		void put( int s, int os, int x, int xo, int y, int y0, Logdom z ) ;
 		void extend(const adna_parblock &pb_,Logdom score,int s,int x,int y,DnaP ref,const QSequence::Base *qry );
 
 	public:

@@ -195,30 +195,26 @@ SeededAlignment::SeededAlignment(
 		score_ *= pb.subst_penalty( 0, reference_[-1], query[qoffs_-1] ) ;
 }
 
-// multiple calls to put must happen in increasing order of x
-inline void ExtendAlignment::put( int s, int os, int x, int xo, int y, int yo, Logdom z )
-{
-	if( z >= limit_ )
-	{
-		if( mins_[ y+yo ] == maxs_[ y+yo ] ) mins_[y+yo] = maxs_[y+yo] = x ;
-		for( ; maxs_[y+yo] != x+1 ; ++maxs_[y+yo] )
-			for( int s = 0 ; s != adna_parblock::num_states ; ++s )
-				cells_[ width_*(y+yo) + maxs_[y+yo] ][ s ].score = Logdom::null() ;
-
-		assert( y+yo < width_ ) ;
-		assert( x+xo < width_ ) ;
-		assert( width_*(y+yo) + x+xo < width_ * width_ ) ;
-
-		Cell& c = cells_[ width_*(y+yo) + x+xo ][ s ] ;
-		if( c.score < z )
-		{
-			c.score = z ;
-			c.from_state = os ;
-			c.from_x_offset = xo ;
-			c.from_y_offset = yo ;
-		}
+// multiple calls to PUT must happen in increasing order of x
+#define PUT( ns, xo, yo, z ) \
+	if( (z) >= limit_ ) { \
+		if( mins_[ y+(yo) ] == maxs_[ y+(yo) ] ) mins_[y+(yo)] = maxs_[y+(yo)] = x ; \
+		for( ; maxs_[y+(yo)] != x+1 ; ++maxs_[y+(yo)] ) \
+			for( int ss = 0 ; ss != adna_parblock::num_states ; ++ss ) \
+				cells_[ width_*(y+(yo)) + maxs_[y+(yo)] ][ ss ].score = Logdom::null() ; \
+\
+		assert( y+(yo) < width_ ) ; \
+		assert( x+(xo) < width_ ) ; \
+		assert( width_*(y+(yo)) + x+(xo) < width_ * width_ ) ; \
+\
+		Cell& c = cells_[ width_*(y+(yo)) + x+(xo) ][ ns ] ; \
+		if( c.score < (z) ) { \
+			c.score = (z) ; \
+			c.from_state = s ; \
+			c.from_x_offset = (xo) ; \
+			c.from_y_offset = (yo) ; \
+		}\
 	}
-}
 
 static inline int query_length( const QSequence::Base *query )
 {
@@ -235,8 +231,17 @@ ExtendAlignment::ExtendAlignment( const adna_parblock& pb, DnaP reference, const
 	limit_( limit ), result_( Logdom::null() )
 {
 	if( limit <= Logdom::one() ) {
-		mins_[0] = maxs_[0] = 0 ;
-		put( 0, 0, 0, 0, 0, 0, Logdom::one() ) ;
+		mins_[0] = 0 ;
+		maxs_[0] = 1 ;
+
+		for( int ss = 1 ; ss != adna_parblock::num_states ; ++ss )
+			cells_[ 0 ][ ss ].score = Logdom::null() ;
+
+		cells_[0][0].score = Logdom::one() ;
+		cells_[0][0].from_state = 0 ;
+		cells_[0][0].from_x_offset = 0 ;
+		cells_[0][0].from_y_offset = 0 ;
+
 		for( size_t y = 0 ; y != width_-1 && mins_[y] != maxs_[y] ; ++y )
 		{
 			assert( y <= width_ ) ;
@@ -310,11 +315,12 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 	else if( (s & adna_parblock::mask_gaps) == 0 )
 	{
 		// no gaps open --> mismatch, open either gap, enter SS
-		put( s, s, x, 1, y, 1, score * pb_.subst_penalty( s, *ref, *qry ) 
-				* ( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
+		PUT( s, 1, 1,
+				score * pb_.subst_penalty( s, *ref, *qry ) *
+				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
 		if( *ref != qry->ambicode ) {	// only on a mismatch try anything fancy
-			put( s | adna_parblock::mask_gap_qry, s, x, 1, y, 0, score * pb_.gap_open_penalty ) ;
-			put( s | adna_parblock::mask_gap_ref, s, x, 0, y, 1, score * pb_.gap_open_penalty ) ;
+			PUT( s | adna_parblock::mask_gap_qry, 1, 0, score * pb_.gap_open_penalty ) ;
+			PUT( s | adna_parblock::mask_gap_ref, 0, 1, score * pb_.gap_open_penalty ) ;
 			if( pb_.overhang_enter_penalty.is_finite() && (s & adna_parblock::mask_ss) == 0 ) {
 				// To enter single stranded we require that the penalty for
 				// doing so is immediately recovered by the better match.
@@ -323,21 +329,21 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 				Logdom p0 = pb_.subst_penalty( s, *ref, *qry ) ;
 				Logdom p4 = pb_.subst_penalty( s | adna_parblock::mask_ss, *ref, *qry ) 
 					* pb_.overhang_enter_penalty * pb_.overhang_ext_penalty ;
-				if( p4 > p0 ) put( s | adna_parblock::mask_ss, s, x, 1, y, 1, score * p4 ) ;
+				if( p4 > p0 ) PUT( s | adna_parblock::mask_ss, 1, 1, score * p4 ) ;
 			}
 		}
 	}
 	else if( (s & adna_parblock::mask_gaps) == adna_parblock::mask_gap_ref )
 	{
-		put( s, s, x, 0, y, 1, score * pb_.gap_ext_penalty *
+		PUT( s, 0, 1, score * pb_.gap_ext_penalty *
 				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
-		put( s & ~adna_parblock::mask_gap_ref, s, x, 1, y, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
+		PUT( s & ~adna_parblock::mask_gap_ref, 1, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
 				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
 	}
 	else
 	{
-		put( s, s, x, 1, y, 0, score * pb_.gap_ext_penalty ) ;
-		put( s & ~adna_parblock::mask_gap_qry, s, x, 1, y, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
+		PUT( s, 1, 0, score * pb_.gap_ext_penalty ) ;
+		PUT( s & ~adna_parblock::mask_gap_qry, 1, 1, score * pb_.subst_penalty( s, *ref, *qry ) *
 				( s & adna_parblock::mask_ss ? pb_.overhang_ext_penalty : Logdom::one() ) ) ;
 	}
 }
