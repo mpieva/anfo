@@ -380,11 +380,13 @@ void Mapper::put_result( const Result& r )
 			seedlist.push_back( SeededAlignment( parblock_, reference, qs, qoffs, size ) ) ;
 	}
 
-	SeededAlignment best_seed ;
 	Logdom best_score = Logdom::null(),
 		   runnerup_score = Logdom::null(),
-		   best_limit = Logdom::null(),
+		   // best_limit = Logdom::null(),
 	       limit = Logdom::from_phred( 60 ) ;
+
+	SeededAlignment best_seed ;
+	ExtendBothEnds<FullCell> best_ext ;
 
 	while( !seedlist.empty() )
 	{
@@ -392,7 +394,7 @@ void Mapper::put_result( const Result& r )
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
 		{
-			ExtendBothEnds<SimpleCell> extension( parblock_, qs, *cur_aln, limit ) ;
+			ExtendBothEnds<FullCell> extension( parblock_, qs, *cur_aln, limit ) ;
 			Logdom score = extension.score_ ;
 
 			// found an alignment?  finish with this seed
@@ -403,7 +405,8 @@ void Mapper::put_result( const Result& r )
 					runnerup_score = best_score ;
 					best_score = score ;
 					best_seed = *cur_aln ;
-					best_limit = limit ;
+					// best_limit = limit ;
+					std::swap( best_ext, extension ) ;
 					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
 				}
 				// new second best score?
@@ -449,12 +452,12 @@ void Mapper::put_result( const Result& r )
 
 	output::Hit *h = res_.add_hit() ;
 
-	// Redo the best alignment, this time with provisions for
+	// XXX Redo the best alignment, this time with provisions for
 	// backtracing.  Use the same limit to guarantee an alignment is
 	// found again.
 	DnaP minpos, maxpos ;
-	ExtendBothEnds<FullCell> best_ext( parblock_, qs, best_seed, best_limit ) ;
-	if( !best_ext.score_.is_finite() ) throw "Not supposed to happen: backtracing alignment failed" ;
+	// ExtendBothEnds<FullCell> best_ext( parblock_, qs, best_seed, best_limit ) ;
+	// if( !best_ext.score_.is_finite() ) throw "Not supposed to happen: backtracing alignment failed" ;
 
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
