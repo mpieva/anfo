@@ -202,21 +202,38 @@ message Read {
 }
 
 // A set of starting points.  The understanding is that each one of them
-// is already "good enough", so we really only need to encode two
-// coordinates, no size and no quality of any kind.
+// is already long enough, but may still contain too many mismatches tio
+// be any good.
+// Invariant: ref_positions, query_positions and seed_sizes have the
+// same length.
 message Seeds {
     // genome we seeded on (typ. hg18, pt2, etc.)
     required string genome_name = 1 ;
 
-    // positions of starting points on the reference
+    // Positions of seed regions on the reference.  We always store the
+	// smallest coordinate of the seed region.
     repeated uint32 ref_positions = 2 [ packed=true, (show) = "show_uint32_array" ] ;
 
-    // positions of starting points on the query
-    // negative numbers mean to align on the reverse complemented strand
+	// Positions of starting points on the query.  We use negative
+	// numbers to indicate seeds on the reverse complemented strand in
+	// the following way:  a virtual sequence is constructed from the
+	// reverse-complemented query, a gap and the query.  The central gap
+	// has position 0.  We always store the smallest
+	// coordinate of the seed region.  (The central gap ensures that we
+	// never combine seeds on different strands by mistake.)
     repeated int32 query_positions = 3 [ packed=true, (show) = "show_int32_array" ] ;
 
-	// sizes of seeds
+	// Sizes of seed regions.
 	repeated uint32 seed_sizes = 4 [ packed=true, (show) = "show_uint32_array" ] ;
+
+	// Maximum number of mismatches in seed region.  Passed on from
+	// indexing stage so the aligner doesn't need to parse the
+	// configuration again.
+	required uint32 max_mismatches = 5 ;
+
+	// Minimum seed length.  Passed on from indexing stage so the
+	// aligner doesn't need to parse the configuration again.
+	required uint32 min_seed_length = 6 ;
 }
 
 message Result {

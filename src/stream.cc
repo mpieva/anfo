@@ -312,7 +312,7 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 		o.WriteRaw( &tmp[0], comp_size ) ;
 	}
 	std::vector< char > newbuf ;
-	newbuf.resize( max( default_buffer_size, needed+8 ) ) ;
+	newbuf.resize( max( (unsigned)default_buffer_size, needed+8 ) ) ;
 	buf_.swap( newbuf ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 }

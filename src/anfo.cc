@@ -75,51 +75,6 @@ using namespace streams ;
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
 
-/*
-void* run_output_thread( void* p )
-{
-	CommonData *q = (CommonData*)p ;
-	while( output::Result *r = q->output_queue.dequeue() )
-	{
-		q->output_stream->put_result( *r ) ;
-		delete r ;
-	}
-	return 0 ;
-}
-
-void* run_indexer_thread( void* cd_ )
-{
-	CommonData *cd = (CommonData*)cd_ ;
-	while( output::Result *r = cd->input_queue.dequeue() )
-	{
-		// std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
-		// w->r.reset( r ) ;
-		// w->ps.reset( new QSequence() ) ;
-		cd->mapper.index_sequence( *r ) ;
-		// w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
-		// if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
-		// else                    cd->output_queue.enqueue( w->r.release() ) ;
-		cd->output_queue.enqueue( r ) ;
-	}
-	cd->input_queue.enqueue(0) ;
-	return 0 ;
-}
-
-void* run_worker_thread( void* cd_ )
-{
-	CommonData *cd = (CommonData*)cd_ ;
-	// while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
-	while( output::Result *r = cd->intermed_queue.dequeue() )
-	{
-		cd->mapper.process_sequence( *r ) ;
-		cd->output_queue.enqueue( r ) ;
-		// delete w ;
-	}
-	cd->intermed_queue.enqueue(0) ;
-	return 0 ;
-}
-*/
-
 //! \page finding_alns How to find everything we need
 //! We look for best hits globally and specifically on one genome.  They
 //! will be discovered in the order of decreasing score.  After setup,

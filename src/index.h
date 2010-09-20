@@ -167,9 +167,10 @@ struct Matches
 } ;
 
 
-// match lists are sorted backwards by reference coordinate and
-// therefore backwards by diagonal; we also choose to sort
-// backwards on the offset.
+// Match lists are sorted backwards by reference coordinate (an artefact
+// of the index construction process) and therefore backwards by
+// diagonal (ref-coordinate minus offset, by definition); we also choose
+// to sort backwards on the offset.
 struct compare_match_lists {
 	bool operator()( const Matches &a, const Matches &b ) {
 		if( b.diag < a.diag ) return true ;
@@ -398,13 +399,15 @@ template< typename F, typename G > void CompactGenome::scan_words(
 //! How to do this?  We get seeds ordered first by diagonal (backwards,
 //! actually), then backwards by offset.  Seeds are adjacent iff they
 //! have the same diagonal index and their offsets differ by no more
-//! than the seed size.  They can be combined on the fly.
+//! than the seed size.  They can be combined on the fly easily.
 //!
 //! \note Formerly we tried to somehow deal with neighboring diagonals.
 //!       This has been declared as not worth the hassle, so it was
 //!       dropped.  If we get seeds for the same region on neighboring
 //!       diagonals, they are useless repeats anyway and probably
-//!       excluded from the index to begin with.
+//!       excluded from the index to begin with.  If gaps complicated
+//!       everything, well, tough luck, this only an approximation
+//!       anyway.
 //!
 //! \param v container of seeds, will be consumed
 //! \param m minimum length of a good seed
@@ -428,7 +431,6 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 			if( a.diag == s.diag ) assert( a.offs <= s.offs ) ;
 
 			if( a.diag == s.diag &&
-					(a.offs >= 0) == (s.offs >= 0) &&
 					a.offs + (int32_t)a.wordsize >= s.offs )
 			{
 				s.wordsize += s.offs - a.offs ;

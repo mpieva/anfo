@@ -125,10 +125,10 @@ void generic_show_known_fields( const Message&, std::ostream&, int ) ;
 void generic_show_unknown_fields( const UnknownFieldSet&, std::ostream&, int ) ;
 
 // hides a field by printing nothing
-extern "C" void show_noop( const Message& m, const Reflection*, const FieldDescriptor*, ostream& s, int ) {}
+void show_noop( const Message& m, const Reflection*, const FieldDescriptor*, ostream& s, int ) {}
 
 // CIGAR line: decode to string, same way SAM would do it
-extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_cigar( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i )
@@ -141,7 +141,7 @@ extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDe
 }
 
 // array of ints: formatted into comma-separated line
-extern "C" void show_uint32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_uint32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	if( int l = r->FieldSize( m, f ) ) 
@@ -152,7 +152,7 @@ extern "C" void show_uint32_array( const Message& m, const Reflection* r, const 
 	}
 	s << '\n' ;
 }
-extern "C" void show_int32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_int32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	if( int l = r->FieldSize( m, f ) ) 
@@ -166,7 +166,7 @@ extern "C" void show_int32_array( const Message& m, const Reflection* r, const F
 
 // seen bases: same as array of ints, but we have four interleaved
 // arrays
-extern "C" void show_seen_bases( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_seen_bases( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	for( int i = 0 ; i != 4 ; ++i )
 	{
@@ -184,7 +184,7 @@ extern "C" void show_seen_bases( const Message& m, const Reflection* r, const Fi
 
 // Hit: basically a generic message, but we add the textual,
 // line-wrapped alignment (if present)
-extern "C" void show_hit( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
+void show_hit( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
 	for( int j = 0 ; j != r->FieldSize( m, f ) ; ++j )
 	{
@@ -235,9 +235,9 @@ void generic_show_string( const string& s, std::ostream& o, int off = 0 )
 	o << '"' ;
 }
 
-extern "C" void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
+void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
-	s << string( i, ' ' ) << f->name() << ": " ;
+	s << string( i, ' ' ) << f->name() << ":  " ;
 	generic_show_string( r->GetString( m, f ), s, 33 ) ;
 	s << '\n' ;
 }

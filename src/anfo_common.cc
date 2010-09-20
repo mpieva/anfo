@@ -250,6 +250,8 @@ void Indexer::put_result( const Result& r )
             {
                 ss = res_.add_seeds() ;
                 ss->set_genome_name( index_.metadata().genome_name() ) ;
+				ss->set_max_mismatches( p.max_mismatches_in_seed() ) ;
+				ss->set_min_seed_length( p.min_seed_len() ) ;
             }
 
 			PreSeeds seeds ;
@@ -274,13 +276,38 @@ void Indexer::put_result( const Result& r )
 Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
 	conf_(config), genome_( Metagenome::find_genome( genome_name ) )
 {
-	simple_adna::pb = adna_parblock( conf_ ) ;
+	parblock_ = adna_parblock( conf_ ) ;
 }
 
 void Mapper::put_header( const Header& h )
 {
 	Stream::put_header( h ) ;
 	hdr_.mutable_config()->mutable_aligner()->MergeFrom( conf_ ) ;
+}
+
+// Check for a stretch of at least minsize matches with up to mm
+// mismatches.  The pointers should be clean: both point to the start of
+// a decently matching region of length seedlen.
+static bool check_seed_quality( DnaP ref, const QSequence::Base *qry, int seedlen, int mm, int minsize )
+{
+	int lengths[3] = { 0,0,0 } ;
+	for( ; seedlen ; --seedlen, ++ref, ++qry )
+	{
+		if( *ref == qry->ambicode )
+		{
+			++lengths[0] ;
+			++lengths[1] ;
+			++lengths[2] ;
+		}
+		else
+		{
+			lengths[2] = lengths[1] + 1 ;
+			lengths[1] = lengths[0] + 1 ;
+			lengths[0] = 0 ;
+		}
+		if( lengths[mm] == minsize ) return true ;
+	}
+	return false ;
 }
 
 void Mapper::put_result( const Result& r )
@@ -322,8 +349,9 @@ void Mapper::put_result( const Result& r )
 	}
 
 	// invariant violated, we won't deal with that
-	if( ss.ref_positions_size() != ss.query_positions_size() )
-		throw "invalid seeds: coordinates must come in pairs" ;
+	if( ss.ref_positions_size() != ss.query_positions_size() ||
+			ss.ref_positions_size() != ss.seed_sizes_size() )
+		throw "invalid seeds: coordinates must come in triples" ;
 
 	if( !ss.ref_positions_size() ) {
 		as->set_reason( as->num_useless() ? output::repeats_only : output::no_seeds ) ;
@@ -331,38 +359,120 @@ void Mapper::put_result( const Result& r )
 	}
 
 	QSequence qs( res_.read() ) ;
-	uint32_t o, c, tt, max_penalty = (uint32_t)( conf_.max_penalty_per_nuc() * qs.length() ) ;
+	Logdom max_penalty = Logdom::from_phred( conf_.max_penalty_per_nuc() * qs.length() ) ;
 
-	std::deque< alignment_type > ol ;
+	// do actual alignments:
+	// 1 initialize each one, make sure the mismatch count is low enough
+	//   [need to pass mismatch limit through from Indexer]
+	// 2 iterate, increasing the limit if necessary:
+	// 2a evaluate alignments, keep the two best scores and associated seeds
+	// 2b remove seeds that already produced an alignment
+	// 3 redo winning alignment and backtrace it
+
+	std::deque< SeededAlignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
-		ol.push_back( alignment_type( *genome_, qs, ss.ref_positions(i), ss.query_positions(i) ) ) ;
+	{
+		// Reconstruct pointers to seed region.  We want the region to
+		// be oriented forwards on the query.  That means:
+		// - for a forward seed, the ref position is correct, the query
+		//   is one too big because of the virtual gap at 0
+		// - for a reverse seed we have coordinates for the *end*
+		//   position of the seed region, and we need to reverse the
+		//   pointer on the reference
+		DnaP reference = genome_->get_base() + ss.ref_positions(i) ;
+		int32_t qoffs = ss.query_positions(i) ;
+		uint32_t size = ss.seed_sizes(i) ;
+			
+		if( check_seed_quality( reference, qs.start() + qoffs, size,
+					ss.max_mismatches(), ss.min_seed_length() ) )
+			seedlist.push_back( SeededAlignment( parblock_, reference, qs, qoffs, size ) ) ;
+	}
 
-	alignment_type::ClosedSet cl ;
-	alignment_type best = find_cheapest( ol, cl, max_penalty, &o, &c, &tt ) ;
+	// iteration: we track the best score along with its seed and the
+	// second best score
+	// XXX: if we find the first alignment close to the limit, we must
+	// increase(!) the limit to best_score*maxq and do another iteration
+	// (actually the whole limit business is shaky right now)
+	
+	SeededAlignment best_seed ;
+	ExtendBothEnds best_ext ;
 
-	as->set_open_nodes_after_alignment( o ) ;
-	as->set_closed_nodes_after_alignment( c ) ;
-	as->set_tracked_closed_nodes_after_alignment( tt ) ;
+	Logdom best_score = Logdom::null(),
+		   runnerup_score = Logdom::null(),
+	       limit = Logdom::from_phred( 60 ) ;
 
-	if( !best ) {
+	while( !seedlist.empty() )
+	{
+		// std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
+		std::deque< SeededAlignment >::iterator
+			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
+		while( cur_aln != end_aln )
+		{
+			ExtendBothEnds extension( parblock_, qs, *cur_aln, limit ) ;
+			Logdom score = extension.score_ ;
+
+			// found an alignment?  finish with this seed
+			if( score.is_finite() )
+			{
+				// new best score?
+				if( score > best_score ) {
+					runnerup_score = best_score ;
+					best_score = score ;
+					best_seed = *cur_aln ;
+					best_ext.swap( extension ) ;
+					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
+				}
+				// new second best score?
+				else if( score > runnerup_score ) {
+					runnerup_score = score ;
+					limit = max( limit, runnerup_score ) ;
+				}
+				// this seed is exhausted, we never need it again
+				++cur_aln ;
+				// std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
+					// << ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
+			}
+			else // no alignment: move to next seed
+			{
+				// std::cerr << "Nothing yet" << std::endl ;
+				if( out_aln != cur_aln ) *out_aln = *cur_aln ;
+				out_aln++, cur_aln++ ;
+			}
+		}
+		// two hits -> we're done (regardless of score, we got
+		// everything)
+		if( runnerup_score.is_finite() ) break ;
+
+		// what's the current absolute limit?  if we got a hit, it's
+		// worse by max mapq, else it's the max penalty
+		Logdom abs_max = best_score.is_finite()
+			? best_score * Logdom::from_phred( conf_.max_mapq() ) : max_penalty ;
+
+		// already over? -> we're done
+		if( limit <= abs_max ) break ;
+
+		// get rid of exhausted seeds, increase limit
+		seedlist.erase( out_aln, end_aln ) ;
+
+		// new limit: twice as high, but not unnecessarily high
+		limit = max( limit*limit, abs_max ) ;
+	}
+
+	if( !best_score.is_finite() )
+	{
 		as->set_reason( output::bad_alignment ) ;
 		return ;
 	}
 
-	int penalty = best.penalty ;
-
-	deque< pair< alignment_type, const alignment_type* > > ol_ ;
-	reset( best ) ;
-	greedy( best ) ;
-	(enter_bt<alignment_type>( ol_ ))( best ) ;
 	DnaP minpos, maxpos ;
-	std::vector<unsigned> t = find_cheapest( ol_, minpos, maxpos ) ;
-	int32_t len = maxpos - minpos - 1 ;
+	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
+	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
+	assert( maxpos > minpos && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
 
 	output::Hit *h = res_.add_hit() ;
 
 	uint32_t start_pos ;
-    const config::Sequence *sequ = genome_->translate_back( minpos+1, start_pos ) ;
+	const config::Sequence *sequ = genome_->translate_back( minpos, start_pos ) ;
 	if( !sequ ) throw "Not supposed to happen:  invalid alignment coordinates" ;
 
 	if( genome_->g_.has_name() ) h->set_genome_name( genome_->g_.name() ) ;
@@ -370,12 +480,13 @@ void Mapper::put_result( const Result& r )
 	if( sequ->has_taxid() ) h->set_taxid( sequ->taxid() ) ;
 	else if( genome_->g_.has_taxid() ) h->set_taxid( genome_->g_.taxid() ) ;
 
-	h->set_start_pos( minpos.is_reversed() ? start_pos-len+1 : start_pos ) ;
-	h->set_aln_length( minpos.is_reversed() ? -len : len ) ;
-	h->set_score( penalty ) ;
+	h->set_start_pos( start_pos ) ;
+	h->set_aln_length( len ) ;
+	h->set_score( best_score.to_phred() ) ;
 	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
-	// XXX: h->set_evalue
+	//! \todo calculate a real E-value
+	// XXX h->set_evalue
 
 	//! \todo Find second best hit and similar stuff.
 	//! We want the distance to the next best hit; also,
@@ -384,22 +495,7 @@ void Mapper::put_result( const Result& r )
 
 	// XXX set diff_to_next_species, diff_to_next_order
 
-	// get rid of overlaps of that first alignment, then look
-	// for the next one
-	// XXX this is cumbersome... need a better PQueue impl... or a
-	// better algorithm
-	ol.erase( 
-			std::remove_if( ol.begin(), ol.end(), reference_overlaps( minpos, maxpos ) ),
-			ol.end() ) ;
-	make_heap( ol.begin(), ol.end() ) ;
-
-	// search long enough to make sensible mapping quality possible
-	uint32_t max_penalty_2 = conf_.max_mapq() + penalty ;
-	alignment_type second_best = find_cheapest( ol, cl, max_penalty_2, &o, &c, &tt ) ;
-	as->set_open_nodes_after_alignment( o ) ;
-	as->set_closed_nodes_after_alignment( c ) ;
-	as->set_tracked_closed_nodes_after_alignment( tt ) ;
-	if( second_best ) h->set_diff_to_next( second_best.penalty - penalty ) ;
+	if( runnerup_score.is_finite() ) h->set_diff_to_next( (runnerup_score/best_score).to_phred() ) ;
 }
 
 //! \page finding_alns How to find everything we need
@@ -408,7 +504,7 @@ void Mapper::put_result( const Result& r )
 //! we can operate in a loop of cleaning out the stuff we don't need
 //! anymore and finding more alignments.
 //!
-//! Cleanup:
+//! Cleanup: XXX this is outdated
 //! - If we don't have a best hit, everything is needed.
 //! - If we don't have a hit to a different species, alignments to any
 //!   different species are needed.
