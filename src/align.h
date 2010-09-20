@@ -82,7 +82,7 @@ class ExtendAlignment {
 		std::vector< int > mins_, maxs_ ;
 
 		Logdom limit_, result_ ;
-		int max_s_, max_x_, max_y_ ;
+		int max_s_, max_x_, max_y_, max_tail_ ;
 
 		void put( int s, int os, int x, int xo, int y, int y0, Logdom z ) ;
 		void extend(const adna_parblock &pb_,Logdom score,int s,int x,int y,DnaP ref,const QSequence::Base *qry );
@@ -107,6 +107,7 @@ class ExtendAlignment {
 			std::swap( max_s_, rhs.max_s_ ) ;
 			std::swap( max_x_, rhs.max_x_ ) ;
 			std::swap( max_y_, rhs.max_y_ ) ;
+			std::swap( max_tail_, rhs.max_tail_ ) ;
 		}
 } ;
 

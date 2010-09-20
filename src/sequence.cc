@@ -327,7 +327,7 @@ bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, const string& gen
 		h->set_sequence( get_column( s ) ) ;							// RNAME
 		h->set_start_pos( get_int_column( s )-1 ) ;						// POS
 		int mapq = get_int_column( s ) ;								// MAPQ
-		if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+		if( mapq < 255 ) h->set_map_quality( mapq ) ;
 		h->set_aln_length(get_cigar_column(s,h->mutable_cigar())) ;		// CIGAR
 		string junk = get_column( s ) ; 								// MRNM (ignored)
 		get_int_column( s ) ; 											// MPOS (ignored)

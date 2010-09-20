@@ -18,8 +18,6 @@
 #include "../config.h"
 #endif
 
-#define NDEBUG
-
 #include "align.h"
 
 #include "config.pb.h"
@@ -298,10 +296,11 @@ void ExtendAlignment::extend( const adna_parblock &pb_, Logdom score, int s, int
 		// finished and adjust result and limit accordingly.
 		for( int yy = 0 ; qry[ yy ].ambicode ; ++yy )
 		{
-			score *= pb_.subst_penalty( s, *ref, qry[ yy ] ) ;
+			score *= pb_.subst_penalty( s, 15, qry[ yy ] ) ;
 			if( s & adna_parblock::mask_ss ) score *= pb_.overhang_ext_penalty ;
 		}
-		if( score > result_ ) {
+		if( score > result_ )
+		{
 			result_ = limit_ = score ;
 			max_s_ = s ;
 			max_x_ = x ;

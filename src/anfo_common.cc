@@ -363,7 +363,6 @@ void Mapper::put_result( const Result& r )
 
 	// do actual alignments:
 	// 1 initialize each one, make sure the mismatch count is low enough
-	//   [need to pass mismatch limit through from Indexer]
 	// 2 iterate, increasing the limit if necessary:
 	// 2a evaluate alignments, keep the two best scores and associated seeds
 	// 2b remove seeds that already produced an alignment
@@ -372,13 +371,6 @@ void Mapper::put_result( const Result& r )
 	std::deque< SeededAlignment > seedlist ;
 	for( int i = 0 ; i != ss.ref_positions_size() ; ++i )
 	{
-		// Reconstruct pointers to seed region.  We want the region to
-		// be oriented forwards on the query.  That means:
-		// - for a forward seed, the ref position is correct, the query
-		//   is one too big because of the virtual gap at 0
-		// - for a reverse seed we have coordinates for the *end*
-		//   position of the seed region, and we need to reverse the
-		//   pointer on the reference
 		DnaP reference = genome_->get_base() + ss.ref_positions(i) ;
 		int32_t qoffs = ss.query_positions(i) ;
 		uint32_t size = ss.seed_sizes(i) ;
@@ -388,12 +380,6 @@ void Mapper::put_result( const Result& r )
 			seedlist.push_back( SeededAlignment( parblock_, reference, qs, qoffs, size ) ) ;
 	}
 
-	// iteration: we track the best score along with its seed and the
-	// second best score
-	// XXX: if we find the first alignment close to the limit, we must
-	// increase(!) the limit to best_score*maxq and do another iteration
-	// (actually the whole limit business is shaky right now)
-	
 	SeededAlignment best_seed ;
 	ExtendBothEnds best_ext ;
 
@@ -403,7 +389,6 @@ void Mapper::put_result( const Result& r )
 
 	while( !seedlist.empty() )
 	{
-		// std::cerr << "Starting " << seedlist.size() << " alignments pass at limit " << limit.to_phred() << std::endl ;
 		std::deque< SeededAlignment >::iterator
 			cur_aln( seedlist.begin() ), end_aln( seedlist.end() ), out_aln( seedlist.begin() ) ;
 		while( cur_aln != end_aln )
@@ -429,24 +414,21 @@ void Mapper::put_result( const Result& r )
 				}
 				// this seed is exhausted, we never need it again
 				++cur_aln ;
-				// std::cerr << "Got " << score.to_phred() << ", new limit is " << limit.to_phred() 
-					// << ", top two are " << best_score.to_phred() << " and " << runnerup_score.to_phred() << std::endl ;
 			}
 			else // no alignment: move to next seed
 			{
-				// std::cerr << "Nothing yet" << std::endl ;
 				if( out_aln != cur_aln ) *out_aln = *cur_aln ;
 				out_aln++, cur_aln++ ;
 			}
 		}
 		// two hits -> we're done (regardless of score, we got
-		// everything)
+		// everything we could possibly need)
 		if( runnerup_score.is_finite() ) break ;
 
-		// what's the current absolute limit?  if we got a hit, it's
-		// worse by max mapq, else it's the max penalty
-		Logdom abs_max = best_score.is_finite()
-			? best_score * Logdom::from_phred( conf_.max_mapq() ) : max_penalty ;
+		// what's the current absolute limit?  it's mapq worse than the
+		// first hit we have, or than the max penalty otherwise.
+		Logdom abs_max = Logdom::from_phred( conf_.max_mapq() ) *
+			( best_score.is_finite() ? best_score : max_penalty ) ;
 
 		// already over? -> we're done
 		if( limit <= abs_max ) break ;
@@ -454,11 +436,13 @@ void Mapper::put_result( const Result& r )
 		// get rid of exhausted seeds, increase limit
 		seedlist.erase( out_aln, end_aln ) ;
 
-		// new limit: twice as high, but not unnecessarily high
+		// new limit: twice as high, but clamped
 		limit = max( limit*limit, abs_max ) ;
 	}
 
-	if( !best_score.is_finite() )
+	// report best score only if below the actualy max penalty (ensures
+	// that if we report anything, we can also report a sensible mapq)
+	if( !best_score.is_finite() || best_score < max_penalty )
 	{
 		as->set_reason( output::bad_alignment ) ;
 		return ;
@@ -495,7 +479,7 @@ void Mapper::put_result( const Result& r )
 
 	// XXX set diff_to_next_species, diff_to_next_order
 
-	if( runnerup_score.is_finite() ) h->set_diff_to_next( (runnerup_score/best_score).to_phred() ) ;
+	if( runnerup_score.is_finite() ) h->set_map_quality( (runnerup_score/best_score).to_phred() ) ;
 }
 
 //! \page finding_alns How to find everything we need

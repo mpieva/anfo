@@ -305,7 +305,7 @@ void StatStream::put_result( const Result& r )
 		bases_m_ += bases ;
 		bases_m_squared_ += bases*bases ;
 		bases_gc_m_ += gc ;
-		if( !h->has_diff_to_next() || h->diff_to_next() >= 60 )
+		if( !h->has_map_quality() || h->map_quality() >= 60 )
 		{
 			mapped_u_ += count ;
 			++different_ ;

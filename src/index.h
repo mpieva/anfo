@@ -391,6 +391,37 @@ template< typename F, typename G > void CompactGenome::scan_words(
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }
 
+
+//! \todo The definition of what constitutes overlap should probably be
+//!       dependent on the query length (which isn't available right now).
+inline int put_seed( output::Seeds *ss, const Matches& s, int out ) 
+{ 
+        int i = ss->ref_positions().size() - 1 ; 
+        uint32_t oldref = ss->ref_positions().Get( i ) ; 
+        int32_t  oldqry = ss->query_positions().Get( i ) ; 
+        uint32_t oldsiz = ss->seed_sizes().Get( i ) ; 
+
+        // check for overlap (diag within 8, which is arbitrary...) 
+        if( (s.offs < 0) == (oldqry < 0) && 
+                        abs( s.diag - (int64_t)oldref + (int64_t)oldqry ) <= 8 ) 
+        { 
+                if( s.wordsize > oldsiz ) // new one is bigger, overwrite 
+                { 
+                        ss->mutable_ref_positions()->Set( i, s.diag + s.offs ) ; 
+                        ss->mutable_query_positions()->Set( i, s.offs ) ; 
+                        ss->mutable_seed_sizes()->Set( i, s.wordsize ) ; 
+                } 
+                return out ; 
+        } 
+        else 
+        { 
+                ss->mutable_ref_positions()->Add( s.diag + s.offs ) ; 
+                ss->mutable_query_positions()->Add( s.offs ) ; 
+                ss->mutable_seed_sizes()->Add( s.wordsize ) ; 
+                return out+1 ; 
+        } 
+} 
+
 //! \brief Combines short, adjacent seeds into longer ones.
 //! This is a cheap method to combine seeds: only overlapping and
 //! adjacent seeds are combined, neighboring diagonals are not
@@ -439,23 +470,11 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 			}
 			else
 			{
-				if( s.wordsize >= m ) 
-				{
-					ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
-					ss->mutable_query_positions()->Add( s.offs ) ;
-					ss->mutable_seed_sizes()->Add( s.wordsize ) ;
-					++out ;
-				}
+				if( s.wordsize >= m ) out = put_seed( ss, s, out ) ;
 				s = a ;
 			}
 		}
-		if( s.wordsize >= m ) 
-		{
-			ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
-			ss->mutable_query_positions()->Add( s.offs ) ;
-			ss->mutable_seed_sizes()->Add( s.wordsize ) ;
-			++out ;
-		}
+		if( s.wordsize >= m ) out = put_seed( ss, s, out ) ;
 	}
 	return out ;
 }
