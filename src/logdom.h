@@ -17,6 +17,7 @@
 #ifndef INCLUDED_LOGDOM_H
 #define INCLUDED_LOGDOM_H
 
+#include <utility>
 #include <math.h>
 #include <stdint.h>
 
@@ -47,7 +48,7 @@ class Logdom {
 		//! and one is the neutral element in that case.
 		Logdom() : v_(0) {}
 
-		void swap( Logdom &rhs ) { std::swap( v_, rhs.v_ ) ; }
+		void swap( Logdom &rhs ) throw() { std::swap( v_, rhs.v_ ) ; }
 		bool is_finite() const { return isfinite( v_ ) ; }
 
 		//! \brief calculates log( 1 + exp x )

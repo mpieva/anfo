@@ -19,8 +19,6 @@
 #endif
 
 #include "ducttape.h"
-
-#include "align.h"
 #include "index.h"
 
 #include <algorithm>
@@ -133,7 +131,7 @@ void DuctTaper::flush_contig()
 	hit.set_sequence( cur_sequence_ ) ;
 	hit.set_start_pos( contig_start_ ) ;
 	hit.set_aln_length( contig_end_ - contig_start_ ) ;
-	hit.set_diff_to_next( int( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ) ;
+	hit.set_map_quality( int( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ) ;
 	std::copy( cigar.begin(), cigar.end(), RepeatedFieldBackInserter( hit.mutable_cigar() ) ) ;
 
 	observed_.clear() ;
@@ -271,7 +269,7 @@ void DuctTaper::put_result_ancient( const Result& r )
 	Logdom rate_ss = Logdom::from_float( hdr_.config().aligner().rate_of_ss_deamination() ), 
 		   rate_ds = Logdom::from_float( hdr_.config().aligner().rate_of_ds_deamination() ) ; 
 
-	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+	int mapq = h->has_map_quality() ? h->map_quality() : 254 ;
 	mapq_accum_ += mapq*mapq ;
 
 	if( cur_genome_ != h->genome_name()
@@ -444,7 +442,7 @@ void DuctTaper::put_result_recent( const Result& r )
 	const Hit* h = hit_to( r ) ;
 	if( !h ) return ;
 
-	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+	int mapq = h->has_map_quality() ? h->map_quality() : 254 ;
 	mapq_accum_ += mapq*mapq ;
 
 	if( cur_genome_ != h->genome_name()
@@ -591,7 +589,7 @@ void GlzWriter::put_result( const Result& rr )
 					//   depth:24 ;            			/* and the number of mapped reads */
 
 					buf[0] = dna_to_glf_base[ *ref ] ;
-					buf[1] = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+					buf[1] = h->has_map_quality() ? h->map_quality() : 254 ;
 					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = (uint8_t)(r.likelihoods(j)[i]) ;
 					c.WriteRaw( buf, 12 ) ;
 					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (uint8_t)r.quality()[i] ) ;

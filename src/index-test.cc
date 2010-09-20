@@ -24,8 +24,6 @@
 #include "../config.h"
 #endif
 
-#include "align.h"
-#include "anfo_common.h"
 #include "compress_stream.h"
 #include "conffile.h"
 #include "index.h"

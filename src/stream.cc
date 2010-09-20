@@ -158,7 +158,7 @@ namespace {
 		if( o.has_best_to_genome() ) {
 			Hit &h = *rs.add_hit() ;
 			h = upgrade( o.best_to_genome() ) ;
-			if( o.has_diff_to_next() ) h.set_diff_to_next( o.diff_to_next() ) ;
+			if( o.has_diff_to_next() ) h.set_map_quality( o.diff_to_next() ) ;
 			if( o.has_diff_to_next_chromosome() ) h.set_diff_to_next_chromosome( o.diff_to_next_chromosome() ) ;
 			if( o.has_diff_to_next_chromosome_class() ) h.set_diff_to_next_chromosome_class( o.diff_to_next_chromosome_class() ) ;
 		}
@@ -579,19 +579,20 @@ void merge_sensibly( Hit& lhs, const Hit& rhs )
 	if( lhs.score() <= rhs.score() )
 	{
 		// left is better
-		if( !lhs.has_diff_to_next() || lhs.score() + lhs.diff_to_next() > rhs.score() )
-			lhs.set_diff_to_next( rhs.score() - lhs.score() ) ;
+		// XXX there might be a more accurate way to calculate this
+		if( !lhs.has_map_quality() || lhs.score() + lhs.map_quality() > rhs.score() )
+			lhs.set_map_quality( rhs.score() - lhs.score() ) ;
 
 		//! \todo diff to chromosome, chromosome class? dunno...
 	}
 	else
 	{
 		// right is better
-		if( !rhs.has_diff_to_next() || rhs.score() + rhs.diff_to_next() > lhs.score() )
+		if( !rhs.has_map_quality() || rhs.score() + rhs.map_quality() > lhs.score() )
 		{
 			int d = lhs.score() - rhs.score() ;
 			lhs = rhs ;
-			lhs.set_diff_to_next( d ) ;
+			lhs.set_map_quality( d ) ;
 		}
 		else lhs = rhs ;
 
@@ -745,7 +746,7 @@ bool TotalScoreFilter::xform( Result& r )
 }
 
 bool MapqFilter::keep( const Hit& h )
-{ return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
+{ return !h.has_map_quality() || h.map_quality() >= minmapq_ ; }
 
 bool QualFilter::xform( Result& h )
 {
@@ -1398,7 +1399,7 @@ Result BamReader::fetch_result()
 	h->set_start_pos( read_uint32() ) ;
 	int namelen = read_uint8() ;
 	int mapq = read_uint8() ;
-	if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+	if( mapq < 255 ) h->set_map_quality( mapq ) ;
 	read_uint16() ; // BIN
 	int cigarlen = read_uint16() ;
 	int flags = read_uint16() ;
