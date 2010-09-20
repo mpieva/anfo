@@ -323,16 +323,19 @@ message Hit {
     // different chromosome, to next on different class of chromosomes,
     // if they exist.  Classes for this purpose are sex chromosomes,
     // autosomes and organelles.
-    // This is the same as MAPQ in sam/bam.  If we're looking at a
-    // pseudo-assembly, it is actually the RMS of the MAPQs of the reads
-    // that were included in it.
-    optional sint32 diff_to_next = 8 ;
+	// This is the same as MAPQ in sam/bam, and it is calculated from
+	// all hits that were found besides the best one.  The calculation
+	// is more accurate than what maq and bwa do, but still a (pretty
+	// good) approximation.  If we're looking at a pseudo-assembly, it
+	// is actually the RMS of the MAPQs of the reads
+	// that were included in it.
+    optional sint32 map_quality = 8 ;
 
     // following two aren't actually used yet
     optional sint32 diff_to_next_chromosome = 9 ;
     optional sint32 diff_to_next_chromosome_class = 10 ;
 
-    // taxids if known: most specific, species and order
+    // Taxids if known: most specific, species and order
     // An absent taxid means it's not known.
     optional int32 taxid = 15 ;
     optional int32 taxid_species = 14 ;

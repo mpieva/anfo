@@ -489,7 +489,9 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 
 		if( len_from_bin_cigar( hit.cigar() ) != result.read().sequence().length() ) return bad_cigar ;
 
-		int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
+		// XXX there's an actual lower limit on map quality; we need to
+		// get it from the configuration somehow
+		int mapq = !hit.has_map_quality() ? 254 : std::min( 254, hit.map_quality() ) ;
 
 		*out_ << /*QNAME*/  result.read().seqid() << '\t'
 			<< /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
@@ -625,7 +627,7 @@ void TableWriter::put_result( const Result& r )
 	if( const Hit *h = hit_to( r ) ) {
 		int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
 		int b = r.read().trim_left() ;
-		int diff = h->has_diff_to_next() ? h->diff_to_next() : 9999 ;
+		int diff = h->has_map_quality() ? h->map_quality() : 9999 ;
 
 		*out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 	}

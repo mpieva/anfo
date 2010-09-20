@@ -117,7 +117,7 @@ template< typename Cell > class ExtendAlignment {
 		std::vector< int > mins_, maxs_ ;
 
 		Logdom limit_, result_ ;
-		int max_s_, max_x_, max_y_ ;
+		int max_s_, max_x_, max_y_, max_tail_ ;
 
 		void extend(const adna_parblock &pb_,Logdom score,int s,int x,int y,DnaP ref,const QSequence::Base *qry );
 
@@ -141,6 +141,7 @@ template< typename Cell > class ExtendAlignment {
 			std::swap( max_s_, rhs.max_s_ ) ;
 			std::swap( max_x_, rhs.max_x_ ) ;
 			std::swap( max_y_, rhs.max_y_ ) ;
+			std::swap( max_tail_, rhs.max_tail_ ) ;
 		}
 } ;
 
@@ -276,16 +277,18 @@ void ExtendAlignment<Cell>::extend( const adna_parblock &pb_, Logdom score, int 
 		// penalty, but that's okay, because such an alignment isn't all
 		// that interesting in reality anyway.  Afterwards we're
 		// finished and adjust result and limit accordingly.
-		// for( int yy = 0 ; qry[ yy ].ambicode ; ++yy )
-		// {
-			// score *= pb_.subst_penalty( s, 15, qry[ yy ] ) ;
-			// if( s & adna_parblock::mask_ss ) score *= pb_.overhang_ext_penalty ;
-		// }
+		int yy = 0 ;
+		for( ; qry[ yy ].ambicode ; ++yy )
+		{
+			score *= pb_.subst_penalty( s, 15, qry[ yy ] ) ;
+			if( s & adna_parblock::mask_ss ) score *= pb_.overhang_ext_penalty ;
+		}
 		if( score > result_ ) {
 			result_ = limit_ = score ;
 			max_s_ = s ;
 			max_x_ = x ;
 			max_y_ = y ;
+			max_tail_ = yy ;
 		}
 	}
 	else if( (s & adna_parblock::mask_gaps) == 0 )
@@ -375,11 +378,9 @@ ExtendBothEnds<Cell>::ExtendBothEnds(
 	}
 }
 
-//! \todo If a tail of the query overhung a contig edge, it wasn't
-//!       aligned and is lost to the backtracing logic.  Needs to be
-//!       compensated for, somehow.
 template<> inline void ExtendAlignment<FullCell>::backtrace( std::vector<unsigned>& out ) const
 {
+	if( max_tail_ ) streams::push_i( out, max_tail_ ) ;
 	for( size_t x = max_x_, y = max_y_, s = max_s_ ; x || y ; )
 	{
 		const FullCell& c = cells_[ width_*y + x ][ s ] ;
