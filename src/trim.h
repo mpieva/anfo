@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <vector>
 
-#include "align.h"
+#include "sequence.h"
 
 namespace {
 	template< typename T > T max3( T a, T b, T c )

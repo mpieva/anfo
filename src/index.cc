@@ -37,7 +37,7 @@ static inline void cleanup_genome_name( string& gn )
 {
 	size_t gnl = gn.length() ;
 	for( size_t i = 0 ; i != gnl ; ++i ) gn[i] = tolower( gn[i] ) ;
-	if( gn.size() > 4 && gn.substr( gnl-4 ) == ".dna" ) gn = gn.substr( 0, gnl-4 ) ;
+	if( gnl > 4 && gn.substr( gnl-4 ) == ".dna" ) gn = gn.substr( 0, gnl-4 ) ;
 }
 
 CompactGenome::CompactGenome( const std::string &name )

@@ -464,12 +464,12 @@ void Mapper::put_result( const Result& r )
 		return ;
 	}
 
+	output::Hit *h = res_.add_hit() ;
+
 	DnaP minpos, maxpos ;
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
 	assert( maxpos > minpos && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
-
-	output::Hit *h = res_.add_hit() ;
 
 	uint32_t start_pos ;
 	const config::Sequence *sequ = genome_->translate_back( minpos, start_pos ) ;
