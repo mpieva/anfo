@@ -26,8 +26,6 @@
 #include <ostream>
 #include <sstream>
 
-#define NDEBUG
-
 template< int N, typename T > class Array
 {
 	private:

@@ -348,10 +348,6 @@ class QSequence
 		const_iterator begin() const { return seq_.begin() + middle_offset() ; }
 		const_iterator end() const { return seq_.end() - 1 ; }
 
-		// XXX are these actually needed?  If so, isn't the RC region better?
-		// const_reverse_iterator rbegin() const { return seq_.rbegin() + 1 ; }
-		// const_reverse_iterator rend() const { return seq_.rend() - 1 ; }
-
 		reference operator [] ( size_t ix ) { return seq_[middle_offset()+ix] ; }
 		const_reference operator [] ( size_t ix ) const { return seq_[middle_offset()+ix] ; }
 } ;

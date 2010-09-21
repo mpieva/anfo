@@ -169,8 +169,7 @@ WRAPPED_MAIN
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
 	// no-op if output exists and overwriting wasn't asked for
-	std::string of = expand( output_file, task_id ) ;
-    if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
+    if( !clobber && 0 == access( output_file, F_OK ) ) return 0 ;
 
 	Config conf = get_default_config( config_file ) ;
 
@@ -181,7 +180,7 @@ WRAPPED_MAIN
 		{
 			while( const char* arg = poptGetArg( pc ) )
 				ins->add_stream( new UniversalReader(
-							expand( arg, task_id ), 0, solexa_scale, fastq_origin ) ) ;
+							arg, 0, solexa_scale, fastq_origin ) ) ;
 		}
 		else
 		{
@@ -224,6 +223,7 @@ WRAPPED_MAIN
         }
     }
 
+	std::string of = output_file ;
     of.append( ".#new#" ) ;
 	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
 
@@ -248,7 +248,7 @@ WRAPPED_MAIN
 		outs->put_footer( ofoot ) ;
 	}
 		
-	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
+	if( !exit_with ) std::rename( of.c_str(), output_file ) ;
 	return 0 ;
 }
 

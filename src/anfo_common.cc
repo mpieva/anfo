@@ -34,26 +34,6 @@ using namespace config ;
 using namespace output ;
 using namespace std; 
 
-string expand( const string& s, int x )
-{
-    if( s.size() <= 1 ) return s ;
-
-    char u = 'a' + (x%26), v = 'a' + (x/26) ;
-    string r ;
-    size_t i = 0 ;
-    for( ; i+1 < s.size() ; ++i )
-    {
-        if( s[i] == '%' && s[i+1] == '%' ) {
-            r.push_back( v ) ;
-            r.push_back( u ) ;
-            ++i ;
-        }
-        else r.push_back( s[i] ) ;
-    }
-    if( i < s.size() ) r.push_back( s[i] ) ;
-    return r ;
-}
-
 namespace streams {
 
 //! \brief selects a policy appropriate for a given read
@@ -310,6 +290,16 @@ static bool check_seed_quality( DnaP ref, const QSequence::Base *qry, int seedle
 	return false ;
 }
 
+//! \todo Calculate a real E-value, then h->set_evalue() appropriately.
+//!
+//! \todo Find second best hit and similar stuff.  We want the distance
+//!       to the best hit to another chromosome, maybe also the best hit
+//!       to more genomes.  When done, h->set_diff_to_next_species(),
+//!       h->set_diff_to_next_order()
+//!
+//! \todo Actually implement search for multiple alignments in its full
+//!       generality...  Currently, we search multiple genomes, but
+//!       completely independently of each other.
 void Mapper::put_result( const Result& r )
 {
 	Stream::put_result( r ) ;
@@ -452,13 +442,7 @@ void Mapper::put_result( const Result& r )
 
 	output::Hit *h = res_.add_hit() ;
 
-	// XXX Redo the best alignment, this time with provisions for
-	// backtracing.  Use the same limit to guarantee an alignment is
-	// found again.
 	DnaP minpos, maxpos ;
-	// ExtendBothEnds<FullCell> best_ext( parblock_, qs, best_seed, best_limit ) ;
-	// if( !best_ext.score_.is_finite() ) throw "Not supposed to happen: backtracing alignment failed" ;
-
 	std::vector<unsigned> t = best_ext.backtrace( best_seed, minpos, maxpos ) ;
 	int32_t len = best_seed.qoffs_ > 0 ? maxpos - minpos : minpos - maxpos ;
 	assert( maxpos > minpos && !maxpos.is_reversed() && !minpos.is_reversed() ) ;
@@ -477,48 +461,8 @@ void Mapper::put_result( const Result& r )
 	h->set_score( best_score.to_phred() ) ;
 	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
-	//! \todo calculate a real E-value
-	// XXX h->set_evalue
-
-	//! \todo Find second best hit and similar stuff.
-	//! We want the distance to the next best hit; also,
-	//! unless already found, we want the best hit to some
-	//! selected genome(s).
-
-	// XXX set diff_to_next_species, diff_to_next_order
-
 	if( runnerup_score.is_finite() ) h->set_map_quality( (runnerup_score/best_score).to_phred() ) ;
 }
 
-//! \page finding_alns How to find everything we need
-//! We look for best hits globally and specifically on one genome.  They
-//! will be discovered in the order of decreasing score.  After setup,
-//! we can operate in a loop of cleaning out the stuff we don't need
-//! anymore and finding more alignments.
-//!
-//! Cleanup: XXX this is outdated
-//! - If we don't have a best hit, everything is needed.
-//! - If we don't have a hit to a different species, alignments to any
-//!   different species are needed.
-//! - If we don't have a hit to a different order, alignments to any
-//!   different order are needed.
-//! - If we don't have a hit to the human genome, alignments to the
-//!   human genome are needed.
-//! - If we don't have the second best hit, non-overlapping alignments
-//!   to the human genome are needed.
-//! - If we didn't hit a different chromosome, alignments to different
-//!   chromosomes are needed.
-//! - If we didn't hit a different class (autosomes, sex chromosomes,
-//!   organelles), those are needed.
-//!
-//! We're done if nothing is left to align or no alignment is found (or
-//! if we got everything, which means everything is thrown out nothing
-//! is left).
-//!
-//! Assignment:
-//! For every alignment, just check if it fits anywhere, then store it
-//! appropriately.  Expand the two we were interested in.
-//!
-//! \todo Actually implement search for multiple alignments in its full generality...
 
 } ; // namespace 

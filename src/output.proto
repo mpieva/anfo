@@ -59,7 +59,7 @@ message Header {
     optional bool is_sorted_by_all_genomes = 12 [default=false] ;
 }
 
-// XXX: a few easily accessible statistics could be included here,
+// XXX: a few easily accessible statistics should be included here,
 // assuming the footer is somehow easily found.  Requires a bit more
 // infrastructure, though.  While we're at it, an index would be well
 // placed here, too.

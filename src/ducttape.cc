@@ -31,8 +31,8 @@ namespace streams {
 
 void DuctTaper::put_header( const Header& h ) 
 {
-	// if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
-		// throw "need sorted input for duct taping" ;
+	if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+		console.output( Console::warning, "[ducttape] input is not sorted, results may be useless" ) ;
 
 	hdr_ = h ;
 	adna_ = adna_parblock( h.config().aligner() ) ;
@@ -260,6 +260,9 @@ class AlnIter
 //! Backward direction:  same calculation, but we need to initialize
 //! to the sum of all the match scores, which requires a preliminary
 //! pass over everything.
+//!
+//! \todo map_quality is interpreted as 254 if undefined; we can get a
+//!       better value from the header.
 
 void DuctTaper::put_result_ancient( const Result& r )
 {
@@ -342,9 +345,10 @@ no_match:
 				if( aln_i.base() != -1 ) {
 					++column->seen[ aln_i.base() ] ;
 
+					Logdom qual = std::max( aln_i.qual(), Logdom::from_phred( mapq ) ) ;
 					Logdom prob_ss_5 = lk_ss_5 / (lk_ss_5 + lk_ds_5) ;
 					Logdom prob_ss_3 = lk_ss_3 / (lk_ss_3 + lk_ds_3) ;
-					Logdom l_mat = 1 - aln_i.qual(), l_mismat = aln_i.qual() / 3 ;
+					Logdom l_mat = 1 - qual, l_mismat = qual / 3 ;
 
 					// lk_base[x] is probability of seeing aln_i.base()
 					// given that an x was in the real sequence.  It is
@@ -488,7 +492,8 @@ void DuctTaper::put_result_recent( const Result& r )
 no_match:       if( aln_i.base() != -1 ) {
 					++column->seen[ aln_i.base() ] ;
 
-					Logdom l_mat = 1 - aln_i.qual(), l_mismat = aln_i.qual() / 3 ;
+					Logdom qual = std::max( aln_i.qual(), Logdom::from_phred( mapq ) ) ;
+					Logdom l_mat = 1 - qual, l_mismat = qual / 3 ;
 
 					// lk_base[x] is probability of seeing aln_i.base()
 					// given that an x was in the real sequence.  It is
@@ -623,7 +628,7 @@ void GlzWriter::put_result( const Result& rr )
 // base, either from genome or from majority sequence), summary
 // information and likelihoods.
 //
-// XXX: for the time being, walk only one alignment
+// XXX: for the time being, walks only one alignment
 void ThreeAlnWriter::put_result( const Result& res )
 {
 	const Read& r = res.read() ;

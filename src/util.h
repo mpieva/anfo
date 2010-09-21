@@ -215,7 +215,9 @@ int mktempfile( std::string* name = 0 ) ;
 //! progress notifications are displayed in the last line and everything
 //! is updating sensibly.  Might grow into a logging system, too.
 //! 
-//! XXX this isn't thread safe.  should be changed...
+//! \todo This isn't thread safe and doesn't work well in a networked
+//!       setting.  Should be changed or replaced by something like
+//!       log4cpp.
 class Console 
 {
 	public: 

@@ -809,6 +809,8 @@ bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) const
 
 //! \todo How do we deal with ambiguity codes?  What's the meaning of
 //!       their quality scores anyway?
+//! \todo Undefined mapq is interpreted as 254, but there's a better
+//!       value hidden somewhere in the header.
 void RmdupStream::add_read( const Result& rhs ) 
 {
 	// if the new member is itself a cluster, we add its member reads,
@@ -829,6 +831,9 @@ void RmdupStream::add_read( const Result& rhs )
 		cur_.clear_members() ;
 	}
 
+	const output::Hit *h = hit_to( rhs, gs_.begin(), gs_.end() ) ;
+	int mapq = h ? h->has_map_quality() ? h->map_quality() : 254 : 0 ;
+
 	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
 		int base = -1 ;
@@ -840,7 +845,8 @@ void RmdupStream::add_read( const Result& rhs )
 			case 'g': case 'G': base = 3 ; break ;
 		}
 
-		Logdom qual = Logdom::from_phred( rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ;
+		Logdom qual = Logdom::from_phred( std::min( mapq, 
+					rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ) ;
 		for( int j = 0 ; j != 4 ; ++j )
 			// XXX distribute errors sensibly
 			quals_[j].at(i) *= j != base ? qual / 3 : 1 - qual ;
