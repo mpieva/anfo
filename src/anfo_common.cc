@@ -300,6 +300,16 @@ static bool check_seed_quality( DnaP ref, const QSequence::Base *qry, int seedle
 //! \todo Actually implement search for multiple alignments in its full
 //!       generality...  Currently, we search multiple genomes, but
 //!       completely independently of each other.
+//!
+//! \note We compute the current score limit (\f$ p_m \f$) from the number of seeds
+//! remaining (\f$ n \f$), the probability of the current best alignment
+//! (\f$ p_1 \f$), the total probability of all other known alignments
+//! (\f$ p_o \f$), and the maximum desired mapping quality (\f$ q \f$).
+//! We require 
+//! \f[ \frac{np_m + p_o}{p_1 + n_p_m + p_o} < q \f]
+//! Rearranging and setting \f$ 1-q \approx 1 \f$ gives
+//! \f[ p_m < (q*p_1 - p_o) / n \f]
+
 void Mapper::put_result( const Result& r )
 {
 	Stream::put_result( r ) ;
@@ -371,8 +381,7 @@ void Mapper::put_result( const Result& r )
 	}
 
 	Logdom best_score = Logdom::null(),
-		   runnerup_score = Logdom::null(),
-		   // best_limit = Logdom::null(),
+		   other_scores = Logdom::null(),
 	       limit = Logdom::from_phred( 60 ) ;
 
 	SeededAlignment best_seed ;
@@ -392,20 +401,19 @@ void Mapper::put_result( const Result& r )
 			{
 				// new best score?
 				if( score > best_score ) {
-					runnerup_score = best_score ;
+					if( best_score.is_finite() ) other_scores += best_score ;
 					best_score = score ;
 					best_seed = *cur_aln ;
-					// best_limit = limit ;
 					std::swap( best_ext, extension ) ;
-					limit = max( limit, max( best_score * Logdom::from_phred( conf_.max_mapq() ), runnerup_score ) ) ;
 				}
-				// new second best score?
-				else if( score > runnerup_score ) {
-					runnerup_score = score ;
-					limit = max( limit, runnerup_score ) ;
-				}
-				// this seed is exhausted, we never need it again
-				++cur_aln ;
+				// some inferior hit?
+				else other_scores += score ;
+
+				// seed is exhausted, compute new limit
+				if( ++cur_aln != end_aln )
+					limit = max( limit,
+							( best_score * Logdom::from_phred( conf_.max_mapq() ) - other_scores )
+							/ ( end_aln - cur_aln ) ) ;
 			}
 			else // no alignment: move to next seed
 			{
@@ -413,20 +421,21 @@ void Mapper::put_result( const Result& r )
 				out_aln++, cur_aln++ ;
 			}
 		}
-		// two hits -> we're done (regardless of score, we got
+		// at least two hits -> we're done (regardless of score, we got
 		// everything we could possibly need)
-		if( runnerup_score.is_finite() ) break ;
+		if( other_scores.is_finite() ) break ;
+
+		// get rid of exhausted seeds
+		seedlist.erase( out_aln, end_aln ) ;
 
 		// what's the current absolute limit?  it's mapq worse than the
 		// first hit we have, or than the max penalty otherwise.
-		Logdom abs_max = Logdom::from_phred( conf_.max_mapq() ) *
-			( best_score.is_finite() ? best_score : max_penalty ) ;
+		Logdom abs_max = ( Logdom::from_phred( conf_.max_mapq() ) *
+			( best_score.is_finite() ? best_score : max_penalty ) - other_scores )
+			/ seedlist.size() ;
 
 		// already past the limit? -> we're done
 		if( limit <= abs_max ) break ;
-
-		// get rid of exhausted seeds, increase limit
-		seedlist.erase( out_aln, end_aln ) ;
 
 		// new limit: twice as high, but clamped
 		limit = max( limit*limit, abs_max ) ;
@@ -461,7 +470,7 @@ void Mapper::put_result( const Result& r )
 	h->set_score( best_score.to_phred() ) ;
 	std::copy( t.begin(), t.end(), RepeatedFieldBackInserter( h->mutable_cigar() ) ) ;
 
-	if( runnerup_score.is_finite() ) h->set_map_quality( (runnerup_score/best_score).to_phred() ) ;
+	if( other_scores.is_finite() ) h->set_map_quality( (other_scores/(best_score+other_scores)).to_phred() ) ;
 }
 
 

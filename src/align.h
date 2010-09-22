@@ -50,7 +50,7 @@ struct SeededAlignment {
 	int qoffs_ ;
 	int size_ ;
 
-	SeededAlignment() {}
+	SeededAlignment() : qoffs_(0), size_(0) {}
 	SeededAlignment( const adna_parblock& pb, DnaP reference, const QSequence& query, int qoffs, int size )
 		: reference_( reference ), score_( Logdom::one() ), qoffs_( qoffs ), size_( size )
 	{
