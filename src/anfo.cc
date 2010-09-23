@@ -248,7 +248,13 @@ WRAPPED_MAIN
 		outs->put_footer( ofoot ) ;
 	}
 		
-	if( !exit_with ) std::rename( of.c_str(), output_file ) ;
+	if( !exit_with ) { // "mv -f"
+		rename( of.c_str(), output_file ) ;
+		if( 0 == access( of.c_str(), F_OK ) ) {
+			unlink( output_file ) ;
+			rename( of.c_str(), output_file ) ;
+		}
+	}
 	return 0 ;
 }
 
