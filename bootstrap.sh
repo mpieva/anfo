@@ -1,6 +1,6 @@
 #! /bin/sh
-autoheader -Wall
-aclocal -Wall
-libtoolize -c --automake
-automake -ac -Wall
-autoconf -Wall
+echo 'autoheader...' && autoheader -Wall && \
+echo 'aclocal...' && aclocal -Wall && \
+echo 'libtoolize' && libtoolize -c --automake && \
+echo 'automake...' && automake -ac -Wall && \
+echo 'autoconf...' && autoconf -Wall
