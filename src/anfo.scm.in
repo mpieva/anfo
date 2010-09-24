@@ -34,15 +34,20 @@
 (define compress:  'compress:)
 (define context:   'context:)
 (define editor:    'editor:)
+(define genome:    'genome:)
 (define genomes:   'genomes:)
 (define handles:   'handles:)
 (define intercept: 'intercept:)
 (define label:     'label:)
+(define left:      'left:)
 (define mem:       'mem:)
+(define name:      'name:)
 (define num:       'num:)
 (define origin:    'origin:)
 (define primary:   'primary:)
+(define prior:     'prior:)
 (define quality:   'quality:)
+(define right:     'right:)
 (define score:     'score:)
 (define secondary: 'secondary:)
 (define sequences: 'sequences:)
@@ -59,8 +64,9 @@
 (define (write-wiggle   file) (bracket-stream (prim-write-wiggle   file)))
 
 (define*
-  (duct-tape (label: lbl "contig"))
-  (bracket-stream (prim-duct-tape lbl)))
+  (duct-tape (label: lbl "contig")
+             (prior: pri 0.0))
+  (bracket-stream (prim-duct-tape lbl pri)))
 
 (define* 
   (add-alns (context: ctx 0))
@@ -69,8 +75,10 @@
 (define*
   (read-file in 
 	     (solexa: sol *default-solexa-scale*)
-	     (origin: ori *default-origin*))
-  (bracket-stream (prim-read-file in sol ori)))
+	     (origin: ori *default-origin*)
+	     (genome: gen "")
+	     (name:   nam #f))
+  (bracket-stream (prim-read-file in sol ori gen nam)))
 
 (define (filter-chain left right file) (bracket-stream (prim-filter-chain left right file)))
 (define (filter-length len) (bracket-stream (prim-filter-length len)))
@@ -94,6 +102,12 @@
 		(intercept: intercept 20)
 		(genomes: genomes '()))
   (bracket-stream (prim-filter-score slope intercept genomes)))
+
+(define*
+  (filter-total-score (slope: slope 7.5)
+		(intercept: intercept 20)
+		(genomes: genomes '(hg18 pt2)))
+  (bracket-stream (prim-filter-total-score slope intercept genomes)))
 
 (define*
   (filter-mapq mapq (genomes '()))
@@ -131,6 +145,12 @@
 		 (intercept: intercept 20)
 		 (quality: qual 40))
   (bracket-stream (prim-rmdup slope intercept qual)))
+
+(define*
+  (trim (left: left '())
+        (right: right '())
+		(score: score 4))
+  (bracket-stream (prim-trim left right score)))
 
 (define (stats)
   (let* ((p (lambda (lo hi) (+ lo (* hi 65536 32768))))
@@ -203,6 +223,8 @@
 	      (compress: comp *default-compression*))
   (bracket-stream (prim-write-native out comp)))
 
+(define write-native write-file)
+
 (define (anfo-with-input in)
   (cond
     ((procedure? in) in)
@@ -273,10 +295,10 @@
 	   (apply prim-concat outs))
 	 cont)))))
 
-(define (anfo-run in out)
-  ((anfo-with-input in)
+(define (anfo-run . args) 
+  ((anfo-with-input (car args))
    (lambda (in-stream)
-     ((anfo-with-output out)
+     ((anfo-with-output (apply chain (cdr args)))
       (lambda (out-stream)
 	(prim-anfo-run in-stream out-stream))))))
 

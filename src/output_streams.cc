@@ -34,6 +34,8 @@
 
 namespace streams {
 
+using namespace google::protobuf ;
+
 bool GenTextAlignment::xform( Result& res ) 
 {
 	for( int i = 0 ; i != res.hit_size() ; ++i )
@@ -47,6 +49,8 @@ bool GenTextAlignment::xform( Result& res )
 
 		GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
 		DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
+		if( !ref ) throw "couldn't find reference: " + h.sequence() ;
+
 		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 
 		r.clear() ; q.clear() ;
@@ -105,30 +109,30 @@ bool GenTextAlignment::xform( Result& res )
 	return true ;
 }
 
-typedef void (*PrintMethod)( const google::protobuf::Message& m, const google::protobuf::Reflection*, const google::protobuf::FieldDescriptor*, ostream&, int ) ;
+typedef void (*PrintMethod)( const Message& m, const Reflection*, const FieldDescriptor*, ostream&, int ) ;
 
-void generic_show_message( const google::protobuf::Message&, std::ostream&, int ) ;
-void generic_show_known_fields( const google::protobuf::Message&, std::ostream&, int ) ;
-void generic_show_unknown_fields( const google::protobuf::Message&, std::ostream&, int ) ;
+void generic_show_message( const Message&, std::ostream&, int ) ;
+void generic_show_known_fields( const Message&, std::ostream&, int ) ;
+void generic_show_unknown_fields( const UnknownFieldSet&, std::ostream&, int ) ;
 
 // hides a field by printing nothing
-extern "C" void show_noop( const google::protobuf::Message& m, const google::protobuf::Reflection*, const google::protobuf::FieldDescriptor*, ostream& s, int ) {}
+extern "C" void show_noop( const Message& m, const Reflection*, const FieldDescriptor*, ostream& s, int ) {}
 
 // CIGAR line: decode to string, same way SAM would do it
-extern "C" void show_cigar( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
+extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i )
 	{
 		uint32_t c = r->GetRepeatedUInt32( m, f, i ) ;
 		if( c == 0 ) s << '/' ;
-		else s << cigar_len(c) << "MIDGSHP........M"[ cigar_op(c) ] ;
+		else s << cigar_len(c) << "MIDNSHP........M"[ cigar_op(c) ] ;
 	}
 	s << '\n' ;
 }
 
 // array of ints: formatted into comma-separated line
-extern "C" void show_uint32_array( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
+extern "C" void show_uint32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	if( int l = r->FieldSize( m, f ) ) 
@@ -139,10 +143,21 @@ extern "C" void show_uint32_array( const google::protobuf::Message& m, const goo
 	}
 	s << '\n' ;
 }
+extern "C" void show_int32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+{
+	s << string( indent, ' ' ) << f->name() << ": " ;
+	if( int l = r->FieldSize( m, f ) ) 
+	{
+		s << r->GetRepeatedInt32( m, f, 0 ) ;
+		for( int i = 1 ; i != l ; ++i )
+			s << ',' << r->GetRepeatedInt32( m, f, i ) ;
+	}
+	s << '\n' ;
+}
 
 // seen bases: same as array of ints, but we have four interleaved
 // arrays
-extern "C" void show_seen_bases( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent ) 
+extern "C" void show_seen_bases( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	for( int i = 0 ; i != 4 ; ++i )
 	{
@@ -160,7 +175,7 @@ extern "C" void show_seen_bases( const google::protobuf::Message& m, const googl
 
 // Hit: basically a generic message, but we add the textual,
 // line-wrapped alignment (if present)
-extern "C" void show_hit( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int i ) 
+extern "C" void show_hit( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
 	for( int j = 0 ; j != r->FieldSize( m, f ) ; ++j )
 	{
@@ -183,7 +198,7 @@ extern "C" void show_hit( const google::protobuf::Message& m, const google::prot
 			}
 		}
 
-		generic_show_unknown_fields( h, s, i+2 ) ;
+		generic_show_unknown_fields( r->GetUnknownFields(m), s, i+2 ) ;
 		s << string( i, ' ' ) << "}\n" ;
 	}
 }
@@ -211,14 +226,14 @@ void generic_show_string( const string& s, std::ostream& o, int off = 0 )
 	o << '"' ;
 }
 
-extern "C" void show_quality( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int i ) 
+extern "C" void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
-	s << string( i, ' ' ) << f->name() << ' ' ;
+	s << string( i, ' ' ) << f->name() << ": " ;
 	generic_show_string( r->GetString( m, f ), s, 33 ) ;
 	s << '\n' ;
 }
 
-void universal_print_field( const google::protobuf::Message& m, const google::protobuf::Reflection* r, const google::protobuf::FieldDescriptor* f, ostream& s, int indent )
+void universal_print_field( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent )
 {
 	if( f->options().HasExtension( output::show ) )
 	{
@@ -230,25 +245,25 @@ void universal_print_field( const google::protobuf::Message& m, const google::pr
 		console.output( Console::warning, ss.str() ) ;
 	}
 
-	if( f->label() == google::protobuf::FieldDescriptor::LABEL_REPEATED ) {
+	if( f->label() == FieldDescriptor::LABEL_REPEATED ) {
 		for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i ) 
 		{
 			s << string( indent, ' ' ) << f->name() ;
-			if( f->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE ) s << ':' ;
+			if( f->cpp_type() != FieldDescriptor::CPPTYPE_MESSAGE ) s << ':' ;
 			s << ' ' ;
 
 			switch( f->cpp_type() )
 			{
-				case google::protobuf::FieldDescriptor::CPPTYPE_INT32:   s << r->GetRepeatedInt32( m, f, i ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_INT64:   s << r->GetRepeatedInt64( m, f, i ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_UINT32:  s << r->GetRepeatedUInt32( m, f, i ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_UINT64:  s << r->GetRepeatedUInt64( m, f, i ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE:  s << r->GetRepeatedDouble( m, f, i ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_FLOAT:   s << r->GetRepeatedFloat( m, f, i ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_BOOL:    s << ( r->GetRepeatedBool( m, f, i ) ? "true" : "false" ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_ENUM:    s << r->GetRepeatedEnum( m, f, i )->name() ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_STRING:  generic_show_string( r->GetRepeatedString( m, f, i ), s ) ; break ;
-				case google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE: generic_show_message( r->GetRepeatedMessage( m, f, i ), s, indent ) ; break ;
+				case FieldDescriptor::CPPTYPE_INT32:   s << r->GetRepeatedInt32( m, f, i ) ; break ;
+				case FieldDescriptor::CPPTYPE_INT64:   s << r->GetRepeatedInt64( m, f, i ) ; break ;
+				case FieldDescriptor::CPPTYPE_UINT32:  s << r->GetRepeatedUInt32( m, f, i ) ; break ;
+				case FieldDescriptor::CPPTYPE_UINT64:  s << r->GetRepeatedUInt64( m, f, i ) ; break ;
+				case FieldDescriptor::CPPTYPE_DOUBLE:  s << r->GetRepeatedDouble( m, f, i ) ; break ;
+				case FieldDescriptor::CPPTYPE_FLOAT:   s << r->GetRepeatedFloat( m, f, i ) ; break ;
+				case FieldDescriptor::CPPTYPE_BOOL:    s << ( r->GetRepeatedBool( m, f, i ) ? "true" : "false" ) ; break ;
+				case FieldDescriptor::CPPTYPE_ENUM:    s << r->GetRepeatedEnum( m, f, i )->name() ; break ;
+				case FieldDescriptor::CPPTYPE_STRING:  generic_show_string( r->GetRepeatedString( m, f, i ), s ) ; break ;
+				case FieldDescriptor::CPPTYPE_MESSAGE: generic_show_message( r->GetRepeatedMessage( m, f, i ), s, indent ) ; break ;
 				default: std::cerr << "don't know how to print cpp_type " << f->cpp_type() << "\n" ;
 			}
 			s << '\n' ;
@@ -257,31 +272,31 @@ void universal_print_field( const google::protobuf::Message& m, const google::pr
 	else 
 	{
 		s << string( indent, ' ' ) << f->name() ;
-		if( f->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE ) s << ':' ;
+		if( f->cpp_type() != FieldDescriptor::CPPTYPE_MESSAGE ) s << ':' ;
 		s << ' ' ;
 
 		switch( f->cpp_type() )
 		{
-			case google::protobuf::FieldDescriptor::CPPTYPE_INT32:   s << r->GetInt32( m, f ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_INT64:   s << r->GetInt64( m, f ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_UINT32:  s << r->GetUInt32( m, f ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_UINT64:  s << r->GetUInt64( m, f ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_DOUBLE:  s << r->GetDouble( m, f ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_FLOAT:   s << r->GetFloat( m, f ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_BOOL:    s << ( r->GetBool( m, f ) ? "true" : "false" ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_ENUM:    s << r->GetEnum( m, f )->name() ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_STRING:  generic_show_string( r->GetString( m, f ), s ) ; break ;
-			case google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE: generic_show_message( r->GetMessage( m, f ), s, indent ) ; break ;
+			case FieldDescriptor::CPPTYPE_INT32:   s << r->GetInt32( m, f ) ; break ;
+			case FieldDescriptor::CPPTYPE_INT64:   s << r->GetInt64( m, f ) ; break ;
+			case FieldDescriptor::CPPTYPE_UINT32:  s << r->GetUInt32( m, f ) ; break ;
+			case FieldDescriptor::CPPTYPE_UINT64:  s << r->GetUInt64( m, f ) ; break ;
+			case FieldDescriptor::CPPTYPE_DOUBLE:  s << r->GetDouble( m, f ) ; break ;
+			case FieldDescriptor::CPPTYPE_FLOAT:   s << r->GetFloat( m, f ) ; break ;
+			case FieldDescriptor::CPPTYPE_BOOL:    s << ( r->GetBool( m, f ) ? "true" : "false" ) ; break ;
+			case FieldDescriptor::CPPTYPE_ENUM:    s << r->GetEnum( m, f )->name() ; break ;
+			case FieldDescriptor::CPPTYPE_STRING:  generic_show_string( r->GetString( m, f ), s ) ; break ;
+			case FieldDescriptor::CPPTYPE_MESSAGE: generic_show_message( r->GetMessage( m, f ), s, indent ) ; break ;
 			default: std::cerr << "don't know how to print cpp_type " << f->cpp_type() << "\n" ;
 		}
 		s << '\n' ;
 	}
 }
 
-void generic_show_known_fields( const google::protobuf::Message& m, std::ostream& s, int indent )
+void generic_show_known_fields( const Message& m, std::ostream& s, int indent )
 {
-	const google::protobuf::Reflection* reflection = m.GetReflection() ;
-	std::vector< const google::protobuf::FieldDescriptor* > fields;
+	const Reflection* reflection = m.GetReflection() ;
+	std::vector< const FieldDescriptor* > fields;
 	reflection->ListFields( m, &fields ) ;
 	for( size_t i = 0 ; i < fields.size() ; i++ )
 	{
@@ -289,20 +304,39 @@ void generic_show_known_fields( const google::protobuf::Message& m, std::ostream
 	}
 }
 
-void generic_show_unknown_fields( const google::protobuf::Message& m, std::ostream& s, int indent )
+void generic_show_unknown_fields( const UnknownFieldSet& fields, std::ostream& s, int indent )
 {
-	// XXX missing (or unneeded?)
+	for( int i = 0 ; i != fields.field_count() ; ++i )
+	{
+		UnknownField f = fields.field( i ) ;
+		s << string( indent, ' ' ) << f.number() ;
+		if( f.type() != UnknownField::TYPE_GROUP ) s << ':' ;
+		s << ' ' ;
+		switch( f.type() )
+		{
+			case UnknownField::TYPE_VARINT: 			s << f.varint() ; break ;
+			case UnknownField::TYPE_FIXED32: 			s << f.fixed32() ; break ;
+			case UnknownField::TYPE_FIXED64: 			s << f.fixed64() ; break ;
+			case UnknownField::TYPE_LENGTH_DELIMITED:	generic_show_string( f.length_delimited(), s ) ; break ;
+			case UnknownField::TYPE_GROUP: 				s << "{\n" ;
+														generic_show_unknown_fields( f.group(), s, indent+2 ) ;
+														s << string( indent, ' ' ) << "}" ;
+														break ;
+			default: 									s << "???" ; break ;
+		}
+		s << '\n' ;
+	}
 }
 
-void generic_show_message( const google::protobuf::Message& m, std::ostream& s, int indent )
+void generic_show_message( const Message& m, std::ostream& s, int indent )
 {
 	s << "{\n" ;
 	generic_show_known_fields( m, s, indent+2 ) ;
-	generic_show_unknown_fields( m, s, indent+2 ) ;
+	generic_show_unknown_fields( m.GetReflection()->GetUnknownFields(m), s, indent+2 ) ;
 	s << string( indent, ' ' ) << "}" ;
 }
 
-void show_message( const std::string& name, const google::protobuf::Message& m, std::ostream& s )
+void show_message( const std::string& name, const Message& m, std::ostream& s )
 {
 	s << name << ' ' ;
 	generic_show_message( m, s, 0 ) ;
@@ -467,7 +501,8 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 		}
 
 		/*[TAGS]*/ /* score is actually phred likelihood */
-		*out_ << "\tUQ:i:" << hit.score() << '\n' ;
+		if( hit.has_score() ) *out_ << "\tUQ:i:" << hit.score() ;
+		*out_ << '\n' ;
 	}
 
 	if( result.hit_size() == 0 )
@@ -475,7 +510,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 		// special treatment of unaligned sequence
 		*out_ << /*QNAME*/  result.read().seqid() << '\t'
 			<< /*FLAG */ bam_funmap
-			<< "*\t0\t0\t*\t*\t0\t0\t" // RNAME, POS, MAPQ, CIGAR, MRNM, MPOS, ISIZE
+			<< "\t*\t0\t0\t*\t*\t0\t0\t" // RNAME, POS, MAPQ, CIGAR, MRNM, MPOS, ISIZE
 			<< /*SEQ*/ result.read().sequence() << '\t' ;
 
 		if( result.read().has_quality() ) /*QUAL*/   
@@ -485,7 +520,7 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 			*out_ << '*' ;
 
 		/*[TAGS]*/
-		*out_ << "\t\n" ;
+		*out_ << "\n" ;
 		return no_hit ;
 	}
 	else return goodness ;
@@ -503,13 +538,6 @@ void SamWriter::put_footer( const Footer& f )
 			s << "SamWriter: " << nm_ << ": " << discarded[b] << " reads " << descr[b] ;
 			console.output( Console::notice, s.str() ) ;
 		}
-}
-
-void FastaAlnWriter::put_header( const Header& h )
-{
-	Stream::put_header( h ) ;
-	for( int i = 0 ; i != h.config().genome_path_size() ; ++i )
-		Metagenome::add_path( h.config().genome_path( i ) ) ;
 }
 
 //! \todo Coordinates in here are quite probably wrong (good thing

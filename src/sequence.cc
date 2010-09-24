@@ -20,6 +20,8 @@
 
 #include "sequence.h"
 #include "logdom.h"
+#include "stream.h"
+
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -233,3 +235,131 @@ bool read_fastq( google::protobuf::io::ZeroCopyInputStream *zis, output::Read& r
 	return true ;
 }
 
+namespace {
+
+inline std::string get_column( Reader& r )
+{
+	string s ;
+	while( r && r.peek() != '\t' && r.peek() != '\n' ) s.push_back( r.get() ) ;
+	while( r && r.peek() == '\t' ) r.get() ;
+	return s ;
+}
+inline int get_int_column( Reader& r )
+{
+	int x = 0 ;
+	while( r && isdigit( r.peek() ) ) x = 10*x + (r.get() - '0') ;
+	while( r && r.peek() == '\t' ) r.get() ;
+	return x ;
+}
+inline int get_cigar_column( Reader& r, google::protobuf::RepeatedField<uint32_t> *cig )
+{
+	int len = 0 ;
+	if( r && r.peek() == '*' ) r.get() ; // special code for empty CIGAR
+	else while( r && r.peek() != '\t' && r.peek() != '\n' ) // ordinary CIGAR
+	{
+		int x = 0 ;
+		output::Hit::Operation op ;
+
+		while( r && isdigit( r.peek() ) ) x = 10*x + (r.get() - '0') ;
+		if( r && isalpha( r.peek() ) ) 
+		{
+			switch( r.get() )
+			{
+				case 'M': op = output::Hit::Match ; len += x ; break ;
+				case 'I': op = output::Hit::Insert ; break ;
+				case 'D': op = output::Hit::Delete ; len += x ; break ;
+				case 'S': op = output::Hit::SoftClip ; break ;
+				case 'H': op = output::Hit::HardClip ; break ;
+				case 'N': op = output::Hit::Skip ; len += x ; break ;
+				case 'P': op = output::Hit::Pad ; break ;
+			}
+			cig->Add( streams::mk_cigar( op, x ) ) ;
+		}
+	}
+	while( r && r.peek() == '\t' ) r.get() ;
+	return len ;
+}
+
+inline bool get_opt_field( Reader& r, char *tag, int &intval, string &stringval ) 
+{
+	for( ;; ) 
+	{
+		if( !r || !isalpha( r.peek() ) ) return false ;
+		tag[0] = r.get() ; if( !r || !isalnum( r.peek() ) ) return false ;
+		tag[1] = r.get() ; if( !r || r.get() != ':' || !r || !isalpha( r.peek() ) ) return false ;
+		char key = r.get() ; if( !r || r.get() != ':' || !r ) return false ;
+		switch( key )
+		{
+			case 'i': intval = get_int_column( r ) ; return true ;
+			case 'Z': stringval = get_column( r ) ; return true ;
+			default: get_column( r ) ;
+		}
+	}
+}
+
+} ; // namespace
+
+
+bool read_sam( google::protobuf::io::ZeroCopyInputStream *zis, const string& genome, output::Result& r ) 
+{
+	for( Reader s( zis ) ; s ; skipline( s ) )
+	{
+		bool good = true ;
+		r.Clear() ;
+		r.mutable_read()->set_seqid( get_column( s ) ) ;				// QNAME
+		int flags = get_int_column( s ) ;								// FLAG
+
+		output::Hit *h = r.add_hit() ;
+		if( !genome.empty() ) h->set_genome_name( genome ) ;
+		h->set_sequence( get_column( s ) ) ;							// RNAME
+		h->set_start_pos( get_int_column( s )-1 ) ;						// POS
+		int mapq = get_int_column( s ) ;								// MAPQ
+		if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+		h->set_aln_length(get_cigar_column(s,h->mutable_cigar())) ;		// CIGAR
+		string junk = get_column( s ) ; 								// MRNM (ignored)
+		get_int_column( s ) ; 											// MPOS (ignored)
+		get_int_column( s ) ; 											// ISIZE (ignored)
+
+		string seq = get_column( s ) ;									// SEQ
+		for( size_t i = 0 ; i != seq.size() ; ++i )
+		{
+			char c = toupper( seq[i] ) ;
+			if( c == '.' ) seq[i] = 'N' ;
+			else if( strchr( "ACGTN", c ) ) seq[i] = c ;
+			else {
+				stringstream ss ;
+				ss << "parse error in SAM file: illegal character " << c << " (" << (int)c << ") in SEQ field." ;
+				console.output( Console::warning, ss.str() ) ;
+				good = false ;
+			}
+		}
+		r.mutable_read()->set_sequence( seq ) ;
+
+		string qual = get_column( s ) ;									// QUAL
+		if( qual != "*" ) {
+			for( size_t i = 0 ; i != qual.size() ; ++i ) qual[i] -= 33 ;
+			r.mutable_read()->set_quality( qual ) ;
+		}
+
+		char tag[2] ;
+		int intval = 0 ;
+		string stringval ;
+		while( get_opt_field( s, tag, intval, stringval ) )				// TAG:VTYPE:VALUE
+		{
+			if( tag[0] == 'U' && tag[1] == 'Q' ) h->set_score( intval ) ;
+			if( tag[0] == 'A' && tag[1] == 'S' ) if( !h->has_score() ) h->set_score( intval ) ;
+		}
+
+		if( flags & 0x10 ) {
+			h->set_aln_length( -h->aln_length() ) ;
+			std::reverse( h->mutable_cigar()->begin(), h->mutable_cigar()->end() ) ;
+			std::reverse( r.mutable_read()->mutable_sequence()->begin(), r.mutable_read()->mutable_sequence()->end() ) ;
+			std::transform( r.mutable_read()->mutable_sequence()->begin(), r.mutable_read()->mutable_sequence()->end(), 
+					r.mutable_read()->mutable_sequence()->begin(), compl_ascii ) ;
+			if( r.read().has_quality() ) std::reverse( r.mutable_read()->mutable_quality()->begin(), r.mutable_read()->mutable_quality()->end() ) ;
+		}
+		if( flags & 0x4 ) r.mutable_hit()->RemoveLast() ; 				// not actually aligned, get rid of the hit
+		if( good && s && s.get() == '\n' ) return true ; 				// make sure the line was actually parsed
+	}
+	return false ; // end of stream, we're done
+}

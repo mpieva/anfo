@@ -18,9 +18,7 @@
 //! The idea: use the ELK interpreter as a scripting engine for
 //! golfing ANFO files.
 //!
-//! \todo Deal with errors: C++ exceptions need to be caught, formatted
-//!       and reflected back into Scheme.
-//! \todo Deal with scheme ports and raw file descriptors somehow.
+//! \todo Deal with scheme ports somehow.
 
 #ifdef HAVE_CONFIG_H
 #include "../config.h"
@@ -29,6 +27,7 @@
 // don't do anything unless Elk is present
 #if HAVE_ELK_SCHEME_H
 
+#include "anfo_common.h"
 #include "ducttape.h"
 #include "index.h"
 #include "misc_streams.h"
@@ -72,7 +71,6 @@ struct StreamWrapper {
 
 extern "C" Object terminate_stream( Object o )
 {
-	StreamWrapper* s = (StreamWrapper*)POINTER(o) ;
     ((StreamWrapper*)POINTER(o))->~StreamWrapper() ;
 	Deregister_Object( o ) ;
 	return Void ;
@@ -188,12 +186,14 @@ Object wrap_streams( StreamBundle *m_, int argc, Object *argv )
 #define WRAP( fun, proto, args ) \
 	Object wrap_##fun proto ; \
 	Object fun proto { \
+		Object err = False ; \
 		try { return wrap_##fun args ; } \
-		catch( const std::string& e ) { Primitive_Error( e.c_str() ) ; } \
-		catch( const char *e ) { Primitive_Error( e ) ; } \
-		catch( const Exception& e ) { stringstream ss ; ss << e ; Primitive_Error( ss.str().c_str() ) ; } \
-		catch( const std::exception& e ) { Primitive_Error( e.what() ) ; } \
-		catch( ... ) { Primitive_Error( "unhandled C++ exception" ) ; } \
+		catch( const std::string& e ) { err = Make_String( e.data(), e.size() ) ; } \
+		catch( const char *e ) { err = Make_String( e, strlen(e) ) ; } \
+		catch( const Exception& e ) { stringstream ss ; ss << e ; string s = ss.str() ; err = Make_String( s.data(), s.size() ) ; } \
+		catch( const std::exception& e ) { string s = e.what() ; err = Make_String( s.data(), s.size() ) ; } \
+		catch( ... ) { err = Make_String( "unhandled C++ exception", 23 ) ; } \
+		if( TYPE(err) == T_String ) Primitive_Error( "~s", err ) ; \
 		return Void ; \
 	} \
 	Object wrap_##fun proto 
@@ -247,9 +247,13 @@ WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWrit
 WRAP( p_write_wig,    ( Object f ), (f) ) { return wrap_stream( new WigCoverageWriter( open_any_output_std( f ) ) ) ; }
 
 // Processors
-WRAP( p_duct_tape, ( Object n ), (n) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ) ) ) ; }
+WRAP( p_duct_tape, ( Object n, Object p ), (n,p) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ), Get_Double(p) ) ) ; }
 WRAP( p_add_alns, ( Object c ), (c) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
+
+WRAP( p_trim, ( Object l, Object r, Object m ), (l,r,m) ) 
+{ return wrap_stream( new Housekeeper( 
+			obj_to_genomes( l ), obj_to_genomes( r ), Get_Integer( m ) ) ) ; }
 
 // Evaluators
 WRAP( p_stats, (), () ) { return wrap_stream( new StatStream() ) ; }
@@ -266,6 +270,9 @@ WRAP( p_sort_by_name, ( Object mem, Object handles ), (mem,handles) )
 
 WRAP( p_filter_by_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
 { return wrap_stream( new ScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
+
+WRAP( p_filter_tot_score, ( Object slope, Object len, Object genomes ), (slope,len,genomes) )
+{ return wrap_stream( new TotalScoreFilter( Get_Double( slope ), Get_Double( len ), obj_to_genomes( genomes ) ) ) ; }
 
 WRAP( p_filter_by_qual, ( Object qual ), (qual) )
 { return wrap_stream( new QualFilter( Get_Double( qual ) ) ) ; }
@@ -307,28 +314,36 @@ WRAP( p_merge,  ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams(
 WRAP( p_join,   ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new NearSortedJoin, argc, argv ) ; }
 WRAP( p_concat, ( int argc, Object *argv ), (argc,argv) ) { return wrap_streams( new ConcatStream,   argc, argv ) ; }
 
-WRAP( p_read_file, ( Object fn, Object sol_scores, Object origin ), (fn,sol_scores,origin) )
+WRAP( p_read_file, ( Object fn, Object sol_scores, Object origin, Object genome, Object name ), (fn,sol_scores,origin,genome,name) )
 {
 	bool sol = Truep( sol_scores ) ;
 	int ori = Get_Integer( origin ) ;
+	string g ;
+
+	if( TYPE(genome) == T_Symbol ) genome = SYMBOL(genome)->name ;
+	if( TYPE(genome) == T_String ) g.assign( STRING(genome)->data, STRING(genome)->size ) ;
+
 	switch( TYPE(fn) )
 	{
-		// case T_Primitive:
-		// case T_Compound:
-			// return obj_to_stream( Funcall( o, Null, 0 ), sol, ori ) ;
-
 		case T_Symbol:
 		case T_String:
-			return wrap_stream( new UniversalReader( object_to_string(fn), 0, sol, ori ) ) ;
-
+			{
+				string nm = object_to_string(fn) ;
+				if( !nm.empty() && nm[nm.size()-1] == '|' )
+					return wrap_stream( new UniversalReader( object_to_string( name, "<pipe>" ),
+								make_PipeInputStream( nm.substr(0,nm.size()-1) ).first,
+								sol, ori, g ) ) ;
+				else 
+					return wrap_stream( new UniversalReader( object_to_string(fn), 0, sol, ori, g ) ) ;
+			}
 		case T_Fixnum:
-			return wrap_stream( new UniversalReader( "<pipe>", new FileInputStream( Get_Integer(fn) ), sol, ori ) ) ;
+			return wrap_stream( new UniversalReader( object_to_string( name, "<pipe>" ), new FileInputStream( Get_Integer(fn) ), sol, ori, g ) ) ;
 
 		case T_Boolean:
-			if( !Truep(fn) ) return wrap_stream( new UniversalReader( "<stdin>", new FileInputStream(0), sol, ori ) ) ;
+			if( !Truep(fn) ) return wrap_stream( new UniversalReader( object_to_string( name, "<stdin>" ), new FileInputStream(0), sol, ori, g ) ) ;
 
 		default:
-			Primitive_Error( "can't handle file argument ~s", fn ) ;
+			throw "can't handle file argument ~s" ;
 	}
 }
 
@@ -411,7 +426,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_limit_core,       "limit-core!",         1, 1, EVAL ) ;
 	Define_Primitive( (P)p_get_summary,      "get-summary",         1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_read_file,        "prim-read-file",      3, 3, EVAL ) ;
+	Define_Primitive( (P)p_read_file,        "prim-read-file",      5, 5, EVAL ) ;
 	Define_Primitive( (P)p_write_native,     "prim-write-native",   2, 2, EVAL ) ;
 	Define_Primitive( (P)p_write_text,       "prim-write-text",     1, 1, EVAL ) ; 
 	Define_Primitive( (P)p_write_sam,        "prim-write-sam",      1, 1, EVAL ) ;
@@ -422,9 +437,10 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_fasta,      "prim-write-fasta",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_wig,        "prim-write-wiggle",   1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      1, 1, EVAL ) ;
+	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      2, 2, EVAL ) ;
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       1, 1, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "prim-rmdup",          3, 3, EVAL ) ;
+	Define_Primitive( (P)p_trim,             "prim-trim",           3, 3, EVAL ) ;
 
 	Define_Primitive( (P)p_filter_by_len,    "prim-filter-length",  1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_qual, 	 "prim-filter-qual",    1, 1, EVAL ) ;
@@ -434,6 +450,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_sanitize,         "prim-sanitize",       0, 0, EVAL ) ;
 	Define_Primitive( (P)p_edit_header,      "prim-edit-header",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_filter_by_score,  "prim-filter-score",   3, 3, EVAL ) ;
+	Define_Primitive( (P)p_filter_tot_score, "prim-filter-total-score",3,3,EVAL) ;
 	Define_Primitive( (P)p_filter_by_mapq,   "prim-filter-mapq",    2, 2, EVAL ) ;
 	Define_Primitive( (P)p_filter_chain, 	 "prim-filter-chain",   3, 3, EVAL ) ;  // redesign?
 	Define_Primitive( (P)p_inside_region,    "prim-inside-region",  1, 1, EVAL ) ;  // redesign?

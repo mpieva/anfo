@@ -23,9 +23,12 @@
 #include "sequence.h"
 #include "util.h"
 
+#include <google/protobuf/text_format.h>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
+
+#include <iostream>
 
 #include <algorithm>
 #include <deque>
@@ -85,7 +88,12 @@ void write_delimited_message( google::protobuf::io::CodedOutputStream& os, int t
 	os.WriteTag( mk_msg_tag( tag ) ) ;
 	os.WriteVarint32( m.ByteSize() ) ;
 	if( !m.SerializeToCodedStream( &os ) )
-		throw "error while serializing" ;
+    {
+        string s ;
+        google::protobuf::TextFormat::PrintToString( m, &s ) ;
+        cerr << s ;
+        throw "error while serializing: " ;
+    }
 }
 
 template< typename Msg >
@@ -108,7 +116,7 @@ bool read_delimited_message( google::protobuf::io::CodedInputStream& is, Msg &m 
 }
 
 void sanitize( Header& ) ;
-void sanitize( Read& ) ;
+void sanitize( Result& ) ;
 void merge_sensibly( output::Header& lhs, const output::Header& rhs ) ;
 void merge_sensibly( output::Footer& lhs, const output::Footer& rhs ) ;
 void merge_sensibly( output::Result& lhs, const output::Result& rhs ) ;
@@ -337,13 +345,15 @@ class UniversalReader : public Stream
 
 		bool solexa_scores_ ;
 		int origin_ ;
+		string genome_ ;
 
 	public: 
 		UniversalReader(
 				const std::string& name,
 				google::protobuf::io::ZeroCopyInputStream* is = 0,
 				bool solexa_scores = false,
-				int origin = 33 
+				int origin = 33,
+				const string& genome = ""
 				) ;
 
 		virtual state get_state() { return str_ ? str_->get_state() : invalid ; }
@@ -356,6 +366,7 @@ class UniversalReader : public Stream
 
 //! \brief stream that writes result in native (ANFO) format
 //! The file will be in a format that can be read in by streams::AnfoReader.
+/*
 class AnfoWriter : public Stream
 {
 	private:
@@ -374,6 +385,7 @@ class AnfoWriter : public Stream
 		virtual void put_footer( const Footer& f ) { write_delimited_message( o_, 3, f ) ; Stream::put_footer( f ) ; }
 		virtual void put_result( const Result& r ) ;
 } ;
+*/
 
 //! \brief new blocked native format
 //! Writes in a format that can be read by stream::ChunkedReader.  The
@@ -393,7 +405,6 @@ class ChunkedWriter : public Stream
 		int64_t wrote_ ;
 		uint8_t method_, level_ ;
 
-		virtual ~ChunkedWriter() ;
 		void flush_buffer( unsigned needed = 0 ) ;
 		void init() ;
 
@@ -417,6 +428,7 @@ class ChunkedWriter : public Stream
 		ChunkedWriter( const pair< google::protobuf::io::ZeroCopyOutputStream*, string >&, int ) ;
 		ChunkedWriter( int fd, int, const char* = "<pipe>" ) ;
 		ChunkedWriter( const char* fname, int ) ;
+		virtual ~ChunkedWriter() ;
 
 		virtual void put_header( const Header& h ) ;
 		virtual void put_result( const Result& r ) ;
@@ -529,6 +541,19 @@ class ScoreFilter : public HitFilter
 		virtual bool keep( const Hit& ) ;
 } ;
 
+class TotalScoreFilter : public Filter
+{
+    private:
+        double slope_ ;
+        double intercept_ ;
+        vector< string > gs_ ;
+
+    public:
+		TotalScoreFilter( double s, double i, const vector<string> &gs ) : slope_(s), intercept_(i), gs_(gs) {}
+        virtual bool xform( Result& ) ;
+} ;
+
+        
 //! \brief stream that filters for minimum mapping quality
 //! All alignments of sequences where the difference to the next hit is
 //! too low are deleted.  Filtering can be restricted to some genomes.
@@ -610,11 +635,11 @@ class Subsample : public Filter
 class MultiFilter : public Filter
 {
 	private:
-		int n_ ;
+		unsigned n_ ;
 
 	public:
-		MultiFilter( int n ) : n_(n) {}
-		virtual bool xform( Result& r ) { return r.member_size() >= n_ ; }
+		MultiFilter( unsigned n ) : n_(n) {}
+		virtual bool xform( Result& r ) { return r.members_size() + r.nmembers() >= n_ ; }
 } ;
 
 //! \brief stream that filters out low quality bases
@@ -696,9 +721,10 @@ class RmdupStream : public Stream
 		// XXX double err_prob_[4][4] ; // get this from config or
 		// something?
 
-		bool is_duplicate( const Result& , const Result& ) ;
+		bool is_duplicate( const Result& , const Result& ) const ;
 		void add_read( const Result& ) ;
 		void call_consensus() ;
+		int max_score( const Hit* h ) const ;
 
 	public:
 		//! \brief sets parameters
@@ -740,7 +766,7 @@ class FastqReader : public Stream
 		void read_next_message() {
             if( read_fastq( is_.get(), *res_.mutable_read(), sol_scores_, origin_ ) ) {
                 state_ = have_output ;
-                sanitize( *res_.mutable_read() ) ;
+                sanitize( res_ ) ;
             } else {
                 state_ = end_of_stream ;
 				is_.reset( 0 ) ;
@@ -748,9 +774,45 @@ class FastqReader : public Stream
 		}
 
 	public: 
-		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) ;
+		FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) :
+			is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
+
 		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
 		virtual string type_name() const { return "FastqReader" ; }
+} ;
+
+class SamReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		string name_, genome_ ;
+		Chan progress_ ;
+		int nmsg_ ;
+
+		void read_next_message() {
+            if( read_sam( is_.get(), genome_, res_ ) ) {
+                state_ = have_output ;
+                sanitize( res_ ) ;
+				if( (++nmsg_ & 0xffff) == 0 ) {
+					stringstream ss ;
+					ss << name_ << ": " << nmsg_ << " records" ;
+					progress_( Console::info, ss.str() ) ;
+				}
+            } else {
+                state_ = end_of_stream ;
+				is_.reset( 0 ) ;
+				progress_.close() ;
+				foot_.set_exit_code( 0 ) ;
+            }
+		}
+
+	public: 
+		SamReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& n, const string& g ) :
+			is_( is ), name_( n ), genome_( g ), nmsg_(0) { read_next_message() ; }
+
+		virtual Header fetch_header() { hdr_.add_is_sorted_by_coordinate( "" ) ; return Stream::fetch_header() ; }
+		virtual Result fetch_result() { Result r ; std::swap( r, res_ ) ; read_next_message() ; return r ; }
+		virtual string type_name() const { return "SamReader" ; }
 } ;
 
 class SffReader : public Stream
@@ -779,7 +841,41 @@ class SffReader : public Stream
 		virtual string type_name() const { return "SffReader(" + name_ + ")" ; }
 } ;
 
+class BamReader : public Stream
+{
+	private:
+		std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is_ ;
+		string name_ ;
+		string genome_ ;
+		vector< string > refseqs_ ;
+
+		const void* buf_ ;
+		int buf_size_ ;
+
+		uint8_t read_uint8() ;
+		uint16_t read_uint16() ;
+		uint32_t read_uint32() ;
+		void read_string( unsigned, string* ) ;
+
+	public:
+		BamReader( auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, const string& genome ) ;
+		virtual Result fetch_result() ;
+		virtual string type_name() const { return "BamReader(" + name_ + ")" ; }
+} ;
+
 } // namespace streams
+
+class PipeInputStream : public google::protobuf::io::FileInputStream 
+{
+	private:
+		pid_t cpid_ ;
+
+	public:
+		PipeInputStream( int fd, pid_t cpid ) : google::protobuf::io::FileInputStream( fd ), cpid_( cpid ) {} 
+		virtual ~PipeInputStream() { Close() ; throw_errno_if_minus1( waitpid( cpid_, 0, 0 ), "waiting for pipe process" ) ; }
+} ;
+
+std::pair< PipeInputStream*, std::string > make_PipeInputStream( const std::string& ) ;
 
 class PipeOutputStream : public google::protobuf::io::FileOutputStream 
 {

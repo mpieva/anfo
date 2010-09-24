@@ -107,9 +107,10 @@ int overlap_align( A seq_a, A seq_a_end, B seq_b, B seq_b_end, int*yout )
 		int dm = discount*d + discount-1 ;
 		for( int k = -d ; k <= dm ; ++k ) {								// diagonals
 			int x = 0 ==  d            ? k                                                                     :
+				    1 ==  d && 0 == k  ?                             v_dm1[  k +maxd ]+1					   :
 			        k == -d            ?                                                  v_dm1[ k+1 +maxd ]   :
-			        k == -d+1          ? max(                        v_dm1[  k +maxd ]+1, v_dm1[ k+1 +maxd ] ) :
 			        k  > dm-discount+1 ? k                                                                     :
+			        k == -d+1          ? max(                        v_dm1[  k +maxd ]+1, v_dm1[ k+1 +maxd ] ) :
 			        k == dm-discount+1 ? max(  v_dm1[ k-1 +maxd ]+1,                      k )                  :
 			        k == dm-discount   ? max3( v_dm1[ k-1 +maxd ]+1, v_dm1[  k +maxd ]+1, k )                  :
 			                             max3( v_dm1[ k-1 +maxd ]+1, v_dm1[  k +maxd ]+1, v_dm1[ k+1 +maxd ] ) ;

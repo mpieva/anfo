@@ -329,12 +329,14 @@ WRAPPED_MAIN
 	const char* genome_name = 0 ;
 	int max_num_n = 2 ;
 	int verbose = 0 ;
+	int taxid = 0 ;
 
 	struct poptOption options[] = {
 		{ "version",     'V', POPT_ARG_NONE,   0,            opt_version, "Print version number and exit", 0 },
 		{ "output",      'o', POPT_ARG_STRING, &output_file, opt_none,    "Write DNA output to FILE", "FILE" },
 		{ "maxn",        'm', POPT_ARG_INT,    &max_num_n,   opt_none,    "Treat N consecutive Ns as separator", "N" },
 		{ "genome",      'g', POPT_ARG_STRING, &genome_name, opt_none,    "Set genome name to NAME", "NAME" },
+		{ "taxid",        0 , POPT_ARG_INT,    &taxid,       opt_none,    "Set numeric taxid of genome to T", "T" },
 		{ "description", 'd', POPT_ARG_STRING, &description, opt_none,    "Add TEXT as description to genome", "TEXT" },
 		{ "verbose",     'v', POPT_ARG_NONE,   &verbose,     opt_none,    "Make more noise while working", 0 },
 		POPT_AUTOHELP POPT_TABLEEND
@@ -361,6 +363,7 @@ WRAPPED_MAIN
 	config::Genome g ;
 
 	if( description ) g.set_description( description ) ;
+	if( taxid ) g.set_taxid( taxid ) ;
 	if( genome_name ) g.set_name( genome_name ) ;
 	else if( !poptPeekArg( pc ) ) g.set_name( "genome" ) ;
 	else g.set_name( drop_suffix( ".fa", drop_suffix( ".fas", drop_suffix( ".fna", poptPeekArg( pc ))))) ;

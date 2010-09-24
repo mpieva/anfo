@@ -26,7 +26,6 @@
 #include <string>
 
 #include <sys/types.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 
 #if HAVE_FCNTL_H
@@ -142,13 +141,11 @@ namespace {
 //! \param ext optional extension (without the dot)
 //! \param env_var optional name of environment variable in same format
 //!                as PATH
-//! \param begin start iterator of list of directories
-//! \param end end iterator of list of directories
 //! \return opened file descriptor
 
-template <typename Iter> int path_open(
+inline int path_open(
 		const std::string& name, const std::string& ext,
-		const char *env_var, Iter begin, Iter end )
+		const char *env_var )
 {
 	int fd = open2( name, ext ) ;
 	if( env_var ) {
@@ -158,25 +155,15 @@ template <typename Iter> int path_open(
 
 				size_t end, start = 0 ;
 				for( ; fd == -1 && (end = path.find( ':', start )) != std::string::npos ; start = end+1 )
-					fd = open2( path.substr( start, end ) + "/" + name, ext ) ;
+					fd = open2( path.substr( start, end-start ) + "/" + name, ext ) ;
 				if( fd == -1 ) fd = open2( path.substr( start ) + "/" + name, ext ) ;
 			}
 		}
 	}
-	for( ; fd == -1 && begin != end ; ++begin )
-		fd = open2( *begin + ("/" + name), ext ) ;
 	return throw_errno_if_minus1( fd, "opening", name.c_str() ) ;
 }
 
 template< typename T > struct delete_ptr { void operator()( T* p ) const { delete p ; } } ;
-
-#ifndef _BSD_SOURCE
-// fake for systems that don't provide madvise()
-inline int madvise( void*, size_t, int ) { return 0 ; }
-static const int MADV_NORMAL = 0 ;
-static const int MADV_SEQUENTIAL = 0 ;
-static const int MADV_WILLNEED = 0 ;
-#endif
 
 int wrap_main( int argc, const char * argv[], int(*)(int,const char*[]) ) ;
 #define WRAPPED_MAIN \
@@ -220,6 +207,8 @@ int mktempfile( std::string* name = 0 ) ;
 //! Output goes to the controlling terminal (/dev/tty) if possible,
 //! progress notifications are displayed in the last line and everything
 //! is updating sensibly.  Might grow into a logging system, too.
+//! 
+//! XXX this isn't thread safe.  should be changed...
 class Console 
 {
 	public: 

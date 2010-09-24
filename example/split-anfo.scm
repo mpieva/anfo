@@ -14,7 +14,7 @@
 (define (output s)
   (chain 
     (require-hit genomes: genome sequences: s)
-    (write-native (string-append output-file s ".anfo") 99)))
+    (write-native (string-append output-file s ".anfo"))))
 
 (anfo-run input-file (apply tee (map output sequences)))
 

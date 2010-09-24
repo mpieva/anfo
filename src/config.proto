@@ -61,7 +61,7 @@ message Sequence {
 
 message Genome {
     // handle for the genome, used to report matches and to look up genome files
-    optional string name = 1 [default=""] ;
+    optional string name = 1 ;
 
     // description of the genome (most likely from command line)
     optional string description = 3 ;
@@ -96,18 +96,21 @@ message CompactIndex {
 
     // stride if not every word is indexed
     optional uint32 stride = 6 [default=1] ;
+
+	repeated uint32 gap = 7 [ packed=true ] ;
 }
 
 message CompactIndexSpec {
     required string name = 2 ;
     optional uint32 cutoff = 4 ;
-    optional bool allow_near_perfect = 5 [ default = false ] ;
+    optional uint32 wordsize = 3 ;
+    optional uint32 stride = 6 ;
 
-    // If the index has slices, declare them here.  The value of
-    // SGE_TASK_ID % number_of_slices is the slice to use.  We start
-    // counting at 0, naturally.  The number is spliced in for $$ in the
-    // index name.  Leave undefined to turn this gross hack off.
-    optional uint32 number_of_slices = 15 ;
+    // number of mismatches to allow per seed
+    // Only values of 0 or 1 are currently support, and even that
+    // support is flaky.  Set to 1 only in combination with longish
+    // seeds.
+    optional uint32 allow_near_perfect = 5 [ default = 0 ] ;
 }
 
 // Configuration of mapper/aligner for a subset of sequences.  The idea
@@ -135,15 +138,8 @@ message Policy {
     // minimum total length of combined seeds to make an alignment
     optional uint32 min_seed_len = 7 ; 
 
-    // distance cutoff scaled by 1000
-    // (need to add an E-Value cutoff at some point)
-    required uint32 max_penalty_per_nuc = 8 ;
-
     // pattern to match names against
     optional string name_pattern = 9 ;
-
-    // to to associate to statistics if necessary
-    optional string tag = 10 ;
 }
 
 message Aligner {
@@ -172,16 +168,18 @@ message Aligner {
     // geometrically distributed with a suitable parameter
     // if left out, no overhangs are produced
     optional float mean_overhang_length = 7 ;
+
+    // distance cutoff scaled by 1000
+    // (need to add an E-Value cutoff at some point)
+    optional uint32 max_penalty_per_nuc = 8 [ default = 15 ] ;
+
+    optional uint32 max_mapq = 9 [ default = 254 ] ;
 }
 
 
 // Configuration messages are both read from a file to configure the program
 // and written as a kind of header to the output to leave an audit trail.
 message Config {
-    // path to look for genome and index files (rolled into one, since both are
-    // intrinsically coupled after all)
-    repeated string genome_path = 2 ;
-    
     // rules to select indices
     repeated Policy policy = 3 ;
 
@@ -195,9 +193,14 @@ message Config {
     // We look for the given sequence, which may overlap the read
     // sequence or be contained within it.  If the overlap is good
     // enough, it is cut off.  We can do this on the 3' end (adapters)
-    // or the 5' end (strange artefacts).
+    // or the 5' end (strange artefacts).  Trimming is done before
+    // indexing.
     repeated string trim_right = 5 ;
     repeated string trim_left  = 6 ;
+
+	// minimum score needed for something to be trimmed.  default should
+	// be fine
+	optional uint32 min_trim_score = 7 [ default = 4 ] ;
 }
 
 // :vim:expandtab:ts=4:sw=4:cindent:

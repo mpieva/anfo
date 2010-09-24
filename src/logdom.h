@@ -86,6 +86,9 @@ class Logdom {
 		// addition w/o sacrificing precision is a bit harder
 		Logdom operator + ( Logdom b ) const
 		{
+			if( b == null() ) return *this ;
+			if( *this == null() ) return b ;
+
 			return Logdom( v_ <= b.v_
 					?   v_ + ld1pexp10( b.v_ -   v_ ) 
 					: b.v_ + ld1pexp10(   v_ - b.v_ ) ) ;
@@ -93,6 +96,8 @@ class Logdom {
 
 		Logdom operator - ( Logdom b ) const
 		{
+			if( b == null() ) return *this ;
+
 			return Logdom( v_ <= b.v_
 					?   v_ + ld1mexp10( b.v_ -   v_ ) 
 					: b.v_ + ld1mexp10(   v_ - b.v_ ) ) ; 
@@ -100,17 +105,24 @@ class Logdom {
 
 		Logdom& operator += ( Logdom b )
 		{
-			v_ = v_ <= b.v_
-				?   v_ + ld1pexp10( b.v_ -   v_ ) 
-				: b.v_ + ld1pexp10(   v_ - b.v_ ) ;
+			if( *this == null() ) {
+					v_ = b.v_ ;
+			} 
+			else if( b != null() ) {
+				v_ = v_ <= b.v_
+					?   v_ + ld1pexp10( b.v_ -   v_ ) 
+					: b.v_ + ld1pexp10(   v_ - b.v_ ) ;
+			}
 			return *this ;
 		}
 
 		Logdom& operator -= ( Logdom b )
 		{
-			v_ = v_ <= b.v_
-				?   v_ + ld1mexp10( b.v_ -   v_ ) 
-				: b.v_ + ld1mexp10(   v_ - b.v_ ) ; 
+			if( b != null() ) {
+				v_ = v_ <= b.v_
+					?   v_ + ld1mexp10( b.v_ -   v_ ) 
+					: b.v_ + ld1mexp10(   v_ - b.v_ ) ; 
+			}
 			return *this ;
 		}
 

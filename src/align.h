@@ -152,9 +152,15 @@ template< typename T > struct gen_alignment {
 	//! \param g genome the seeds were prepared from
 	//! \param ps sample sequence in compact format
 	//! \param s the seed
+	/*
 	gen_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s )
 		: reference( (g.get_base() + s.diagonal + s.offset + s.size / 2).reverse_if( s.offset < 0 ) )
 		, query( ps.start() + ( s.offset >= 0 ? s.offset + s.size / 2 : -s.offset - s.size/2 ) )
+		, state(0), penalty(0), ref_offs(0), query_offs(0) {} */
+
+	gen_alignment( const CompactGenome& g, const QSequence& ps, unsigned ref_pos, int qry_pos )
+		: reference( (g.get_base() + ref_pos).reverse_if( qry_pos < 0 ) )
+		, query( ps.start() + abs( qry_pos ) )
 		, state(0), penalty(0), ref_offs(0), query_offs(0) {}
 
 
@@ -292,7 +298,7 @@ struct flat_alignment : public gen_alignment<flat_alignment> {
 	static uint32_t gap_penalty() { return 1 ; }
 
 	flat_alignment() : gen_alignment<flat_alignment>() {}
-	flat_alignment( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<flat_alignment>(g,ps,s) {}
+	flat_alignment( const CompactGenome& g, const QSequence& ps, unsigned ref_pos, int qry_pos ) : gen_alignment<flat_alignment>(g,ps,ref_pos,qry_pos) {}
 } ;
 
 //! \brief checks whether an alignment is finished
@@ -448,7 +454,7 @@ struct simple_adna : public gen_alignment<simple_adna> {
 
 
 	simple_adna() : gen_alignment<simple_adna>() {}
-	simple_adna( const CompactGenome& g, const QSequence& ps, const Seed& s ) : gen_alignment<simple_adna>(g,ps,s) {}
+	simple_adna( const CompactGenome& g, const QSequence& ps, unsigned ref_pos, int qry_pos ) : gen_alignment<simple_adna>(g,ps,ref_pos,qry_pos) {}
 
 	enum {
 		mask_gap_ref = 2,
@@ -758,7 +764,8 @@ backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, Dn
 		a = b ;
 	}
 
-	assert( a->ref_offs == a->query_offs ) ;
+	if( a->ref_offs != a->query_offs ) throw  "logic error: first half of backtrace has drifted" ;
+
 	streams::push_m( fwd, -a->ref_offs-1 ) ;
 	fwd.push_back( 0 ) ;
 
@@ -785,11 +792,12 @@ backtrace( const typename State::ClosedMap &cl, const State *a, DnaP &minpos, Dn
 		a = b ;
 	}
 
+	if( a->ref_offs != a->query_offs ) throw "logic error: second half of backtrace has drifted" ;
+
 	// Now (*b) is null, (*a) is the last state ever generated.  Now
 	// trace further until we hit the initial state (both offsets
 	// vanish).  We can again add this to t2, as we're going in the same
 	// direction.
-	assert( a->ref_offs == a->query_offs ) ;
 	streams::push_m( rev, a->ref_offs ) ;
 
 	fwd.insert( fwd.end(), rev.rbegin(), rev.rend() ) ;

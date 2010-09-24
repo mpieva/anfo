@@ -29,12 +29,15 @@ extern "C" {
 #include <google/protobuf/repeated_field.h>
 
 #include <algorithm>
+#include <cctype>
 #include <numeric>
 #include <set>
 
 #if HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
+
+#include <iostream>
 
 namespace std {
 	bool operator < ( const output::Read& p, const output::Read& q )
@@ -68,9 +71,6 @@ namespace {
 		return p != string::npos ? s.substr(p+1) : s ;
 	}
 } ;
-
-FastqReader::FastqReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, bool solexa_scores, char origin ) 
-	: is_( is ), sol_scores_(solexa_scores), origin_(origin) { read_next_message() ; }
 
 AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
 {
@@ -145,7 +145,7 @@ namespace {
 			if( o.has_trim_right() ) r.set_trim_right( o.trim_right() ) ;
 		}
 
-		rs.mutable_member()->MergeFrom( o.member() ) ;
+		rs.mutable_members()->MergeFrom( o.member() ) ;
 
 		if( o.has_best_hit() ) *rs.add_hit() = upgrade( o.best_hit() ) ;
 		if( o.has_best_to_genome() ) {
@@ -195,7 +195,7 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 			{
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
-				sanitize( *res_.mutable_read() ) ;
+				sanitize( res_ ) ;
 				return ;
 			}
 			if( tag == mk_msg_tag( 2 ) && ores.ParseFromCodedStream( &cis ) )
@@ -203,7 +203,7 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 				cis.PopLimit( lim ) ;
 				state_ = have_output ;
 				res_ = upgrade( ores ) ;
-				sanitize( *res_.mutable_read() ) ;
+				sanitize( res_ ) ;
 				return ;
 			}
 			if( tag == mk_msg_tag( 3 ) && foot_.ParseFromCodedStream( &cis ) )
@@ -218,6 +218,7 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 	}
 }
 
+/*
 AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos, const char* fname ) : o_( zos ), name_( fname ), wrote_(0)
 {
 	o_.WriteRaw( "ANFO", 4 ) ;
@@ -249,6 +250,7 @@ void AnfoWriter::put_result( const Result& r )
 		chan_( Console::info, s.str() ) ;
 	}
 }
+*/
 
 void ChunkedWriter::init() 
 {
@@ -535,22 +537,8 @@ void merge_sensibly( Header& lhs, const Header& rhs )
 
 void sanitize( Header& hdr )
 {
-	nub( *hdr.mutable_sge_slicing_index() ) ;
 	nub( *hdr.mutable_command_line() ) ;
-	nub( *hdr.mutable_config()->mutable_genome_path() ) ;
 	nub( *hdr.mutable_config()->mutable_policy() ) ;
-	if( hdr.has_sge_slicing_stride() ) 
-	{
-		set< int > indices ;
-		for( int i = 0 ; i != hdr.sge_slicing_index_size() ; ++i )
-			indices.insert( hdr.sge_slicing_index(i) ) ;
-		
-		if( indices.size() == hdr.sge_slicing_stride() )
-		{
-			hdr.clear_sge_slicing_index() ;
-			hdr.clear_sge_slicing_stride() ;
-		}
-	}
 	hdr.clear_was_sorted_by_coordinate() ;
 	if( hdr.is_sorted_by_coordinate_size() == 1 && hdr.is_sorted_by_coordinate(0) == "" )
 	{
@@ -567,7 +555,7 @@ void sanitize( Header& hdr )
 //!
 //! \todo Check likelihood arrays and discard them in case of length
 //!       mismatch.
-void sanitize( Read& rd ) 
+void sanitize_read( Read& rd ) 
 {
 	unsigned l = rd.sequence().length() ;
 	if( rd.has_quality() && rd.quality().length() != l ) rd.clear_quality() ;
@@ -576,6 +564,17 @@ void sanitize( Read& rd )
     if( rd.has_description() && rd.description().empty() ) rd.clear_description() ;
 }
 
+void sanitize( Result& r ) 
+{
+    for( int i = 0 ; i != r.hit_size() ; ++i )
+    {
+        string& s = *r.mutable_hit(i)->mutable_genome_name() ;
+        for( size_t j = 0 ; j != s.size() ; ++j )
+            s[j] = tolower( s[j] ) ;
+    }
+    sanitize_read( *r.mutable_read() ) ;
+}
+    
 //! \brief merges two hits by keeping the better one
 void merge_sensibly( Hit& lhs, const Hit& rhs )
 {
@@ -610,8 +609,13 @@ void merge_sensibly( Result& lhs, const Result& rhs )
 	// - read: all equal, no merging needed
 
 	// - member: concatenate and remove doubles
-	lhs.mutable_member()->MergeFrom( rhs.member() ) ;
-	nub( *lhs.mutable_member() ) ;
+	lhs.mutable_members()->MergeFrom( rhs.members() ) ;
+	lhs.set_nmembers( lhs.nmembers() + rhs.nmembers() ) ;
+	nub( *lhs.mutable_members() ) ;
+	if( lhs.members_size() >= 8 ) {
+		lhs.set_nmembers( lhs.nmembers() + lhs.members_size() ) ;
+		lhs.clear_members() ;
+	}
 
 	// - hits: merge those for the same genome, concatenate the rest
 	for( int j = 0 ; j != rhs.hit_size() ; ) {
@@ -734,6 +738,22 @@ bool OnlyGenome::xform( Result& res )
 bool ScoreFilter::keep( const Hit& h )
 { return slope_ * ( len_from_bin_cigar( h.cigar() ) - intercept_ ) >= h.score() ; }
 
+static int effective_length( const Read& rd )
+{
+    return rd.has_trim_right()
+        ? rd.trim_right() - rd.trim_left()
+        : rd.sequence().length() - rd.trim_left() ;
+}
+
+bool TotalScoreFilter::xform( Result& r )
+{
+    int score = 0 ;
+    for( int i = 0 ; i != r.hit_size() ; ++i )
+        if( contains( gs_, r.hit(i).genome_name() ) )
+            score += r.hit(i).score() ;
+    return slope_ * ( effective_length( r.read() ) - intercept_ ) >= score ;
+}
+
 bool MapqFilter::keep( const Hit& h )
 { return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
 
@@ -783,7 +803,7 @@ namespace {
 	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
 } ;
 
-bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) 
+bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) const
 {
 	const output::Hit *l = hit_to( lhs, gs_.begin(), gs_.end() ), *r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
 
@@ -798,11 +818,21 @@ void RmdupStream::add_read( const Result& rhs )
 {
 	// if the new member is itself a cluster, we add its member reads,
 	// not the single synthetic one
-	if( rhs.member_size() ) 
-		for( int i = 0 ; i != rhs.member_size() ; ++i )
-			*cur_.add_member() = rhs.member(i) ;
+	if( rhs.nmembers() )
+	{
+		cur_.set_nmembers( rhs.nmembers() + cur_.nmembers() + cur_.members_size() ) ;
+		cur_.clear_members() ;
+	}
+	else if( rhs.members_size() ) 
+		for( int i = 0 ; i != rhs.members_size() ; ++i )
+			*cur_.add_members() = rhs.members(i) ;
 	else
-		*cur_.add_member() = rhs.read() ;
+		*cur_.add_members() = rhs.read() ;
+
+	if( cur_.members_size() >= 8 ) {
+		cur_.set_nmembers( cur_.nmembers() + cur_.members_size() ) ;
+		cur_.clear_members() ;
+	}
 
 	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
@@ -858,35 +888,61 @@ void RmdupStream::put_footer( const Footer& f ) {
 	}
 }
 
+inline int RmdupStream::max_score( const Hit* h ) const
+{ return int( 0.5 + slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ) ; }
+
 //! \brief receives a result record and merges it if appropriate
 //!
 //! There are the following possibilities what to do here:
-//! - A result with a bad alignment is passed through (means it is
-//!   stored in res_ and output becomes available).
+//! - A result with a bad alignment, but correct coordinates is passed
+//!   through (means it is stored in res_ and output becomes available).
 //! - If cur_ is invalid, the result is stored there and cur_ becomes
 //!   valid.
 //! - A result with correct coordinates (according to is_duplicate) is
 //!   directly merged into cur_, no output becomes available.
 //! - Anything else cannot be merged, so a consensus is called, cur_
 //!   moves to res_, next moves to cur_, and output becomes available.
-//!
-//! \todo In principle, search for duplicates can be repeated (e.g.
-//!       after sorting on a different genome coordinate), and this is
-//!       supported; it is not really tested, though.
 
 void RmdupStream::put_result( const Result& next ) 
 {
 	const Hit *h = hit_to( next, gs_.begin(), gs_.end() ) ;
-	if( !h || h->score() > slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) )
+	const Hit *h0 = hit_to( cur_, gs_.begin(), gs_.end() ) ;
+
+	// first check: is anything buffered?
+	if( !cur_.IsInitialized() ) 
 	{
-		// bad alignment -- this one passes through without merging
-		// we clamp qualities, though
-		res_ = next ;
-		Read &r = *res_.mutable_read() ;
-        limit_quality( r, maxq_ ) ;
-		state_ = have_output ;
+		// empty buffer.  if we now get a good alignment, we store it.
+		// anything else passed through
+		if( h && h->score() <= max_score( h ) )
+		{
+			cur_ = next ;
+			for( size_t i = 0 ; i != 4 ; ++i )
+			{
+				quals_[i].clear() ;
+				quals_[i].resize( cur_.read().sequence().size() ) ;
+			}
+		}
+		else
+		{
+			// bad alignment or none at all -- this one passes through
+			// without merging.  we clamp qualities, though
+			res_ = next ;
+			Read &r = *res_.mutable_read() ;
+			limit_quality( r, maxq_ ) ;
+			state_ = have_output ;
+		}
 	}
-	else if( !cur_.IsInitialized() ) {
+	// something is stored.  If it has a bad alignment, we need to get
+	// rid of it, which makes room to store the next alignment.  (Very
+	// annoying, but it's a good thing we never need more than one slot
+	// for buffering...)
+	else if( !h0 || h0->score() > max_score( h0 ) )
+	{
+		swap( res_, cur_ ) ;
+		Read &r = *res_.mutable_read() ;
+		limit_quality( r, maxq_ ) ;
+		state_ = have_output ;
+
 		cur_ = next ;
 		for( size_t i = 0 ; i != 4 ; ++i )
 		{
@@ -894,25 +950,41 @@ void RmdupStream::put_result( const Result& next )
 			quals_[i].resize( cur_.read().sequence().size() ) ;
 		}
 	}
-	else if( is_duplicate( cur_, next ) )
+	// we got something stored, and it is known to be eligible for
+	// merging.  if we get a matched alignment, we need to check if the
+	// new one is any good...
+	else if( h && is_duplicate( cur_, next ) ) 
 	{
-		// Merge them.  If cur is a plain result, turn it into a
-		// degenerate merged one first...
-		if( cur_.member_size() == 0 )
+		if( h->score() <= max_score( h ) ) 
 		{
-			add_read( cur_ ) ;
-			cur_.mutable_read()->set_seqid( "C_" + cur_.read().seqid() ) ;
-			cur_.mutable_read()->clear_description() ;
+			// a good one, we need to actually merge it.  If cur_ is a
+			// plain result, turn it into a degenerate merged one
+			// first...
+			if( cur_.members_size() + cur_.nmembers() == 0 )
+			{
+				add_read( cur_ ) ;
+				cur_.mutable_read()->set_seqid( "C_" + cur_.read().seqid() ) ;
+				cur_.mutable_read()->clear_description() ;
+			}
+			// Merge the new one.  No state change necessary, we continue to
+			// request input.
+			add_read( next ) ;
 		}
-		// Merge the new one.  No state change necessary, we continue to
-		// request input.
-		add_read( next ) ;
+		else
+		{
+			// the new one is crap.  Pass it on, keep whatever is in
+			// the accumulator.
+			res_ = next ;
+			Read &r = *res_.mutable_read() ;
+			limit_quality( r, maxq_ ) ;
+			state_ = have_output ;
+		}
 	}
 	else
 	{
-		// Nothing to match.  Call a consensus for cur_, then move it to
-		// res_.  State that output is available, store new result in
-		// cur_.
+		// we got something that has wrong coordinates or no alignment
+		// at all.  Call a consensus for cur_, then move it to res_.
+		// State that output is available, and store new result in cur_.
 		call_consensus() ;
 		swap( res_, cur_ ) ;
 		cur_ = next ;
@@ -927,7 +999,7 @@ void RmdupStream::put_result( const Result& next )
 
 void RmdupStream::call_consensus()
 {
-	if( !cur_.member_size() ) {
+	if( !cur_.members_size() && !cur_.nmembers() ) {
         limit_quality( *cur_.mutable_read(), maxq_ ) ;
         return ;
     }
@@ -1045,35 +1117,69 @@ namespace {
 
 	} ;
 
-	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin )
+	bool magic( const void *p, int l, const char* sig )
+	{
+		for( const char* q = (const char*)p ; *sig ; ++q, --l, ++sig )
+			if( !l || *q != *sig ) return false ;
+		return true ;
+	}
+	bool is_fastq( const void *p, int l ) 
+	{
+		const uint8_t* q = (const uint8_t*)p ;
+		return l >= 3 && (*q == '>' || *q == '@') && isprint( q[1] ) && !magic( p, l, "@HD" ) ;
+	}
+
+	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin, const string& genome )
 	{
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
 		const void* p ; int l ;
-		if( !is->Next( &p, &l ) ) return StreamHolder() ; // XXX new Stream ;
+		if( !is->Next( &p, &l ) ) return new Stream() ; // gives an empty stream
 		is->BackUp( l ) ;
 
-		const uint8_t* q = (const uint8_t*)p ;
-		if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == 'O' )
+		if( magic( p, l, "ANFO" ) ) {
+			console.output( Console::info, name + ": linear ANFO file" ) ;
 			return new AnfoReader( is, name ) ;
-
-		else if( l >= 4 && q[0] == 'A' && q[1] == 'N' && q[2] == 'F' && q[3] == '1' )
+		}
+		if( magic( p, l, "ANF1" ) ) {
+			console.output( Console::info, name + ": chunked ANFO file" ) ;
 			return new ChunkedReader( is, name ) ;
-
-		else if( l >= 4 && q[0] == '.' && q[1] == 's' && q[2] == 'f' && q[3] == 'f' )
+		}
+		if( magic( p, l, ".sff" ) ) {
+			console.output( Console::info, name + ": SFF file" ) ;
 			return new SffReader( is, name ) ;
-
-		else if( l >= 3 && q[0] == 'B' && q[1] == 'Z' && q[2] == 'h' )
+		}
+		if( magic( p, l, "BAM\x01" ) ) {
+			console.output( Console::info, name + ": BAM file" ) ;
+			return new BamReader( is, name, genome ) ;
+		}
+		if( magic( p, l, "BZh" ) )
 		{
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
+			console.output( Console::info, name + ": BZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
-			return make_input_stream_( bs, name, solexa_scores, origin ) ;
+			return make_input_stream_( bs, name, solexa_scores, origin, genome ) ;
+#else
+			throw "found BZip'ed file, but have no libbz2 support" ;
+#endif
 		}
-		else if( l >= 2 && q[0] == 31 && q[1] == 139 )
+		if( magic( p, l, "\x1f\x8b" ) )
 		{
+#if HAVE_LIBZ && HAVE_ZLIB_H
+			console.output( Console::info, name + ": GZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
-			return make_input_stream_( zs, name, solexa_scores, origin ) ;
+			return make_input_stream_( zs, name, solexa_scores, origin, genome ) ;
+#else
+			throw "found GZip'ed file, but have no zlib support" ;
+#endif
 		}
-		else return new FastqReader( is, solexa_scores, origin ) ;
+		if( is_fastq( p, l ) ) 
+		{
+			console.output( Console::info, name + ": FastA or FastQ" ) ;
+			return new FastqReader( is, solexa_scores, origin ) ;
+		}
+		console.output( Console::notice, name + ": unknown, will parse as SAM" ) ;
+		return new SamReader( is, name, genome ) ;
 	}
 } ;
 
@@ -1081,9 +1187,10 @@ UniversalReader::UniversalReader(
 				const std::string& name,
 				google::protobuf::io::ZeroCopyInputStream* is,
 				bool solexa_scores,
-				int origin
+				int origin,
+				const string& genome
 				)
-    : is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin )
+    : is_( is ), name_( name ), str_(), solexa_scores_( solexa_scores ), origin_( origin ), genome_( genome )
 {
     // we cannot open the file just yet, but we can check if it is there
     if( !is_.get() ) throw_errno_if_minus1( access( name_.c_str(), R_OK ), "accessing ", name_.c_str() ) ;
@@ -1091,17 +1198,18 @@ UniversalReader::UniversalReader(
 
 Header UniversalReader::fetch_header() 
 {
-	if( !is_.get() ) {
-		int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening (UniversalReader) ", name_.c_str() ) ;
-		std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
-		s->SetCloseOnDelete( true ) ;
-		struct stat st ;
-		if( fstat( fd, &st ) ) is_ = s ;
-		else is_.reset( new StreamWithProgress( 
-					std::auto_ptr<google::protobuf::io::ZeroCopyInputStream>(s), name_, st.st_size ) ) ;
+	if( !str_ ) {
+		if( !is_.get() ) {
+			int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening (UniversalReader) ", name_.c_str() ) ;
+			std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
+			s->SetCloseOnDelete( true ) ;
+			struct stat st ;
+			if( fstat( fd, &st ) ) is_ = s ;
+			else is_.reset( new StreamWithProgress( 
+						std::auto_ptr<google::protobuf::io::ZeroCopyInputStream>(s), name_, st.st_size ) ) ;
+		}
+		str_ = make_input_stream_( is_, name_, solexa_scores_, origin_, genome_ ) ;
 	}
-
-	str_ = make_input_stream_( is_, name_, solexa_scores_, origin_ ) ;
 	return str_->fetch_header() ;
 }
 
@@ -1109,7 +1217,7 @@ uint8_t SffReader::read_uint8()
 {
 	while( !buf_size_ )
 		if( !is_->Next( &buf_, &buf_size_ ) )
-			throw "SffReader: premature end of file in " + name_ ;
+			throw "BamReader: premature end of file in " + name_ ;
 
 	uint8_t x = *(const char*)buf_ ;
 	buf_ = (const char*)buf_ + 1 ;
@@ -1123,7 +1231,7 @@ void SffReader::read_string( unsigned l, string* s ) {
 	s->clear() ;
 	while( l ) {
 		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
-			throw "SffReader: premature end of file in " + name_ ;
+			throw "BamReader: premature end of file in " + name_ ;
 
 		while( buf_size_ && l ) 
 		{
@@ -1138,7 +1246,7 @@ void SffReader::skip( int l )
 {
 	while( l ) {
 		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
-			throw "SffReader: premature end of file in " + name_ ;
+			throw "BamReader: premature end of file in " + name_ ;
 		
 		unsigned k = min( l, buf_size_ ) ;
 		l -= k ;
@@ -1207,7 +1315,189 @@ Result SffReader::fetch_result()
 	return res_ ;
 }
 
+
+uint8_t BamReader::read_uint8()
+{
+	while( !buf_size_ )
+		if( !is_->Next( &buf_, &buf_size_ ) )
+			throw "BamReader: premature end of file in " + name_ ;
+
+	uint8_t x = *(const char*)buf_ ;
+	buf_ = (const char*)buf_ + 1 ;
+	--buf_size_ ;
+	return x ;
+}
+
+uint16_t BamReader::read_uint16() { return read_uint8() | ((uint16_t)read_uint8() << 8) ; }
+uint32_t BamReader::read_uint32() { return read_uint16() | ((uint32_t)read_uint16() << 16) ; }
+void BamReader::read_string( unsigned l, string* s ) {
+	s->clear() ;
+	while( l ) {
+		if( !buf_size_ && !is_->Next( &buf_, &buf_size_ ) )
+			throw "BamReader: premature end of file in " + name_ ;
+
+		while( buf_size_ && l ) 
+		{
+			s->push_back( *(char*)buf_ ) ;
+			--l ;
+			--buf_size_ ;
+			buf_ = (const char*)buf_ + 1 ;
+		}
+	}
+}
+
+BamReader::BamReader( auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, const string& genome ) : 
+	is_( is ), name_( name ), genome_( genome ), buf_(0), buf_size_(0)
+{
+	if( read_uint32() != 0x014d4142 ) throw "missing BAM magic number" ;
+	string sam_header ;
+	read_string( read_uint32(), &sam_header ) ;
+	unsigned nrefseq = read_uint32() ;
+	refseqs_.resize( nrefseq ) ;
+	for( unsigned i = 0 ; i != nrefseq ; ++i )
+	{
+		read_string( read_uint32()-1, &refseqs_[i] ) ;
+		read_uint8() ; // NUL terminator
+		read_uint32() ; // chromosome length
+	}
+	while( buf_ && !buf_size_ ) if( !is_->Next( &buf_, &buf_size_ ) ) buf_ = 0 ;
+	state_ = buf_ && buf_size_ ? have_output : end_of_stream ;
+}
+
+Result BamReader::fetch_result()
+{
+	res_.Clear() ;
+	Hit *h = res_.add_hit() ;
+
+	unsigned bsize = read_uint32() ;
+	unsigned refid = read_uint32() ;
+	if( refid < refseqs_.size() ) h->set_sequence( refseqs_[ refid ] ) ;
+	if( !genome_.empty() ) h->set_genome_name( genome_ ) ;
+	h->set_start_pos( read_uint32() ) ;
+	int namelen = read_uint8() ;
+	int mapq = read_uint8() ;
+	if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+	read_uint16() ; // BIN
+	int cigarlen = read_uint16() ;
+	int flags = read_uint16() ;
+	int seqlen = read_uint32() ;
+	read_uint32() ; // MATE RID
+	read_uint32() ; // MATE POS
+	read_uint32() ; // INS SIZE
+	read_string( namelen-1, res_.mutable_read()->mutable_seqid() ) ;
+	read_uint8() ;
+	unsigned aln_len = 0 ;
+	for( int i = 0 ; i != cigarlen ; ++i ) {
+		int cig = read_uint32() ;
+		h->add_cigar( cig ) ;
+		switch( cigar_op( cig ) )
+		{
+			case Hit::Match:
+			case Hit::Mismatch:
+			case Hit::Delete:
+			case Hit::Skip:
+				aln_len += cigar_len( cig ) ;
+				break ;
+
+			case Hit::Insert:
+			case Hit::SoftClip:
+			case Hit::HardClip:
+			case Hit::Pad:
+				break ;
+		}
+	}
+	h->set_aln_length( flags & 0x10 ? -aln_len : aln_len ) ;
+	if( flags & 0x10 ) reverse( h->mutable_cigar()->begin(), h->mutable_cigar()->end() ) ;
+
+	if( flags & 0x10 ) {
+		string seq ;
+		for( int i = 0 ; i != seqlen ; ++i )
+		{
+			static char bases_rev[] = "=TG.C...A......N" ;
+			uint8_t code = read_uint8() ;
+			seq.push_back( bases_rev[ (code >> 4) & 0xf ] ) ;
+			if( ++i == seqlen ) break ;
+			seq.push_back( bases_rev[ code & 0xf ] ) ;
+		}
+		res_.mutable_read()->mutable_sequence()->assign( seq.rbegin(), seq.rend() ) ;
+	}
+	else {
+		for( int i = 0 ; i != seqlen ; ++i )
+		{
+			static char bases_fwd[] = "=AC.G...T......N" ;
+			uint8_t code = read_uint8() ;
+			res_.mutable_read()->mutable_sequence()->push_back( bases_fwd[ (code >> 4) & 0xf ] ) ;
+			if( ++i == seqlen ) break ;
+			res_.mutable_read()->mutable_sequence()->push_back( bases_fwd[ code & 0xf ] ) ;
+		}
+	}
+
+	string qual ;
+	read_string( seqlen, &qual ) ;
+	bool has_qual = false ;
+	for( unsigned i = 0 ; i != qual.size() ; ++i )
+		if( (uint8_t)qual[i] != 0xff ) has_qual = true ;
+	
+	if( has_qual ) {
+		if( flags & 0x10 ) res_.mutable_read()->mutable_quality()->assign(
+				qual.rbegin(), qual.rend() ) ;
+		else res_.mutable_read()->set_quality( qual ) ;
+	}
+
+	bsize -= 32 + namelen + 4*cigarlen + ((seqlen+1)/2) + seqlen ;
+	while( bsize ) 
+	{
+		char tag0 = read_uint8() ;
+		char tag1 = read_uint8() ;
+		char type = read_uint8() ;
+		bsize -= 3 ;
+
+		int ival = 0 ;
+		string sval ;
+
+		switch( type )
+		{
+			case 'A':
+			case 'c': case 'C': ival = read_uint8() ; bsize -= 1 ; break ;
+			case 's': case 'S': ival = read_uint16() ; bsize -= 2 ; break ;
+			case 'i': case 'I': ival = read_uint32() ; bsize -= 4 ; break ;
+			case 'f': throw "can't decode float" ;
+			case 'Z': --bsize ; while( char c = read_uint8() ) { sval.push_back( c ) ; --bsize ; } break ;
+			case 'H': throw "can't decode HEX string" ;
+			default: throw string( "can't decode shit " ) + tag0 + tag1 + ':' + type ;
+		}
+		if( tag0 == 'U' && tag1 == 'Q' ) h->set_score( ival ) ;
+		if( tag0 == 'A' && tag1 == 'S' && !h->has_score() ) h->set_score( ival ) ;
+	}
+	if( flags & 4 ) res_.mutable_hit()->RemoveLast() ;
+
+	while( buf_ && !buf_size_ ) if( !is_->Next( &buf_, &buf_size_ ) ) buf_ = 0 ;
+	state_ = buf_ && buf_size_ ? have_output : end_of_stream ;
+	return res_ ;
+}
+
 } ; // namespace
+
+std::pair< PipeInputStream*, std::string > make_PipeInputStream( const std::string& p )
+{
+	console.output( Console::notice, "piping from " + p ) ;
+
+	int fds[2] ;
+	throw_errno_if_minus1( pipe( fds ), "creating pipe" ) ;
+
+	pid_t chld = throw_errno_if_minus1( fork(), "forking pipe process" ) ;
+	if( chld == 0 ) {
+		throw_errno_if_minus1( dup2( fds[1], 1 ), "duplicating file descriptor" ) ;
+		if( fds[1] != 1 ) throw_errno_if_minus1( close( fds[1] ), "closing fd" ) ;
+		throw_errno_if_minus1( close( fds[0] ), "closing fd" ) ;
+		const char *c = p.c_str() ;
+		while( *c && isspace( *c ) ) ++c ;
+		execl( "/bin/sh", "sh", "-c", c, (char*)0 ) ;
+	}
+
+	throw_errno_if_minus1( close( fds[1] ), "closing fd" ) ;
+	return std::make_pair( new PipeInputStream( fds[0], chld ), "<pipe>" ) ;
+}
 
 std::pair< PipeOutputStream*, std::string > make_PipeOutputStream( const std::string& p )
 {

@@ -19,10 +19,10 @@
 
 #include "config.pb.h"
 #include "sequence.h"
+#include "judy++.h"
 #include "util.h"
 
 #include <algorithm>
-#include <cassert>
 #include <iostream>
 #include <limits>
 #include <list>
@@ -32,6 +32,7 @@
 #include <vector>
 
 #include <glob.h>
+#include <sys/mman.h>
 
 //! \brief a genome as stored in a DNA file
 //! This class mmaps a DNA file and wraps it with a sensible interface.
@@ -73,18 +74,10 @@ class CompactGenome
 		mutable int refcount_ ;
 
 	public:
-		//! \brief constructs an invalid genome
-		//! Genomes constructed in the default fashion are unusable;
-		//! however, this makes \c CompactGenome default constructible
-		//! for use in standard containers.
-		// CompactGenome() : base_(0), file_size_(0), length_(0), fd_(-1), contig_map_(), posn_map_(), g_() {}
-
 		//! \brief makes accessible a genome file
 		//! \param name file name of the genome
 		//! \param c program configuration, needed for the search path
-		//! \param adv advise passed to madvise(), if you anticipate
-		//!            specific use of the genome
-		CompactGenome( const std::string& name, int adv = MADV_NORMAL ) ;
+		CompactGenome( const std::string& name ) ;
 
 		void add_ref() const { ++refcount_ ; }
 
@@ -118,22 +111,12 @@ class CompactGenome
 		//! \param mk_word functor object called to transform a
 		//!                sequence of ambiguity codes into words of
 		//!                nucleotides
+		//! \param mk_gap functor that's called at every gap
+		//! \param slice scan this slice of a big genome
+		//! \param slices total number of slices
 		//! \param msg if set, switches on progress reports and is
 		//!            included in them
-		template< typename F > void scan_words( unsigned w, F mk_word, const char* msg = 0 ) const ;
-
-		/*
-		void swap( CompactGenome& g )
-		{
-			std::swap( base_, g.base_ ) ;
-			std::swap( file_size_, g.file_size_ ) ;
-			std::swap( length_, g.length_ ) ;
-			std::swap( fd_, g.fd_ ) ;
-			std::swap( contig_map_, g.contig_map_ ) ;
-			std::swap( posn_map_, g.posn_map_ ) ;
-			std::swap( g_, g.g_ ) ;
-		}
-		*/
+		template< typename F, typename G > void scan_words( unsigned w, F mk_word, G mk_gap, int slice = 0, int slices = 1, const char* msg = 0 ) const ;
 
 		const ContigMap &get_contig_map() const { return contig_map_ ; }
 
@@ -173,33 +156,40 @@ struct Seed
 	int32_t offset ;
 } ;
 
+typedef std::vector<Seed> PreSeeds ;
+
 inline std::ostream& operator << ( std::ostream& o, const Seed& s )
 {
 	return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
 }
 
+
 class FixedIndex 
 {
 	public:
-		enum { old_signature = 0x31584449u     // IDX1 
-		     , signature     = 0x32584449u } ; // IDX2
+		struct LookupParams {
+			uint32_t cutoff ; 				// more common seeds will be ignored
+			uint32_t allow_mismatches ;		// number of changed positions per seed word
+			uint32_t wordsize ;				// nucleotides per seed word
+			uint32_t stride ;				// tiling stepsize
+		} ;
 
-		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), ci_() {}
+		enum { signature = 0x33584449u } ; // "IDX3"
+
+		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0) {}
 
 		//! \brief loads an index from a file
 		//! \param name filename
-		//! \param c I'll be damned if I remember what this was for
-		//! \param adv advice passed to mmap()
-		FixedIndex( const std::string &name, const config::Config &c, int adv = MADV_NORMAL ) ;
-		~FixedIndex() ;
+		FixedIndex( const std::string &name ) ;
+		~FixedIndex() { if( p_ ) munmap( (void*)p_, length ) ; if( fd_ != -1 ) close( fd_ ) ; }
 
-		unsigned lookupS( const std::string&  seq, std::vector<Seed>&,
-				bool near_perfect = false, int *num_useless = 0,
-				uint32_t cutoff = std::numeric_limits<uint32_t>::max() ) const ;
-		unsigned lookup1( Oligo, std::vector<Seed>&, uint32_t cutoff, int32_t offs, int *num_useless ) const ;
-		unsigned lookup1m( Oligo o, std::vector<Seed>& v, uint32_t cutoff, int32_t offs, int *num_useless ) const ;
+		unsigned lookupS( const std::string&  seq, PreSeeds&, const LookupParams &p, int *num_useless ) const ;
+		unsigned lookup1(  Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
+		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
 
 		operator const void * () const { return base ; }
+		const Judy1 &gaps() const { return gaps_ ; }
+		const config::CompactIndex& metadata() const { return meta_ ; }
 
 		void swap( FixedIndex& i ) {
 			std::swap( p_, i.p_ ) ;
@@ -208,7 +198,6 @@ class FixedIndex
 			std::swap( first_level_len, i.first_level_len ) ;
 			std::swap( length, i.length ) ;
 			std::swap( fd_, i.fd_ ) ;
-			std::swap( ci_, i.ci_ ) ;
 		}
 
 	private:
@@ -217,20 +206,26 @@ class FixedIndex
 		uint32_t first_level_len ;
 		uint64_t length ;
 		int fd_ ;
-
-	public:
-		config::CompactIndex ci_ ;
+		Judy1 gaps_ ;
+		config::CompactIndex meta_ ;
 } ;
 
-template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, const char* msg ) const
+template< typename F, typename G > void CompactGenome::scan_words(
+		unsigned w, F mk_word, G mk_gap, int slice, int slices, const char* msg ) const
 {
-	assert( (unsigned)std::numeric_limits< Oligo >::digits >= 4 * w ) ;
-	madvise( (void*)base_.unsafe_ptr(), length_, MADV_SEQUENTIAL ) ;
+	if( (unsigned)std::numeric_limits< Oligo >::digits < 4 * w ) 
+		throw "cannot build index: oligo doesn't fit" ;
 
-	uint32_t offs = 0 ;
+	// start here, in case we want slices
+	uint32_t offs = 2 * slice * (int64_t)length_ / slices ;
+	uint32_t eoffs = 2 * (slice+1) * (int64_t)length_ / slices ;
 	Oligo dna = 0 ;
 
+    // do not start before first contig (that's the header region)
+    assert( g_.sequence_size() && g_.sequence(0).contig_size() ) ;
+    offs = std::max( offs, g_.sequence(0).contig(0).offset()-1 ) ;
 	while( base_[ offs ] != 0 ) ++offs ;	// find first gap
+
 	for( unsigned i = 0 ; i != w ; ++i )	// fill first word
 	{
 		dna <<= 4 ;
@@ -239,13 +234,16 @@ template< typename F > void CompactGenome::scan_words( unsigned w, F mk_word, co
 	}
 
 	report(offs,length_,msg) ;
-	while( offs != 2 * length_ )
+	// run to end of slice, but stop at gaps only
+	while( offs < eoffs || base_[ offs-1 ] )
 	{
-		if( (offs & 0xfffff) == 0 ) report(offs,length_,msg) ;
+		if( (offs & 0xffffff) == 0 ) report(offs,length_,msg) ;
 
 		dna <<= 4 ;
 		dna |= base_[ offs ] ;
 		++offs ;
+
+		if( !base_[offs] ) mk_gap( offs ) ;
 
 		// throw away words containing gap symbols
 		// (This is necessary since we may want to construct
@@ -271,25 +269,45 @@ struct compare_diag_then_offset {
 	}
 } ;
 
+//! \brief stores a new seed
+//! We immediately combine adjacent, overlapping and adjacent seeds: if
+//! seeds have the same diagonal and overlap or are adjacent, they can
+//! always be combined.
+//! A practical side effect of how Judy works:  since keys are actually
+//! unsigned, we can never accidentally merge offsets with differing
+//! sign, since they aren't actually close to each other (except when
+//! offsets become unrealistically huge).
+inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
+{
+	v.push_back( Seed() ) ;
+	v.back().diagonal = diag ;
+	v.back().offset = offs ;
+	v.back().size = size ;
+}
+
 //! \brief Combines short, adjacent seeds into longer ones.
-//! The exact policy for aggregating seeds isn't quite clear yet, but
-//! what is clear is that we can always combine directly adjacent or
-//! overlapping seeds.  It is also guaranteed that no such seeds span
-//! multiple contigs, so this is absolutely safe.
+//! This is the cheap method to combine seeds: only overlapping and
+//! adjacent seeds are combined, neighboring diagonals are not
+//! considered.  The code is short and direct, and works even for
+//! imperfect seeds.  It's less capable than \c select_seeds, though.
 //!
 //! How to do this?  We sort seeds first by diagonal index, then by
-//! offset.  Seeds are adjacent iff they have the same diagonal index and
-//! their offsets differ by no more than the seed size.
+//! offset.  Seeds are adjacent iff they have the same diagonal index
+//! and their offsets differ by no more than the seed size.
 //!
 //! \param v container of seeds, will be modifed in place.
-template < typename C > void combine_seeds( C& v ) 
+//! \param m minimum length of a good seed
+//! \param ss output container for seed positions
+//! \return number of good seeds produced
+inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 {
+	int out = 0 ;
 	if( !v.empty() )
 	{
 		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
 
-		typename C::const_iterator a = v.begin(), e = v.end() ;
-		typename C::iterator       d = v.begin() ;
+		// combine overlapping and adjacent seeds into larger ones
+		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
 		Seed s = *a ; 
 		while( ++a != e )
 		{
@@ -302,115 +320,158 @@ template < typename C > void combine_seeds( C& v )
 			}
 			else
 			{
-				*d = s ; ++d ;
+				if( s.size >= m ) 
+				{
+					ss->mutable_ref_positions()->Add( s.diagonal + s.offset + s.size/2 ) ;
+					ss->mutable_query_positions()->Add( s.offset + s.size/2 ) ;
+					++out ;
+				}
 				s = *a ;
 			}
 		}
-		*d = s ; ++d ;
-		v.erase( d, v.end() ) ;
+		if( s.size >= m ) 
+		{
+			ss->mutable_ref_positions()->Add( s.diagonal + s.offset + s.size/2 ) ;
+			ss->mutable_query_positions()->Add( s.offset + s.size/2 ) ;
+			++out ;
+		}
 	}
+	return out ;
 }
 
 //! \brief aggregates and selects seeds
-//! How to select seeds isn't finalized, however, the following seems to
-//! be reasonable:  Seeds that are "close enough" should be collapsed
-//! into a clump, then the best seed from any clump that has enough
-//! seeds is used.  Seeds remaining after this process will be grouped
-//! at the beginning of their container, the rest is erased.
+//! 
+//! Seeds that are "close enough" are collapsed into a clump, then the
+//! best seed from any clump that has a minimum total seed length is
+//! used.  Seeds remaining after this process will be grouped at the
+//! beginning of their container, the rest is erased.
 //!
-//! Configuration of this function is simply done by three additional
+//! Configuration of this function is done by three additional
 //! parameters: Seeds on the same diagonal ±d and not further apart than
 //! ±r are clumped.  A clump is good enough for an alignment if the
 //! total match length of the seeds in it reaches m, and if so, its
 //! longest seed is actually used.  We may need different parameters for
-//! input sequences of different lengths or characteristics; that
-//! decision, however, has to be deferrred to some higher abstraction
-//! level.
+//! input sequences of different lengths or characteristics; that's at
+//! the caller's descretion, however.
 //!
-//! The container type used in the following must be a random access
-//! container.  Either std::vector or std::deque should be fine.
+//! \todo When building clumps, the clump is collected, then removed.
+//!       This leaves a mess that needs to be cleaned up by (expensive)
+//!       sorting.  Instead the clump should be removed as we go, so no
+//!       mess is created.
+//! \todo Clump building relies on linear scans to look for seeds on
+//!       neighboring diagonals.  If there is a whole lot of seeds on
+//!       the current diag, that's expensive.  Exponential or binary
+//!       search would be better.  Actually, putting each diagonal into
+//!       its own container might be even better.
+//! \todo This code is way too slow to operate with imperfect seeds, but
+//!       those seem more valuable than clump building.  That needs to
+//!       be fixed, so both features can be combined.  On top of that,
+//!       it might be completely broken, too.
+//! \todo The clump building needs the genome's contig map, which we
+//!       don't actually want to have available here.  A list of gaps
+//!       would work equally well, but we don't have that (yet).
 //!
 //! \param v container of seeds, will be modified in place.
 //! \param d maximum number of gaps between seeds to be clumped
 //! \param r maximum unseeded length between seeds to be clumped
 //! \param m minimum total seed length in a good clump
 //! \param cm contig map from indexed genome
-template < typename C > void select_seeds( C& v, uint32_t d, int32_t r, uint32_t m,
-		const CompactGenome::ContigMap &cm )
+//! \return number of good seeds produced
+inline int select_seeds( PreSeeds& v, uint32_t d, int32_t r, uint32_t m,
+		const Judy1 &gaps, output::Seeds *ss )
 {
-	std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
-	typename C::iterator clump_begin = v.begin(),
-			 input_end = v.end(), out = v.begin() ;
-
-	// Start building a clump, assuming there is still something to
-	// build from
-	while( clump_begin != input_end )
+	int out = 0 ;
+	if( !v.empty() )
 	{
-		typename C::iterator clump_end = clump_begin + 1 ;
-		typename C::iterator last_touched = clump_end ;
-
-		// Still anything in the clump that may have unrecognized
-		// neighbors?
-		for( typename C::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
+		// combine overlapping and adjacent seeds into larger ones
+		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
+		PreSeeds::iterator       dd = v.begin() ;
+		Seed s = *a ; 
+		while( ++a != e )
 		{
-			// Decide whether open_in_clump and candidate are actually
-			// neighbors.  They are not if they end up in different
-			// contigs; else they are if their diagonals are closer than
-			// ±d and their offsets are closer than ±r.
-			for( typename C::iterator candidate = clump_end ;
-					candidate != input_end &&
-					candidate->diagonal <= open_in_clump->diagonal + d ;
-					++candidate )
+			if( a->diagonal == s.diagonal &&
+					(a->offset >= 0) == (s.offset >= 0) &&
+					a->offset - s.offset <= (int32_t)s.size )
 			{
-				if( abs( candidate->offset - open_in_clump->offset ) <= r
-						&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
-				{
-					// make sure both parts belong to the same contig
-					CompactGenome::ContigMap::const_iterator left = cm.upper_bound(
-							open_in_clump->offset + open_in_clump->diagonal ) ;
-					CompactGenome::ContigMap::const_iterator right = cm.upper_bound(
-							candidate->offset + candidate->diagonal ) ;
+				uint32_t size2 = a->offset - s.offset + a->size ;
+				if( size2 > s.size ) s.size = size2 ;
+			}
+			else
+			{
+				*dd = s ; ++dd ;
+				s = *a ;
+			}
+		}
+		*dd = s ; ++dd ;
 
-					if( left == right ) {
-						// Include the candidate by swapping it with the
-						// first seed not in our clump and extending the
-						// clump.  Remember that we swapped, we may have
-						// messed up the sorting.
-						std::swap( *clump_end++, *candidate ) ;
-						if( candidate < last_touched ) last_touched = candidate ;
+		PreSeeds::iterator clump_begin = v.begin(), input_end = dd ;
+
+		// Start building a clump, assuming there is still something to
+		// build from
+		while( clump_begin != input_end )
+		{
+			PreSeeds::iterator clump_end = clump_begin + 1 ;
+			PreSeeds::iterator last_touched = clump_end ;
+
+			// Still anything in the clump that may have unrecognized
+			// neighbors?
+			for( PreSeeds::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
+			{
+				// Decide whether open_in_clump and candidate are actually
+				// neighbors.  They are not if they end up in different
+				// contigs; else they are if their diagonals are closer than
+				// ±d and their offsets are closer than ±r.
+				for( PreSeeds::iterator candidate = clump_end ;
+						candidate != input_end &&
+						candidate->diagonal <= open_in_clump->diagonal + d ;
+						++candidate )
+				{
+					if( abs( candidate->offset - open_in_clump->offset ) <= r
+							&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
+					{
+						// make sure both parts belong to the same contig
+						Word_t next_gap = open_in_clump->offset + open_in_clump->diagonal ;
+						if( !gaps.first( next_gap ) || next_gap > (Word_t)
+								candidate->offset + candidate->diagonal ) 
+						{
+							std::swap( *clump_end++, *candidate ) ;
+							if( candidate < last_touched ) last_touched = candidate ;
+						}
 					}
 				}
 			}
+
+			// Okay, we have built our clump, but we left a mess behind
+			// it (between clump_end and last_touched).  Clean up the
+			// mess first.
+			if( clump_end < last_touched ) 
+				std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
+
+			// The new clump sits between clump_begin and clump_end.  We
+			// will now reduce this to at most one "best" seed.
+			PreSeeds::iterator best = clump_begin ;
+			uint32_t mlen = 0 ;
+			for( PreSeeds::iterator cur = clump_begin ; cur != clump_end ; ++cur )
+			{
+				mlen += cur->size ;
+				if( cur->size > best->size ) best = cur ;
+			}
+
+			// The whole clump is good enough if the total match length
+			// reaches m.  If so, we keep its biggest seed by moving it
+			// to out, else we do nothing.
+			if( mlen >= m ) 
+			{
+				ss->mutable_ref_positions()->Add( best->diagonal + best->offset + best->size/2 ) ;
+				ss->mutable_query_positions()->Add( best->offset + best->size/2 ) ;
+				++out ;
+			}
+
+			// Done with the clump.  Move to the next.
+			clump_begin = clump_end ;
 		}
-
-		// Okay, we have built our clump, but we left a mess behind
-		// it (between clump_end and last_touched).  Clean up the
-		// mess first.
-		if( clump_end < last_touched ) 
-			std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
-
-		// The new clump sits between clump_begin and clump_end.  We
-		// will now reduce this to at most one "best" seed.
-		typename C::iterator best = clump_begin ;
-		uint32_t mlen = 0 ;
-		for( typename C::iterator cur = clump_begin ; cur != clump_end ; ++cur )
-		{
-			mlen += cur->size ;
-			if( cur->size > best->size ) best = cur ;
-		}
-
-		// The whole clump is good enough if the total match length
-		// reaches m.  If so, we keep its biggest seed by moving it
-		// to out, else we do nothing.
-		if( mlen >= m ) *out++ = *best ;
-
-		// Done with the clump.  Move to the next.
-		clump_begin = clump_end ;
 	}
-
-	// We updated the input vector from begin() to out, the rest is
-	// just junk that's left over.  Get rid of it.
-	v.erase( out, input_end ) ;
+	return out ;
 }
 
 typedef std::map< std::string, CompactGenome > Genomes ;
@@ -467,8 +528,16 @@ class Metagenome
 		//! descriptor, but mmap()s /dev/zero instead and read()s the
 		//! requested region from the file descriptor (intended for file
 		//! systems where mmap() is agonizingly slow, e.g.  GCFS).
-		static void *mmap( void *start, size_t length, int prot, int flags, int fd, off_t offset ) ;
+		static void *mmap( void *start, size_t length, int prot, int flags, int *fd, off_t offset ) ;
 } ;
+
+static inline bool icompare( const std::string& a, const std::string& b )
+{
+    if( a.size() != b.size() ) return false ;
+    for( size_t i = 0 ; i != a.size() ; ++i )
+        if( tolower( a[i] ) != tolower( b[i] ) ) return false ;
+    return true ;
+}
 
 
 #endif
