@@ -37,7 +37,7 @@ static inline void cleanup_genome_name( string& gn )
 {
 	size_t gnl = gn.length() ;
 	for( size_t i = 0 ; i != gnl ; ++i ) gn[i] = tolower( gn[i] ) ;
-	if( gn.substr( gnl-4 ) == ".dna" ) gn = gn.substr( 0, gnl-4 ) ;
+	if( gnl > 4 && gn.substr( gnl-4 ) == ".dna" ) gn = gn.substr( 0, gnl-4 ) ;
 }
 
 CompactGenome::CompactGenome( const std::string &name )
@@ -254,9 +254,8 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 	int s = 2 * p.wordsize - 2 ;
 	unsigned filled = 0 ;
 	unsigned total = 0 ;
-	int32_t fraglen = dna.length() ;
 
-	for( int32_t offset = 0 ; offset != fraglen ; ++offset )
+	for( int32_t offset = 0 ; offset != (int32_t)dna.length() ; ++offset )
 	{
 		o_f >>= 2 ;
 		o_r = (o_r << 2) & mask ;
@@ -272,15 +271,18 @@ unsigned FixedIndex::lookupS( const std::string& dna, PreSeeds& v,
 		}
 		if( filled >= p.wordsize ) 
 		{
+			int32_t off_f = offset - p.wordsize + 2 ;
+			int32_t off_r = - offset - 1 ;
+
 			if( p.allow_mismatches >= 2 )
-				total += lookup2m( o_f, v, p,   offset - p.wordsize + 1, num_useless ) 
-					   + lookup2m( o_r, v, p, - offset                 , num_useless ) ;
+				total += lookup2m( o_f, v, p, off_f, num_useless ) 
+					   + lookup2m( o_r, v, p, off_r, num_useless ) ;
 			else if( p.allow_mismatches )
-				total += lookup1m( o_f, v, p,   offset - p.wordsize + 1, num_useless ) 
-					   + lookup1m( o_r, v, p, - offset                 , num_useless ) ;
+				total += lookup1m( o_f, v, p, off_f, num_useless ) 
+					   + lookup1m( o_r, v, p, off_r, num_useless ) ;
 			else
-				total += lookup1( o_f, v, p,   offset - p.wordsize + 1, num_useless ) 
-					   + lookup1( o_r, v, p, - offset                 , num_useless ) ;
+				total += lookup1( o_f, v, p, off_f, num_useless ) 
+					   + lookup1( o_r, v, p, off_r, num_useless ) ;
 		}
 	}
 	return total ;

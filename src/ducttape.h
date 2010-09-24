@@ -17,7 +17,7 @@
 #ifndef INCLUDED_DUCTTAPE_H
 #define INCLUDED_DUCTTAPE_H
 
-#include "align.h"
+#include "align_fwd.h"
 #include "stream.h"
 #include "util.h"
 #include <string>

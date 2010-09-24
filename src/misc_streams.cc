@@ -74,6 +74,23 @@ auto_ptr< Header > MergeStream::priv_fetch_header()
 		}
 		else throw "MergeStream: can only handle input streams" ;
 	}
+
+	stringstream ss ;
+	ss << "MergeStream: " ;
+	if( mode_ == by_name ) ss << "merge sorting on name" ;
+	else if( mode_ == by_coordinate ) {
+		ss << "merge sorting on coordinates of " ;
+		if( gs_.empty() ) ss << "best hit" ;
+		else {
+			ss << '[' << gs_.front() ;
+			for( size_t i = 1 ; i != gs_.size() ; ++i )
+				ss << ',' << gs_[i] ;
+			ss << ']' ;
+		}
+	}
+	else ss << "cannot merge" ;
+	console.output( mode_ == unknown ? Console::error : Console::info, ss.str() ) ;
+
 	make_heap( heap_.begin(), heap_.end(), heap_compare(this) ) ;
 	streams_.clear() ;
 	return hdr ;
@@ -303,7 +320,7 @@ void StatStream::priv_put_result( auto_ptr< Result > r )
 		bases_m_ += bases ;
 		bases_m_squared_ += bases*bases ;
 		bases_gc_m_ += gc ;
-		if( !h->has_diff_to_next() || h->diff_to_next() >= 60 )
+		if( !h->has_map_quality() || h->map_quality() >= 30 )
 		{
 			mapped_u_ += count ;
 			++different_ ;

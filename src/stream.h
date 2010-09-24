@@ -410,7 +410,7 @@ class ChunkedWriter : public Stream
 	public:
 		// sensible buffer size: big enough to make compression worthwhile,
 		// small enough that BZip won't split it again
-		static const unsigned default_buffer_size = 850000 ;
+		enum { default_buffer_size = 850000 } ;
 
 		// supported compression methods
 		enum method { none, fastlz, gzip, bzip } ;

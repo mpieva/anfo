@@ -19,13 +19,10 @@
 #endif
 
 #include "align.h"
-
 #include "config.pb.h"
 
 #include <ostream>
 #include <iomanip>
-
-adna_parblock simple_adna::pb ;
 
 namespace {
 	void print_subst_mat( std::ostream& s, const subst_mat mat )
@@ -171,5 +168,4 @@ std::ostream& operator << ( std::ostream& s, const adna_parblock& p )
 	if( !p.overhang_ext_penalty.is_finite() ) s << "N/A" ; else s << p.overhang_ext_penalty.to_phred() ;
 	return s << '\n' << std::endl ;
 }
-
 

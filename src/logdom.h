@@ -17,6 +17,7 @@
 #ifndef INCLUDED_LOGDOM_H
 #define INCLUDED_LOGDOM_H
 
+#include <utility>
 #include <math.h>
 #include <stdint.h>
 
@@ -47,6 +48,7 @@ class Logdom {
 		//! and one is the neutral element in that case.
 		Logdom() : v_(0) {}
 
+		void swap( Logdom &rhs ) throw() { std::swap( v_, rhs.v_ ) ; }
 		bool is_finite() const { return isfinite( v_ ) ; }
 
 		//! \brief calculates log( 1 + exp x )
@@ -75,6 +77,7 @@ class Logdom {
 		int to_phred() const { return int( v_ + 0.5 ) ; }
 		uint8_t to_phred_byte() const { int p = to_phred() ; return p > 255 ? 255 : p ; }
 		double to_float() const { return exp( -log(10.0) * v_ / 10.0 ) ; }
+		Logdom sqrt() const { return Logdom( v_ / 2 ) ; }
 
 		// multiplication is addition, division is subtraction
 		Logdom& operator *= ( Logdom b ) { v_ += b.v_ ; return *this ; }
@@ -126,10 +129,10 @@ class Logdom {
 			return *this ;
 		}
 
-		bool operator >  ( Logdom b ) { return b.v_ >  v_ ; }
-		bool operator >= ( Logdom b ) { return b.v_ >= v_ ; }
-		bool operator <  ( Logdom b ) { return b.v_ <  v_ ; }
-		bool operator <= ( Logdom b ) { return b.v_ <= v_ ; }
+		bool operator >  ( Logdom b ) const { return b.v_ >  v_ ; }
+		bool operator >= ( Logdom b ) const { return b.v_ >= v_ ; }
+		bool operator <  ( Logdom b ) const { return b.v_ <  v_ ; }
+		bool operator <= ( Logdom b ) const { return b.v_ <= v_ ; }
 
 		friend inline bool operator == ( Logdom a, Logdom b ) { return a.v_ == b.v_ ; }
 		friend inline bool operator != ( Logdom a, Logdom b ) { return a.v_ != b.v_ ; }

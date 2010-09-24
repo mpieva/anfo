@@ -89,6 +89,7 @@ class CompactGenome
 		}
 
 		uint32_t total_size() const { return g_.total_size() ; }
+		uint32_t raw_size() const { return length_ ; }
 		DnaP get_base() const { return base_ ; }
 
 		//! \brief scan over finite words of the dna
@@ -167,9 +168,10 @@ struct Matches
 } ;
 
 
-// match lists are sorted backwards by reference coordinate and
-// therefore backwards by diagonal; we also choose to sort
-// backwards on the offset.
+// Match lists are sorted backwards by reference coordinate (an artefact
+// of the index construction process) and therefore backwards by
+// diagonal (ref-coordinate minus offset, by definition); we also choose
+// to sort backwards on the offset.
 struct compare_match_lists {
 	bool operator()( const Matches &a, const Matches &b ) {
 		if( b.diag < a.diag ) return true ;
@@ -389,6 +391,35 @@ template< typename F, typename G > void CompactGenome::scan_words(
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }
 
+
+inline int put_seed( output::Seeds *ss, const Matches& s, int out )
+{
+	int i = ss->ref_positions().size() - 1 ;
+	uint32_t oldref = ss->ref_positions().Get( i ) ;
+	int32_t  oldqry = ss->query_positions().Get( i ) ;
+	uint32_t oldsiz = ss->seed_sizes().Get( i ) ;
+
+	// check for overlap (diag within 8, which is arbitrary...)
+	if( (s.offs < 0) == (oldqry < 0) &&
+			abs( s.diag - (int64_t)oldref + (int64_t)oldqry ) <= 8 )
+	{
+		if( s.wordsize > oldsiz ) // new one is bigger, overwrite
+		{
+			ss->mutable_ref_positions()->Set( i, s.diag + s.offs ) ;
+			ss->mutable_query_positions()->Set( i, s.offs ) ;
+			ss->mutable_seed_sizes()->Set( i, s.wordsize ) ;
+		}
+		return out ;
+	}
+	else
+	{
+		ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
+		ss->mutable_query_positions()->Add( s.offs ) ;
+		ss->mutable_seed_sizes()->Add( s.wordsize ) ;
+		return out+1 ;
+	}
+}
+
 //! \brief Combines short, adjacent seeds into longer ones.
 //! This is a cheap method to combine seeds: only overlapping and
 //! adjacent seeds are combined, neighboring diagonals are not
@@ -398,13 +429,19 @@ template< typename F, typename G > void CompactGenome::scan_words(
 //! How to do this?  We get seeds ordered first by diagonal (backwards,
 //! actually), then backwards by offset.  Seeds are adjacent iff they
 //! have the same diagonal index and their offsets differ by no more
-//! than the seed size.  They can be combined on the fly.
+//! than the seed size.  They can be combined on the fly easily.
 //!
 //! \note Formerly we tried to somehow deal with neighboring diagonals.
 //!       This has been declared as not worth the hassle, so it was
 //!       dropped.  If we get seeds for the same region on neighboring
 //!       diagonals, they are useless repeats anyway and probably
-//!       excluded from the index to begin with.
+//!       excluded from the index to begin with.  If gaps complicated
+//!       everything, well, tough luck, this only an approximation
+//!       anyway.
+//!
+//! \todo Seeds on neighboring diagonals can give rise to effectively
+//!       the same alignment.  If that happens, the map quality goes
+//!       down the drain...  Need a solution for that.
 //!
 //! \param v container of seeds, will be consumed
 //! \param m minimum length of a good seed
@@ -428,7 +465,6 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 			if( a.diag == s.diag ) assert( a.offs <= s.offs ) ;
 
 			if( a.diag == s.diag &&
-					(a.offs >= 0) == (s.offs >= 0) &&
 					a.offs + (int32_t)a.wordsize >= s.offs )
 			{
 				s.wordsize += s.offs - a.offs ;
@@ -436,23 +472,11 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 			}
 			else
 			{
-				if( s.wordsize >= m ) 
-				{
-					ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
-					ss->mutable_query_positions()->Add( s.offs ) ;
-					ss->mutable_seed_sizes()->Add( s.wordsize ) ;
-					++out ;
-				}
+				if( s.wordsize >= m ) out = put_seed( ss, s, out ) ;
 				s = a ;
 			}
 		}
-		if( s.wordsize >= m ) 
-		{
-			ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
-			ss->mutable_query_positions()->Add( s.offs ) ;
-			ss->mutable_seed_sizes()->Add( s.wordsize ) ;
-			++out ;
-		}
+		if( s.wordsize >= m ) out = put_seed( ss, s, out ) ;
 	}
 	return out ;
 }

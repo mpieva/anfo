@@ -158,7 +158,7 @@ namespace {
 		if( o.has_best_to_genome() ) {
 			Hit &h = *rs.add_hit() ;
 			h = upgrade( o.best_to_genome() ) ;
-			if( o.has_diff_to_next() ) h.set_diff_to_next( o.diff_to_next() ) ;
+			if( o.has_diff_to_next() ) h.set_map_quality( o.diff_to_next() ) ;
 			if( o.has_diff_to_next_chromosome() ) h.set_diff_to_next_chromosome( o.diff_to_next_chromosome() ) ;
 			if( o.has_diff_to_next_chromosome_class() ) h.set_diff_to_next_chromosome_class( o.diff_to_next_chromosome_class() ) ;
 		}
@@ -312,7 +312,7 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 		o.WriteRaw( &tmp[0], comp_size ) ;
 	}
 	std::vector< char > newbuf ;
-	newbuf.resize( max( default_buffer_size, needed+8 ) ) ;
+	newbuf.resize( max( (unsigned)default_buffer_size, needed+8 ) ) ;
 	buf_.swap( newbuf ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 }
@@ -579,19 +579,20 @@ void merge_sensibly( Hit& lhs, const Hit& rhs )
 	if( lhs.score() <= rhs.score() )
 	{
 		// left is better
-		if( !lhs.has_diff_to_next() || lhs.score() + lhs.diff_to_next() > rhs.score() )
-			lhs.set_diff_to_next( rhs.score() - lhs.score() ) ;
+		// XXX there might be a more accurate way to calculate this
+		if( !lhs.has_map_quality() || lhs.score() + lhs.map_quality() > rhs.score() )
+			lhs.set_map_quality( rhs.score() - lhs.score() ) ;
 
 		//! \todo diff to chromosome, chromosome class? dunno...
 	}
 	else
 	{
 		// right is better
-		if( !rhs.has_diff_to_next() || rhs.score() + rhs.diff_to_next() > lhs.score() )
+		if( !rhs.has_map_quality() || rhs.score() + rhs.map_quality() > lhs.score() )
 		{
 			int d = lhs.score() - rhs.score() ;
 			lhs = rhs ;
-			lhs.set_diff_to_next( d ) ;
+			lhs.set_map_quality( d ) ;
 		}
 		else lhs = rhs ;
 
@@ -745,7 +746,7 @@ bool TotalScoreFilter::xform( Result& r )
 }
 
 bool MapqFilter::keep( const Hit& h )
-{ return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
+{ return !h.has_map_quality() || h.map_quality() >= minmapq_ ; }
 
 bool QualFilter::xform( Result& h )
 {
@@ -802,12 +803,14 @@ bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) const
 	const output::Hit *l = hit_to( lhs, gs_.begin(), gs_.end() ), *r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
 	by_genome_coordinate comp ;
 	return l && r && 
-		!comp.compare( l, r, lhs.read(), rhs.read() ) &&
-		!comp.compare( r, l, rhs.read(), lhs.read() ) ;
+		!comp( *l, *r, lhs.read(), rhs.read() ) &&
+		!comp( *r, *l, rhs.read(), lhs.read() ) ;
 }
 
 //! \todo How do we deal with ambiguity codes?  What's the meaning of
 //!       their quality scores anyway?
+//! \todo Undefined mapq is interpreted as 254, but there's a better
+//!       value hidden somewhere in the header.
 void RmdupStream::add_read( const Result& rhs ) 
 {
 	// if the new member is itself a cluster, we add its member reads,
@@ -828,6 +831,9 @@ void RmdupStream::add_read( const Result& rhs )
 		cur_.clear_members() ;
 	}
 
+	const output::Hit *h = hit_to( rhs, gs_.begin(), gs_.end() ) ;
+	int mapq = h ? h->has_map_quality() ? h->map_quality() : 254 : 0 ;
+
 	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
 		int base = -1 ;
@@ -839,7 +845,8 @@ void RmdupStream::add_read( const Result& rhs )
 			case 'g': case 'G': base = 3 ; break ;
 		}
 
-		Logdom qual = Logdom::from_phred( rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ;
+		Logdom qual = Logdom::from_phred( std::min( mapq, 
+					rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ) ;
 		for( int j = 0 ; j != 4 ; ++j )
 			// XXX distribute errors sensibly
 			quals_[j].at(i) *= j != base ? qual / 3 : 1 - qual ;
@@ -1398,7 +1405,7 @@ Result BamReader::fetch_result()
 	h->set_start_pos( read_uint32() ) ;
 	int namelen = read_uint8() ;
 	int mapq = read_uint8() ;
-	if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+	if( mapq < 255 ) h->set_map_quality( mapq ) ;
 	read_uint16() ; // BIN
 	int cigarlen = read_uint16() ;
 	int flags = read_uint16() ;

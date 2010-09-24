@@ -19,8 +19,6 @@
 #endif
 
 #include "ducttape.h"
-
-#include "align.h"
 #include "index.h"
 
 #include <algorithm>
@@ -41,8 +39,8 @@ Stream::state DuctTaper::get_state()
 
 void DuctTaper::priv_put_header( auto_ptr< Header > h ) 
 {
-	if( !h->is_sorted_by_all_genomes() && !h->is_sorted_by_coordinate_size() )
-		throw "need sorted input for duct taping" ;
+	if( !h.has_is_sorted_by_all_genomes() && !h.is_sorted_by_coordinate_size() )
+		console.output( Console::warning, "[ducttape] input is not sorted, results may be useless" ) ;
 
 	const config::Aligner& a = h->config().aligner() ;
 	adna_ = adna_parblock( a ) ;
@@ -144,7 +142,7 @@ void DuctTaper::flush_contig()
 	hit.set_sequence( cur_sequence_ ) ;
 	hit.set_start_pos( contig_start_ ) ;
 	hit.set_aln_length( contig_end_ - contig_start_ ) ;
-	hit.set_diff_to_next( int( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ) ;
+	hit.set_map_quality( int( 0.5 + std::sqrt( mapq_accum_ / nreads_ ) ) ) ;
 	std::copy( cigar.begin(), cigar.end(), RepeatedFieldBackInserter( hit.mutable_cigar() ) ) ;
 
 	observed_.clear() ;
@@ -267,13 +265,16 @@ class AlnIter
 //! Backward direction:  same calculation, but we need to initialize
 //! to the sum of all the match scores, which requires a preliminary
 //! pass over everything.
+//!
+//! \todo map_quality is interpreted as 254 if undefined; we can get a
+//!       better value from the header.
 
 void DuctTaper::put_result_ancient( auto_ptr< Result > r )
 {
 	const Hit* h = best_hit( *r ) ;
 	if( !h ) return ;
 
-	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+	int mapq = h->has_map_quality() ? h->map_quality() : 254 ;
 	mapq_accum_ += mapq*mapq ;
 
 	if( cur_genome_ != h->genome_name()
@@ -346,9 +347,10 @@ no_match:
 				if( aln_i.base() != -1 ) {
 					++column->seen[ aln_i.base() ] ;
 
+					Logdom qual = std::max( aln_i.qual(), Logdom::from_phred( mapq ) ) ;
 					Logdom prob_ss_5 = lk_ss_5 / (lk_ss_5 + lk_ds_5) ;
 					Logdom prob_ss_3 = lk_ss_3 / (lk_ss_3 + lk_ds_3) ;
-					Logdom l_mat = 1 - aln_i.qual(), l_mismat = aln_i.qual() / 3 ;
+					Logdom l_mat = 1 - qual, l_mismat = qual / 3 ;
 
 					// lk_base[x] is probability of seeing aln_i.base()
 					// given that an x was in the real sequence.  It is
@@ -444,7 +446,7 @@ void DuctTaper::put_result_recent( auto_ptr< Result > r )
 	const Hit* h = best_hit( *r ) ;
 	if( !h ) return ;
 
-	int mapq = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+	int mapq = h->has_map_quality() ? h->map_quality() : 254 ;
 	mapq_accum_ += mapq*mapq ;
 
 	if( cur_genome_ != h->genome_name()
@@ -490,7 +492,8 @@ void DuctTaper::put_result_recent( auto_ptr< Result > r )
 no_match:       if( aln_i.base() != -1 ) {
 					++column->seen[ aln_i.base() ] ;
 
-					Logdom l_mat = 1 - aln_i.qual(), l_mismat = aln_i.qual() / 3 ;
+					Logdom qual = std::max( aln_i.qual(), Logdom::from_phred( mapq ) ) ;
+					Logdom l_mat = 1 - qual, l_mismat = qual / 3 ;
 
 					// lk_base[x] is probability of seeing aln_i.base()
 					// given that an x was in the real sequence.  It is
@@ -591,7 +594,7 @@ void GlzWriter::put_result( const Result& rr )
 					//   depth:24 ;            			/* and the number of mapped reads */
 
 					buf[0] = dna_to_glf_base[ *ref ] ;
-					buf[1] = h->has_diff_to_next() ? h->diff_to_next() : 254 ;
+					buf[1] = h->has_map_quality() ? h->map_quality() : 254 ;
 					for( int j = 0 ; j != 10 ; ++j ) buf[2+j] = (uint8_t)(r.likelihoods(j)[i]) ;
 					c.WriteRaw( buf, 12 ) ;
 					c.WriteLittleEndian32( (unsigned(r.depth(i)) << 8) | (uint8_t)r.quality()[i] ) ;
