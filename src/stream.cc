@@ -19,6 +19,7 @@
 #endif
 
 #include "compress_stream.h"
+#include "misc_streams.h"
 #include "stream.h"
 #include "util.h"
 
@@ -32,6 +33,7 @@ extern "C" {
 #include <cctype>
 #include <numeric>
 #include <set>
+#include <utility>
 
 #if HAVE_FCNTL_H
 #include <fcntl.h>
@@ -45,6 +47,18 @@ namespace std {
 
 	bool operator < ( const config::Policy& p, const config::Policy& q )
 	{ return p.SerializeAsString() < q.SerializeAsString() ; }
+} ;
+
+static inline void lower_string( std::string& s )
+{
+	size_t sl = s.size() ;
+	for( size_t j = 0 ; j != sl ; ++j ) s[j] = tolower( s[j] ) ;
+}
+
+static inline std::string basename( const std::string& s )
+{
+	std::string::size_type p = s.rfind( '/' ) ;
+	return p != std::string::npos ? s.substr(p+1) : s ;
 }
 
 namespace streams {
@@ -63,14 +77,6 @@ int transfer( Stream& in, Stream& out )
 }
 
 int anfo_reader__num_files_ = 0 ;
-
-namespace {
-	string basename( const string& s )
-	{
-		string::size_type p = s.rfind( '/' ) ;
-		return p != string::npos ? s.substr(p+1) : s ;
-	}
-} ;
 
 AnfoReader::AnfoReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
 {
@@ -119,6 +125,8 @@ namespace {
 	{
 		Hit h ;
 		h.set_genome_name( o.has_genome_name() ? o.genome_name() : string() ) ;
+		lower_string( *h.mutable_genome_name() ) ;
+
 		h.set_sequence( o.sequence() ) ;
 		h.set_start_pos( o.start_pos() ) ;
 		h.set_aln_length( o.aln_length() ) ;
@@ -127,7 +135,6 @@ namespace {
 		if( o.has_taxid() ) h.set_taxid( o.taxid() ) ;
 		if( o.has_taxid_species() ) h.set_taxid_species( o.taxid_species() ) ;
 		if( o.has_taxid_order() ) h.set_taxid_order( o.taxid_order() ) ;
-		// if( o.has_genome_file() ) h.set_genome_file( o.genome_file() ) ;
 		upgrade_cigar( *h.mutable_cigar(), o.cigar() ) ;
 		return h ;
 	}
@@ -151,7 +158,7 @@ namespace {
 		if( o.has_best_to_genome() ) {
 			Hit &h = *rs.add_hit() ;
 			h = upgrade( o.best_to_genome() ) ;
-			if( o.has_diff_to_next() ) h.set_diff_to_next( o.diff_to_next() ) ;
+			if( o.has_diff_to_next() ) h.set_map_quality( o.diff_to_next() ) ;
 			if( o.has_diff_to_next_chromosome() ) h.set_diff_to_next_chromosome( o.diff_to_next_chromosome() ) ;
 			if( o.has_diff_to_next_chromosome_class() ) h.set_diff_to_next_chromosome_class( o.diff_to_next_chromosome_class() ) ;
 		}
@@ -218,45 +225,26 @@ void Stream::read_next_message( google::protobuf::io::CodedInputStream& cis, con
 	}
 }
 
-/*
-AnfoWriter::AnfoWriter( google::protobuf::io::ZeroCopyOutputStream *zos, const char* fname ) : o_( zos ), name_( fname ), wrote_(0)
-{
-	o_.WriteRaw( "ANFO", 4 ) ;
+inline uint8_t ChunkedWriter::method_of( int l ) {
+#if HAVE_LIBBZ2 && HAVE_BZLIB_H
+	if( l >= 75 ) return bzip ;
+#endif
+#if HAVE_LIBZ && HAVE_ZLIB_H
+	if( l >= 50 ) return gzip ;
+#endif
+	if( l >= 10 ) return fastlz ;
+	return none ;
 }
 
-AnfoWriter::AnfoWriter( int fd, const char* fname, bool expensive )
-	: zos_( compress_any( expensive, new FileOutputStream( fd ) ) )
-	, o_( zos_.get() ), name_( fname ), wrote_(0)
-{
-	o_.WriteRaw( "ANFO", 4 ) ;
+inline uint8_t ChunkedWriter::level_of( int l ) {
+	if( l >= 65 ) return 9 ;	// thorough gzip or bzip
+	if( l >= 30 ) return 2 ;	// thorough fastlz or fast gzip
+	return 1 ;					// fast fastlz or none 
 }
-
-AnfoWriter::AnfoWriter( const char* fname, bool expensive )
-	: zos_( compress_any( expensive, new FileOutputStream(
-					throw_errno_if_minus1( creat( fname, 0666 ), "opening", fname ) ) ) )
-	, o_( zos_.get() ), name_( fname ), wrote_(0)
-{
-	o_.WriteRaw( "ANFO", 4 ) ;
-}
-
-void AnfoWriter::put_result( const Result& r )
-{
-	write_delimited_message( o_, 4, r ) ; 
-	++wrote_ ;
-	if( wrote_ % 1024 == 0 )
-	{
-		stringstream s ;
-		s << name_ << ": " << wrote_ << " msgs" ;
-		chan_( Console::info, s.str() ) ;
-	}
-}
-*/
 
 void ChunkedWriter::init() 
 {
-    // sensible buffer size: big enough to make compression worthwhile,
-    // small enough that BZip won't split it again
-	buf_.resize( 850000 ) ;
+	buf_.resize( default_buffer_size ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 	CodedOutputStream o( zos_.get() ) ;
 	o.WriteRaw( "ANF1", 4 ) ;
@@ -273,7 +261,6 @@ ChunkedWriter::ChunkedWriter( const char* fname, int l ) :
 void ChunkedWriter::flush_buffer( unsigned needed ) 
 {
 	uint32_t uncomp_size = aos_->ByteCount() ;
-	if( uncomp_size == 0 ) return ;
 	if( needed && buf_.size() - uncomp_size >= needed+8 ) return ;
 	aos_.reset( 0 ) ;
 
@@ -324,6 +311,9 @@ void ChunkedWriter::flush_buffer( unsigned needed )
 		o.WriteLittleEndian32( (uint32_t)(method_) << 28 | comp_size ) ;	// compressed size & compression method
 		o.WriteRaw( &tmp[0], comp_size ) ;
 	}
+	std::vector< char > newbuf ;
+	newbuf.resize( max( (unsigned)default_buffer_size, needed+8 ) ) ;
+	buf_.swap( newbuf ) ;
 	aos_.reset( new ArrayOutputStream( &buf_[0], buf_.size() ) ) ;
 }
 
@@ -346,7 +336,7 @@ void ChunkedWriter::put_footer( const Footer& f )
 
 	stringstream ss ;
 	ss << name_ << ": footer chunk starts at " << footer_start ;
-	console.output( Console::notice, ss.str() ) ;
+	console.output( Console::debug, ss.str() ) ;
 }
 
 void ChunkedWriter::put_result( const Result& r )
@@ -567,12 +557,19 @@ void sanitize_read( Read& rd )
 void sanitize( Result& r ) 
 {
     for( int i = 0 ; i != r.hit_size() ; ++i )
-    {
-        string& s = *r.mutable_hit(i)->mutable_genome_name() ;
-        for( size_t j = 0 ; j != s.size() ; ++j )
-            s[j] = tolower( s[j] ) ;
-    }
+        lower_string( *r.mutable_hit(i)->mutable_genome_name() ) ;
+    
     sanitize_read( *r.mutable_read() ) ;
+	for( int i = 0 ; i != r.members_size() ; ++i )
+		sanitize_read( *r.mutable_members(i) ) ;
+
+	for( int i = 0 ; i != r.seeds_size() ; ++i )
+	{
+		string& g = *r.mutable_seeds(i)->mutable_genome_name() ;
+		lower_string( g ) ;
+		if( g.substr( g.size()-4 ) == ".dna" )
+			g = g.substr( 0, g.size()-4 ) ;
+	}
 }
     
 //! \brief merges two hits by keeping the better one
@@ -582,19 +579,20 @@ void merge_sensibly( Hit& lhs, const Hit& rhs )
 	if( lhs.score() <= rhs.score() )
 	{
 		// left is better
-		if( !lhs.has_diff_to_next() || lhs.score() + lhs.diff_to_next() > rhs.score() )
-			lhs.set_diff_to_next( rhs.score() - lhs.score() ) ;
+		// XXX there might be a more accurate way to calculate this
+		if( !lhs.has_map_quality() || lhs.score() + lhs.map_quality() > rhs.score() )
+			lhs.set_map_quality( rhs.score() - lhs.score() ) ;
 
 		//! \todo diff to chromosome, chromosome class? dunno...
 	}
 	else
 	{
 		// right is better
-		if( !rhs.has_diff_to_next() || rhs.score() + rhs.diff_to_next() > lhs.score() )
+		if( !rhs.has_map_quality() || rhs.score() + rhs.map_quality() > lhs.score() )
 		{
 			int d = lhs.score() - rhs.score() ;
 			lhs = rhs ;
-			lhs.set_diff_to_next( d ) ;
+			lhs.set_map_quality( d ) ;
 		}
 		else lhs = rhs ;
 
@@ -738,13 +736,6 @@ bool OnlyGenome::xform( Result& res )
 bool ScoreFilter::keep( const Hit& h )
 { return slope_ * ( len_from_bin_cigar( h.cigar() ) - intercept_ ) >= h.score() ; }
 
-static int effective_length( const Read& rd )
-{
-    return rd.has_trim_right()
-        ? rd.trim_right() - rd.trim_left()
-        : rd.sequence().length() - rd.trim_left() ;
-}
-
 bool TotalScoreFilter::xform( Result& r )
 {
     int score = 0 ;
@@ -755,7 +746,7 @@ bool TotalScoreFilter::xform( Result& r )
 }
 
 bool MapqFilter::keep( const Hit& h )
-{ return !h.has_diff_to_next() || h.diff_to_next() >= minmapq_ ; }
+{ return !h.has_map_quality() || h.map_quality() >= minmapq_ ; }
 
 bool QualFilter::xform( Result& h )
 {
@@ -770,9 +761,18 @@ bool QualFilter::xform( Result& h )
 
 bool LengthFilter::xform( Result& r )
 {
-	int len = ( r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ) - r.read().trim_left() ;
-	if( r.hit_size() && len < minlength_ ) r.clear_hit() ;
+	int len = effective_length( r.read() ) ;
+	if( len < minlength_ || len > maxlength_ ) r.clear_hit() ;
 	return true ;
+}
+
+bool GcFilter::xform( Result& r )
+{
+	const Read& rr = r.read() ;
+	int u = rr.trim_left(), v = rr.has_trim_right() ? rr.trim_right() : rr.sequence().size() ;
+	string::const_iterator s = rr.sequence().begin() ;
+	int gc = 100 * (count( s+u, s+v, 'C' ) + count( s+u, s+v, 'G' )) / (v-u) ;
+	return mingc_ <= gc && gc <= maxgc_ ;
 }
 
 namespace {
@@ -798,22 +798,19 @@ bool Subsample::xform( Result& )
 	return f_ >= drand48() ;
 }
 
-namespace {
-	inline int eff_length( const Read& r )
-	{ return ( r.has_trim_right() ? r.trim_right() : r.sequence().size() ) - r.trim_left() ; }
-} ;
-
 bool RmdupStream::is_duplicate( const Result& lhs, const Result& rhs ) const
 {
 	const output::Hit *l = hit_to( lhs, gs_.begin(), gs_.end() ), *r = hit_to( rhs, gs_.begin(), gs_.end() ) ;
-
-	return l && r && eff_length( lhs.read() ) == eff_length( rhs.read() ) 
-		&& l->genome_name() == r->genome_name() && l->sequence() == r->sequence()
-		&& l->start_pos() == r->start_pos() && l->aln_length() == r->aln_length() ;
+	by_genome_coordinate comp ;
+	return l && r && 
+		!comp( *l, *r, lhs.read(), rhs.read() ) &&
+		!comp( *r, *l, rhs.read(), lhs.read() ) ;
 }
 
 //! \todo How do we deal with ambiguity codes?  What's the meaning of
 //!       their quality scores anyway?
+//! \todo Undefined mapq is interpreted as 254, but there's a better
+//!       value hidden somewhere in the header.
 void RmdupStream::add_read( const Result& rhs ) 
 {
 	// if the new member is itself a cluster, we add its member reads,
@@ -834,6 +831,9 @@ void RmdupStream::add_read( const Result& rhs )
 		cur_.clear_members() ;
 	}
 
+	const output::Hit *h = hit_to( rhs, gs_.begin(), gs_.end() ) ;
+	int mapq = h ? h->has_map_quality() ? h->map_quality() : 254 : 0 ;
+
 	for( size_t i = 0 ; i != rhs.read().sequence().size() ; ++i )
 	{
 		int base = -1 ;
@@ -845,7 +845,8 @@ void RmdupStream::add_read( const Result& rhs )
 			case 'g': case 'G': base = 3 ; break ;
 		}
 
-		Logdom qual = Logdom::from_phred( rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ;
+		Logdom qual = Logdom::from_phred( std::min( mapq, 
+					rhs.read().has_quality() ? rhs.read().quality()[i] : 30 ) ) ;
 		for( int j = 0 ; j != 4 ; ++j )
 			// XXX distribute errors sensibly
 			quals_[j].at(i) *= j != base ? qual / 3 : 1 - qual ;
@@ -859,7 +860,7 @@ Result RmdupStream::fetch_result()
 {
 	Result r ;
 	swap( r, res_ ) ;
-	state_ = foot_.IsInitialized() ? end_of_stream : state_ = need_input ;
+	state_ = have_foot_ ? end_of_stream : need_input ;
 	return r ;
 }
 
@@ -886,10 +887,14 @@ void RmdupStream::put_footer( const Footer& f ) {
 		call_consensus() ;
 		swap( cur_, res_ ) ;
 	}
+	have_foot_ = true ;
 }
 
-inline int RmdupStream::max_score( const Hit* h ) const
-{ return int( 0.5 + slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ) ; }
+inline bool RmdupStream::good_score( const Hit* h ) const
+{ 
+	int mscore = int( 0.5 + slope_ * ( len_from_bin_cigar( h->cigar() ) - intercept_ ) ) ;
+	return !h->has_score() || h->score() == 0 || h->score() <= mscore ;
+}
 
 //! \brief receives a result record and merges it if appropriate
 //!
@@ -913,7 +918,7 @@ void RmdupStream::put_result( const Result& next )
 	{
 		// empty buffer.  if we now get a good alignment, we store it.
 		// anything else passed through
-		if( h && h->score() <= max_score( h ) )
+		if( h && good_score( h ) )
 		{
 			cur_ = next ;
 			for( size_t i = 0 ; i != 4 ; ++i )
@@ -936,7 +941,7 @@ void RmdupStream::put_result( const Result& next )
 	// rid of it, which makes room to store the next alignment.  (Very
 	// annoying, but it's a good thing we never need more than one slot
 	// for buffering...)
-	else if( !h0 || h0->score() > max_score( h0 ) )
+	else if( !h0 || !good_score( h ) )
 	{
 		swap( res_, cur_ ) ;
 		Read &r = *res_.mutable_read() ;
@@ -955,7 +960,7 @@ void RmdupStream::put_result( const Result& next )
 	// new one is any good...
 	else if( h && is_duplicate( cur_, next ) ) 
 	{
-		if( h->score() <= max_score( h ) ) 
+		if( good_score( h ) )
 		{
 			// a good one, we need to actually merge it.  If cur_ is a
 			// plain result, turn it into a degenerate merged one
@@ -1123,10 +1128,22 @@ namespace {
 			if( !l || *q != *sig ) return false ;
 		return true ;
 	}
+	bool is_crap( const void *p, int l ) 
+	{
+		return l >= 4 && *((const uint32_t*)p) == 0 ;
+	}
 	bool is_fastq( const void *p, int l ) 
 	{
 		const uint8_t* q = (const uint8_t*)p ;
 		return l >= 3 && (*q == '>' || *q == '@') && isprint( q[1] ) && !magic( p, l, "@HD" ) ;
+	}
+	bool is_sam( const void *p, int l ) 
+	{
+		const uint8_t* q = (const uint8_t*)p ;
+		if( l < 8 ) return false ;
+		for( int i = 0 ; i != 8 ; ++i )
+			if( !isprint( q[i] ) ) return false ;
+		return true ;
 	}
 
 	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin, const string& genome )
@@ -1138,25 +1155,27 @@ namespace {
 		is->BackUp( l ) ;
 
 		if( magic( p, l, "ANFO" ) ) {
-			console.output( Console::info, name + ": linear ANFO file" ) ;
+			console.output( Console::debug, name + ": linear ANFO file" ) ;
 			return new AnfoReader( is, name ) ;
 		}
 		if( magic( p, l, "ANF1" ) ) {
-			console.output( Console::info, name + ": chunked ANFO file" ) ;
+			console.output( Console::debug, name + ": chunked ANFO file" ) ;
 			return new ChunkedReader( is, name ) ;
 		}
 		if( magic( p, l, ".sff" ) ) {
-			console.output( Console::info, name + ": SFF file" ) ;
+			console.output( Console::debug, name + ": SFF file" ) ;
 			return new SffReader( is, name ) ;
 		}
 		if( magic( p, l, "BAM\x01" ) ) {
-			console.output( Console::info, name + ": BAM file" ) ;
+			console.output( Console::debug, name + ": BAM file" ) ;
+			if( genome.empty() )
+				console.output( Console::warning, name + ": no genome set for BAM parsing" ) ;
 			return new BamReader( is, name, genome ) ;
 		}
 		if( magic( p, l, "BZh" ) )
 		{
 #if HAVE_LIBBZ2 && HAVE_BZLIB_H
-			console.output( Console::info, name + ": BZip compressed" ) ;
+			console.output( Console::debug, name + ": BZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
 			return make_input_stream_( bs, name, solexa_scores, origin, genome ) ;
 #else
@@ -1166,20 +1185,30 @@ namespace {
 		if( magic( p, l, "\x1f\x8b" ) )
 		{
 #if HAVE_LIBZ && HAVE_ZLIB_H
-			console.output( Console::info, name + ": GZip compressed" ) ;
+			console.output( Console::debug, name + ": GZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
 			return make_input_stream_( zs, name, solexa_scores, origin, genome ) ;
 #else
 			throw "found GZip'ed file, but have no zlib support" ;
 #endif
 		}
+		if( is_crap( p, l ) )
+		{
+			throw name + ": corrupt file" ;
+		}
 		if( is_fastq( p, l ) ) 
 		{
-			console.output( Console::info, name + ": FastA or FastQ" ) ;
+			console.output( Console::debug, name + ": probably FastA or FastQ" ) ;
 			return new FastqReader( is, solexa_scores, origin ) ;
 		}
-		console.output( Console::notice, name + ": unknown, will parse as SAM" ) ;
-		return new SamReader( is, name, genome ) ;
+		if( is_sam( p, l ) ) 
+		{
+			console.output( Console::notice, name + ": unknown, probably SAM" ) ;
+			if( genome.empty() )
+				console.output( Console::warning, name + ": no genome set for SAM parsing" ) ;
+			return new SamReader( is, name, genome ) ;
+		}
+		throw name + ": weird unrecognized file" ;
 	}
 } ;
 
@@ -1376,7 +1405,7 @@ Result BamReader::fetch_result()
 	h->set_start_pos( read_uint32() ) ;
 	int namelen = read_uint8() ;
 	int mapq = read_uint8() ;
-	if( mapq < 255 ) h->set_diff_to_next( mapq ) ;
+	if( mapq < 255 ) h->set_map_quality( mapq ) ;
 	read_uint16() ; // BIN
 	int cigarlen = read_uint16() ;
 	int flags = read_uint16() ;

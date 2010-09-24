@@ -21,13 +21,11 @@ AC_LANG([C++])
 AC_SEARCH_LIBS([exp], [m])
 AC_SEARCH_LIBS([log1p], [m])
 
-AC_CHECK_LIB([Judy], [Judy1Set])
 AC_CHECK_LIB([popt], [poptGetContext])
 AC_CHECK_LIB([z], [deflate])
 AC_CHECK_LIB([bz2], [BZ2_bzCompress])
 AC_CHECK_LIB([elk], [Elk_Init])
 
-AC_CHECK_HEADER([Judy.h], [], [AC_MSG_ERROR([Judy.h not found.  Need to install libjudy-dev?])])
 AC_CHECK_HEADERS([popt.h], [], [AC_MSG_ERROR([popt.h not found.  Need to install libpopt-dev?])])
 AC_CHECK_HEADERS([zlib.h], [], [AC_MSG_WARN([zlib.h not found.  Want to install zlib1g-dev?])])
 AC_CHECK_HEADERS([bzlib.h], [], [AC_MSG_WARN([bzlib.h not found.  Want to install libbz2-dev?])])

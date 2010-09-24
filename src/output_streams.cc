@@ -28,9 +28,8 @@
 #include <google/protobuf/text_format.h>
 #include <cmath>
 #include <iterator>
+#include <map>
 #include <sstream>
-
-#include <dlfcn.h>
 
 namespace streams {
 
@@ -48,8 +47,18 @@ bool GenTextAlignment::xform( Result& res )
 		std::string& q = *h.mutable_aln_qry() ;
 
 		GenomeHolder g = Metagenome::find_sequence( h.genome_name(), h.sequence() ) ;
-		DnaP ref = g->find_pos( h.sequence(), h.start_pos() ) ; 
-		if( !ref ) throw "couldn't find reference: " + h.sequence() ;
+		DnaP ref = g ? g->find_pos( h.sequence(), h.start_pos() ) : DnaP() ;
+		
+		if( !ref ) {
+			ostringstream errmsg ;
+			errmsg << "couldn't find reference: " ; 
+			if( !h.genome_name().empty() ) errmsg << h.genome_name() << ':' ;
+			errmsg << h.sequence() << '@' << h.start_pos() ;
+
+			if( strict_ ) throw errmsg.str() ;
+			console.output( Console::warning, errmsg.str() ) ;
+			continue ;
+		}
 
 		if( h.aln_length() < 0 ) ref = ref.reverse() + h.aln_length() + 1 ;
 
@@ -116,10 +125,10 @@ void generic_show_known_fields( const Message&, std::ostream&, int ) ;
 void generic_show_unknown_fields( const UnknownFieldSet&, std::ostream&, int ) ;
 
 // hides a field by printing nothing
-extern "C" void show_noop( const Message& m, const Reflection*, const FieldDescriptor*, ostream& s, int ) {}
+void show_noop( const Message& m, const Reflection*, const FieldDescriptor*, ostream& s, int ) {}
 
 // CIGAR line: decode to string, same way SAM would do it
-extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_cigar( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	for( int i = 0 ; i != r->FieldSize( m, f ) ; ++i )
@@ -132,7 +141,7 @@ extern "C" void show_cigar( const Message& m, const Reflection* r, const FieldDe
 }
 
 // array of ints: formatted into comma-separated line
-extern "C" void show_uint32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_uint32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	if( int l = r->FieldSize( m, f ) ) 
@@ -143,7 +152,7 @@ extern "C" void show_uint32_array( const Message& m, const Reflection* r, const 
 	}
 	s << '\n' ;
 }
-extern "C" void show_int32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_int32_array( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	s << string( indent, ' ' ) << f->name() << ": " ;
 	if( int l = r->FieldSize( m, f ) ) 
@@ -157,7 +166,7 @@ extern "C" void show_int32_array( const Message& m, const Reflection* r, const F
 
 // seen bases: same as array of ints, but we have four interleaved
 // arrays
-extern "C" void show_seen_bases( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
+void show_seen_bases( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent ) 
 {
 	for( int i = 0 ; i != 4 ; ++i )
 	{
@@ -175,7 +184,7 @@ extern "C" void show_seen_bases( const Message& m, const Reflection* r, const Fi
 
 // Hit: basically a generic message, but we add the textual,
 // line-wrapped alignment (if present)
-extern "C" void show_hit( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
+void show_hit( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
 	for( int j = 0 ; j != r->FieldSize( m, f ) ; ++j )
 	{
@@ -226,19 +235,46 @@ void generic_show_string( const string& s, std::ostream& o, int off = 0 )
 	o << '"' ;
 }
 
-extern "C" void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
+void show_quality( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int i ) 
 {
-	s << string( i, ' ' ) << f->name() << ": " ;
+	s << string( i, ' ' ) << f->name() << ":  " ;
 	generic_show_string( r->GetString( m, f ), s, 33 ) ;
 	s << '\n' ;
 }
 
+namespace {
+	class Symtab
+	{
+		private:
+			map< string, PrintMethod > m ;
+
+		public:
+			Symtab() {
+				m[ "show_quality" ] = show_quality ;
+				m[ "show_seen_bases" ] = show_seen_bases ; 
+				m[ "show_uint32_array" ] =show_uint32_array ; 
+				m[ "show_int32_array" ] = show_int32_array ; 
+				m[ "show_hit" ] = show_hit ; 
+				m[ "show_cigar" ] = show_cigar ;  
+				m[ "show_noop" ] = show_noop ; 
+			}
+	
+			PrintMethod find_method( const string& k ) const
+			{
+				map< string, PrintMethod >::const_iterator i = m.find( k ) ;
+				return i == m.end() ? 0 : i->second ;
+			}
+	} ;
+
+	static Symtab the_symtab ;
+} ;
+				
 void universal_print_field( const Message& m, const Reflection* r, const FieldDescriptor* f, ostream& s, int indent )
 {
 	if( f->options().HasExtension( output::show ) )
 	{
 		const std::string& method_name = f->options().GetExtension( output::show ) ;
-		if( void* p = dlsym( RTLD_DEFAULT, method_name.c_str() ) ) return ((PrintMethod)p)( m, r, f, s, indent ) ;
+		if( PrintMethod p = the_symtab.find_method( method_name ) ) return p( m, r, f, s, indent ) ;
 		std::stringstream ss ;
 		ss << "TextWriter: " << method_name << " declared for "
 			<< m.GetDescriptor()->name() << "::" << f->name() << ", but not found." ;
@@ -453,7 +489,9 @@ SamWriter::bad_stuff SamWriter::protoHit_2_bam_Hit( const output::Result &result
 
 		if( len_from_bin_cigar( hit.cigar() ) != result.read().sequence().length() ) return bad_cigar ;
 
-		int mapq = !hit.has_diff_to_next() ? 254 : std::min( 254, hit.diff_to_next() ) ;
+		// XXX there's an actual lower limit on map quality; we need to
+		// get it from the configuration somehow
+		int mapq = !hit.has_map_quality() ? 254 : std::min( 254, hit.map_quality() ) ;
 
 		*out_ << /*QNAME*/  result.read().seqid() << '\t'
 			<< /*FLAG */ ( hit.aln_length() < 0 ? bam_freverse : 0 ) << '\t'
@@ -589,7 +627,7 @@ void TableWriter::put_result( const Result& r )
 	if( const Hit *h = hit_to( r ) ) {
 		int e = r.read().has_trim_right() ? r.read().trim_right() : r.read().sequence().size() ;
 		int b = r.read().trim_left() ;
-		int diff = h->has_diff_to_next() ? h->diff_to_next() : 9999 ;
+		int diff = h->has_map_quality() ? h->map_quality() : 9999 ;
 
 		*out_ << e-b << '\t' << r.hit(0).score() << '\t' << diff << '\n' ;
 	}

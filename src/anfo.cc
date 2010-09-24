@@ -18,14 +18,13 @@
 #include "../config.h"
 #endif
 
-#include "align.h"
 #include "anfo_common.h"
 #include "compress_stream.h"
+#include "concurrent_stream.h"
 #include "conffile.h"
 #include "index.h"
 #include "misc_streams.h"
 #include "stream.h"
-#include "queue.h"
 #include "util.h"
 
 #include "output.pb.h"
@@ -74,51 +73,6 @@ using namespace streams ;
 //! \todo We want an E-value...
 //! \todo We want more than just the best match.  Think about a sensible
 //!       way to configure this.
-
-/*
-void* run_output_thread( void* p )
-{
-	CommonData *q = (CommonData*)p ;
-	while( output::Result *r = q->output_queue.dequeue() )
-	{
-		q->output_stream->put_result( *r ) ;
-		delete r ;
-	}
-	return 0 ;
-}
-
-void* run_indexer_thread( void* cd_ )
-{
-	CommonData *cd = (CommonData*)cd_ ;
-	while( output::Result *r = cd->input_queue.dequeue() )
-	{
-		// std::auto_ptr< AlignmentWorkload > w ( new AlignmentWorkload ) ;
-		// w->r.reset( r ) ;
-		// w->ps.reset( new QSequence() ) ;
-		cd->mapper.index_sequence( *r ) ;
-		// w->pmax = cd->mapper.index_sequence( *w->r, *w->ps, w->ol ) ;
-		// if( w->pmax!= INT_MAX ) cd->intermed_queue.enqueue( w.release() ) ;
-		// else                    cd->output_queue.enqueue( w->r.release() ) ;
-		cd->output_queue.enqueue( r ) ;
-	}
-	cd->input_queue.enqueue(0) ;
-	return 0 ;
-}
-
-void* run_worker_thread( void* cd_ )
-{
-	CommonData *cd = (CommonData*)cd_ ;
-	// while( AlignmentWorkload *w = cd->intermed_queue.dequeue() )
-	while( output::Result *r = cd->intermed_queue.dequeue() )
-	{
-		cd->mapper.process_sequence( *r ) ;
-		cd->output_queue.enqueue( r ) ;
-		// delete w ;
-	}
-	cd->intermed_queue.enqueue(0) ;
-	return 0 ;
-}
-*/
 
 //! \page finding_alns How to find everything we need
 //! We look for best hits globally and specifically on one genome.  They
@@ -215,8 +169,7 @@ WRAPPED_MAIN
 	if( nthreads <= 0 ) throw "invalid thread number" ;
 
 	// no-op if output exists and overwriting wasn't asked for
-	std::string of = expand( output_file, task_id ) ;
-    if( !clobber && 0 == access( of.c_str(), F_OK ) ) return 0 ;
+    if( !clobber && 0 == access( output_file, F_OK ) ) return 0 ;
 
 	Config conf = get_default_config( config_file ) ;
 
@@ -227,7 +180,7 @@ WRAPPED_MAIN
 		{
 			while( const char* arg = poptGetArg( pc ) )
 				ins->add_stream( new UniversalReader(
-							expand( arg, task_id ), 0, solexa_scale, fastq_origin ) ) ;
+							arg, 0, solexa_scale, fastq_origin ) ) ;
 		}
 		else
 		{
@@ -248,9 +201,9 @@ WRAPPED_MAIN
         {
             if( !conf.has_aligner() ) throw "no aligner configuration---cannot start." ;
 
-			if( (more_opts[i].first >> 4) > 1 ) {
+			if( more_opts[i].first > 0x1F ) {
 				vector< StreamHolder > v ;
-				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+				for( int k = 0 ; k != (more_opts[i].first >> 4) ; ++k )
 					v.push_back( new Mapper( conf.aligner(), more_opts[i].second ) ) ;
 				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
 			}
@@ -259,9 +212,9 @@ WRAPPED_MAIN
         }
         else
         {
-			if( (more_opts[i].first >> 4) > 1 ) {
+			if( more_opts[i].first > 0x1F ) {
 				vector< StreamHolder > v ;
-				for( int k = 0 ; k != more_opts[i].first >> 4 ; ++k )
+				for( int k = 0 ; k != (more_opts[i].first >> 4) ; ++k )
 					v.push_back( new Indexer( conf, more_opts[i].second ) ) ;
 				comp->add_stream( new ConcurrentStream( v.begin(), v.end() ) ) ;
 			}
@@ -270,6 +223,7 @@ WRAPPED_MAIN
         }
     }
 
+	std::string of = output_file ;
     of.append( ".#new#" ) ;
 	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
 
@@ -294,7 +248,13 @@ WRAPPED_MAIN
 		outs->put_footer( ofoot ) ;
 	}
 		
-	if( !exit_with ) std::rename( of.c_str(), expand( output_file, task_id ).c_str() ) ;
+	if( !exit_with ) { // "mv -f"
+		rename( of.c_str(), output_file ) ;
+		if( 0 == access( of.c_str(), F_OK ) ) {
+			unlink( output_file ) ;
+			rename( of.c_str(), output_file ) ;
+		}
+	}
 	return 0 ;
 }
 

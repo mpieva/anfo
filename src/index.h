@@ -19,7 +19,6 @@
 
 #include "config.pb.h"
 #include "sequence.h"
-#include "judy++.h"
 #include "util.h"
 
 #include <algorithm>
@@ -90,6 +89,7 @@ class CompactGenome
 		}
 
 		uint32_t total_size() const { return g_.total_size() ; }
+		uint32_t raw_size() const { return length_ ; }
 		DnaP get_base() const { return base_ ; }
 
 		//! \brief scan over finite words of the dna
@@ -142,25 +142,127 @@ class CompactGenome
 		static void report( uint32_t, uint32_t, const char* ) ;
 } ;
 
-//! \brief Representation of a seed.
+//! \brief Representation of a list of seeds.
 //! A seed is described by a size and two coordinates.  One is the start
 //! on the query sequence, the other we choose to be the "diagonal"
 //! (difference between coordinates), since seeds on the same or close
 //! diagonal will usually be combined.  Offset is negative for rc'ed
 //! matches, in this case its magnitude is the actual offset from the
 //! end of the sequence.
-struct Seed
+//!
+//! Here we actually represent a list of seeds by two pointers into a
+//! list of reference coordinates.  The first entry is chached in the
+//! data structure itself, so it selves to represent both lists and
+//! single seeds.
+//!
+//! The list of seeds in index files is sorted backwards (more or less
+//! an artefact of the way indexes are built), so we can merge these
+//! lists instead of copying and sorting them.
+struct Matches
 {
-	int64_t diagonal ;
-	uint32_t size ;
-	int32_t offset ;
+	const uint32_t *begin, *end ;
+	int32_t offs ;
+	uint16_t wordsize ;
+	uint16_t stride ;
+	int64_t diag ;
 } ;
 
-typedef std::vector<Seed> PreSeeds ;
 
-inline std::ostream& operator << ( std::ostream& o, const Seed& s )
+// Match lists are sorted backwards by reference coordinate (an artefact
+// of the index construction process) and therefore backwards by
+// diagonal (ref-coordinate minus offset, by definition); we also choose
+// to sort backwards on the offset.
+struct compare_match_lists {
+	bool operator()( const Matches &a, const Matches &b ) {
+		if( b.diag < a.diag ) return true ;
+		if( a.diag < b.diag ) return false ;
+		return b.offs < a.offs ;
+	}
+} ;
+
+struct compare_matches_for_heap {
+	// note the `wrong' order; this is intended for a heap!
+	bool operator()( const Matches &a, const Matches &b ) {
+		return compare_match_lists()( b, a ) ;
+	}
+} ;
+
+
+//! \brief Collection of short matches.
+//! We actually collect the ranges of sorted(!) matches in the index
+//! data structure, then merge-sort them on demand.  The calling
+//! sequence is to first post() ranges of index entries, then
+//! start_traversal(), then look at the first seed using get(), and
+//! remove them one by one using take() until the structure becomes
+//! empty().
+class PreSeeds
 {
-	return o << '@' << s.offset << '+' << s.diagonal << ':' << s.size ;
+	private:
+		struct equal_match_lists {
+			bool operator()( const Matches &a, const Matches &b ) {
+				return a.begin == b.begin && a.offs == b.offs ;
+			}
+		} ;
+		std::vector< Matches > heap_ ;
+
+		bool normalize() 
+		{
+			while( heap_.back().begin != heap_.back().end &&
+					*heap_.back().begin % heap_.back().stride != 0 ) 
+				++heap_.back().begin ;
+
+			if( heap_.back().begin == heap_.back().end ) {
+				heap_.pop_back() ;
+				return false ;
+			}
+			else {
+				heap_.back().diag = (int64_t)(*heap_.back().begin) - (int64_t)(heap_.back().offs) ;
+				return true ;
+			}
+		}
+
+	public:
+		PreSeeds() {}
+
+		void post( const uint32_t *begin, const uint32_t *end, int32_t offs, int wordsize, int stride )
+		{
+			if( begin != end ) {
+				heap_.push_back( Matches() ) ;
+				heap_.back().begin = begin ;
+				heap_.back().end = end ;
+				heap_.back().offs = offs ;
+				heap_.back().wordsize = wordsize ;
+				heap_.back().stride = stride ;
+				normalize() ;
+			}
+		}
+
+		bool empty() const { return heap_.empty() ; }
+
+		const Matches& get() const { return heap_.front() ; }
+
+		void start_traversal() {
+			std::sort( heap_.begin(), heap_.end(), compare_match_lists() ) ;
+			heap_.erase( std::unique( heap_.begin(), heap_.end(), equal_match_lists() ), heap_.end() ) ;
+			std::make_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+		}
+
+		void take() 
+		{
+			std::pop_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+
+			++heap_.back().begin ;
+			assert( heap_.back().begin == heap_.back().end ||
+				heap_.back().begin[-1] > heap_.back().begin[0] ) ;
+
+			if( normalize() ) std::push_heap( heap_.begin(), heap_.end(), compare_matches_for_heap() ) ;
+		}
+} ;
+
+
+inline std::ostream& operator << ( std::ostream& o, const Matches& s )
+{
+	return o << '@' << s.offs << '+' << s.diag << ':' << s.wordsize ;
 }
 
 
@@ -176,7 +278,7 @@ class FixedIndex
 
 		enum { signature = 0x33584449u } ; // "IDX3"
 
-		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0) {}
+		FixedIndex() : p_(0), base(0), secondary(0), first_level_len(0), length(0), fd_(0), refcount_(0) {}
 
 		//! \brief loads an index from a file
 		//! \param name filename
@@ -186,9 +288,9 @@ class FixedIndex
 		unsigned lookupS( const std::string&  seq, PreSeeds&, const LookupParams &p, int *num_useless ) const ;
 		unsigned lookup1(  Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
 		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
+		unsigned lookup2m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless ) const ;
 
 		operator const void * () const { return base ; }
-		const Judy1 &gaps() const { return gaps_ ; }
 		const config::CompactIndex& metadata() const { return meta_ ; }
 
 		void swap( FixedIndex& i ) {
@@ -206,9 +308,40 @@ class FixedIndex
 		uint32_t first_level_len ;
 		uint64_t length ;
 		int fd_ ;
-		Judy1 gaps_ ;
 		config::CompactIndex meta_ ;
+
+		unsigned lookup1m( Oligo, PreSeeds&, const LookupParams &p, int32_t offs, int *num_useless, size_t ) const ;
+
+	public:
+		int refcount_ ;
 } ;
+
+class MetaIndex
+{
+	private:
+		static std::map< std::string, FixedIndex* > map_ ;
+
+	public:
+		static const FixedIndex& add_ref( const std::string& name ) 
+		{
+			FixedIndex*& ix = map_[ name ] ;
+			if( !ix ) ix = new FixedIndex( name ) ;
+			++ix->refcount_ ;
+			return *ix ;
+		}
+
+		static void free_ref( const FixedIndex& ix ) 
+		{
+			for( std::map< std::string, FixedIndex* >::iterator i = map_.begin() ; i != map_.end() ; ++i )
+				if( i->second == &ix && !--i->second->refcount_ )
+				{
+					delete i->second ;
+					map_.erase( i ) ;
+					return ;
+				}
+		}
+} ;
+
 
 template< typename F, typename G > void CompactGenome::scan_words(
 		unsigned w, F mk_word, G mk_gap, int slice, int slices, const char* msg ) const
@@ -258,44 +391,59 @@ template< typename F, typename G > void CompactGenome::scan_words(
 	if( msg ) std::clog << "\r\e[K" << std::flush ;
 }
 
-//! \brief compares seeds first by diagonal, then by offset
-//! \internal
-//! Functor object passed to std::sort in various places.
-struct compare_diag_then_offset {
-	bool operator()( const Seed& a, const Seed& b ) {
-		if( a.diagonal < b.diagonal ) return true ;
-		if( b.diagonal < a.diagonal ) return false ;
-		return a.offset < b.offset ;
-	}
-} ;
 
-//! \brief stores a new seed
-//! We immediately combine adjacent, overlapping and adjacent seeds: if
-//! seeds have the same diagonal and overlap or are adjacent, they can
-//! always be combined.
-//! A practical side effect of how Judy works:  since keys are actually
-//! unsigned, we can never accidentally merge offsets with differing
-//! sign, since they aren't actually close to each other (except when
-//! offsets become unrealistically huge).
-inline void add_seed( PreSeeds& v, int64_t diag, int32_t offs, uint32_t size )
+inline int put_seed( output::Seeds *ss, const Matches& s, int out )
 {
-	v.push_back( Seed() ) ;
-	v.back().diagonal = diag ;
-	v.back().offset = offs ;
-	v.back().size = size ;
+	int i = ss->ref_positions().size() - 1 ;
+	uint32_t oldref = ss->ref_positions().Get( i ) ;
+	int32_t  oldqry = ss->query_positions().Get( i ) ;
+	uint32_t oldsiz = ss->seed_sizes().Get( i ) ;
+
+	// check for overlap (diag within 8, which is arbitrary...)
+	if( (s.offs < 0) == (oldqry < 0) &&
+			abs( s.diag - (int64_t)oldref + (int64_t)oldqry ) <= 8 )
+	{
+		if( s.wordsize > oldsiz ) // new one is bigger, overwrite
+		{
+			ss->mutable_ref_positions()->Set( i, s.diag + s.offs ) ;
+			ss->mutable_query_positions()->Set( i, s.offs ) ;
+			ss->mutable_seed_sizes()->Set( i, s.wordsize ) ;
+		}
+		return out ;
+	}
+	else
+	{
+		ss->mutable_ref_positions()->Add( s.diag + s.offs ) ;
+		ss->mutable_query_positions()->Add( s.offs ) ;
+		ss->mutable_seed_sizes()->Add( s.wordsize ) ;
+		return out+1 ;
+	}
 }
 
 //! \brief Combines short, adjacent seeds into longer ones.
-//! This is the cheap method to combine seeds: only overlapping and
+//! This is a cheap method to combine seeds: only overlapping and
 //! adjacent seeds are combined, neighboring diagonals are not
-//! considered.  The code is short and direct, and works even for
-//! imperfect seeds.  It's less capable than \c select_seeds, though.
+//! considered.  The code is short and direct, and works well even for
+//! imperfect seeds.
 //!
-//! How to do this?  We sort seeds first by diagonal index, then by
-//! offset.  Seeds are adjacent iff they have the same diagonal index
-//! and their offsets differ by no more than the seed size.
+//! How to do this?  We get seeds ordered first by diagonal (backwards,
+//! actually), then backwards by offset.  Seeds are adjacent iff they
+//! have the same diagonal index and their offsets differ by no more
+//! than the seed size.  They can be combined on the fly easily.
 //!
-//! \param v container of seeds, will be modifed in place.
+//! \note Formerly we tried to somehow deal with neighboring diagonals.
+//!       This has been declared as not worth the hassle, so it was
+//!       dropped.  If we get seeds for the same region on neighboring
+//!       diagonals, they are useless repeats anyway and probably
+//!       excluded from the index to begin with.  If gaps complicated
+//!       everything, well, tough luck, this only an approximation
+//!       anyway.
+//!
+//! \todo Seeds on neighboring diagonals can give rise to effectively
+//!       the same alignment.  If that happens, the map quality goes
+//!       down the drain...  Need a solution for that.
+//!
+//! \param v container of seeds, will be consumed
 //! \param m minimum length of a good seed
 //! \param ss output container for seed positions
 //! \return number of good seeds produced
@@ -304,172 +452,31 @@ inline int combine_seeds( PreSeeds& v, uint32_t m, output::Seeds *ss )
 	int out = 0 ;
 	if( !v.empty() )
 	{
-		std::sort( v.begin(), v.end(), compare_diag_then_offset() ) ;
+		v.start_traversal() ;
 
 		// combine overlapping and adjacent seeds into larger ones
-		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
-		Seed s = *a ; 
-		while( ++a != e )
+		// PreSeeds::const_iterator a = v.begin(), e = v.end() ;
+		Matches s = v.get() ;
+		v.take() ;
+		for( ; !v.empty() ; v.take() )
 		{
-			if( a->diagonal == s.diagonal &&
-					(a->offset >= 0) == (s.offset >= 0) &&
-					a->offset - s.offset <= (int32_t)s.size )
+			const Matches& a = v.get() ;
+			assert( a.diag <= s.diag ) ;
+			if( a.diag == s.diag ) assert( a.offs <= s.offs ) ;
+
+			if( a.diag == s.diag &&
+					a.offs + (int32_t)a.wordsize >= s.offs )
 			{
-				uint32_t size2 = a->offset - s.offset + a->size ;
-				if( size2 > s.size ) s.size = size2 ;
+				s.wordsize += s.offs - a.offs ;
+				s.offs = a.offs ;
 			}
 			else
 			{
-				if( s.size >= m ) 
-				{
-					ss->mutable_ref_positions()->Add( s.diagonal + s.offset + s.size/2 ) ;
-					ss->mutable_query_positions()->Add( s.offset + s.size/2 ) ;
-					++out ;
-				}
-				s = *a ;
+				if( s.wordsize >= m ) out = put_seed( ss, s, out ) ;
+				s = a ;
 			}
 		}
-		if( s.size >= m ) 
-		{
-			ss->mutable_ref_positions()->Add( s.diagonal + s.offset + s.size/2 ) ;
-			ss->mutable_query_positions()->Add( s.offset + s.size/2 ) ;
-			++out ;
-		}
-	}
-	return out ;
-}
-
-//! \brief aggregates and selects seeds
-//! 
-//! Seeds that are "close enough" are collapsed into a clump, then the
-//! best seed from any clump that has a minimum total seed length is
-//! used.  Seeds remaining after this process will be grouped at the
-//! beginning of their container, the rest is erased.
-//!
-//! Configuration of this function is done by three additional
-//! parameters: Seeds on the same diagonal ±d and not further apart than
-//! ±r are clumped.  A clump is good enough for an alignment if the
-//! total match length of the seeds in it reaches m, and if so, its
-//! longest seed is actually used.  We may need different parameters for
-//! input sequences of different lengths or characteristics; that's at
-//! the caller's descretion, however.
-//!
-//! \todo When building clumps, the clump is collected, then removed.
-//!       This leaves a mess that needs to be cleaned up by (expensive)
-//!       sorting.  Instead the clump should be removed as we go, so no
-//!       mess is created.
-//! \todo Clump building relies on linear scans to look for seeds on
-//!       neighboring diagonals.  If there is a whole lot of seeds on
-//!       the current diag, that's expensive.  Exponential or binary
-//!       search would be better.  Actually, putting each diagonal into
-//!       its own container might be even better.
-//! \todo This code is way too slow to operate with imperfect seeds, but
-//!       those seem more valuable than clump building.  That needs to
-//!       be fixed, so both features can be combined.  On top of that,
-//!       it might be completely broken, too.
-//! \todo The clump building needs the genome's contig map, which we
-//!       don't actually want to have available here.  A list of gaps
-//!       would work equally well, but we don't have that (yet).
-//!
-//! \param v container of seeds, will be modified in place.
-//! \param d maximum number of gaps between seeds to be clumped
-//! \param r maximum unseeded length between seeds to be clumped
-//! \param m minimum total seed length in a good clump
-//! \param cm contig map from indexed genome
-//! \return number of good seeds produced
-inline int select_seeds( PreSeeds& v, uint32_t d, int32_t r, uint32_t m,
-		const Judy1 &gaps, output::Seeds *ss )
-{
-	int out = 0 ;
-	if( !v.empty() )
-	{
-		// combine overlapping and adjacent seeds into larger ones
-		PreSeeds::const_iterator a = v.begin(), e = v.end() ;
-		PreSeeds::iterator       dd = v.begin() ;
-		Seed s = *a ; 
-		while( ++a != e )
-		{
-			if( a->diagonal == s.diagonal &&
-					(a->offset >= 0) == (s.offset >= 0) &&
-					a->offset - s.offset <= (int32_t)s.size )
-			{
-				uint32_t size2 = a->offset - s.offset + a->size ;
-				if( size2 > s.size ) s.size = size2 ;
-			}
-			else
-			{
-				*dd = s ; ++dd ;
-				s = *a ;
-			}
-		}
-		*dd = s ; ++dd ;
-
-		PreSeeds::iterator clump_begin = v.begin(), input_end = dd ;
-
-		// Start building a clump, assuming there is still something to
-		// build from
-		while( clump_begin != input_end )
-		{
-			PreSeeds::iterator clump_end = clump_begin + 1 ;
-			PreSeeds::iterator last_touched = clump_end ;
-
-			// Still anything in the clump that may have unrecognized
-			// neighbors?
-			for( PreSeeds::iterator open_in_clump = clump_begin ; open_in_clump != clump_end ; ++open_in_clump )
-			{
-				// Decide whether open_in_clump and candidate are actually
-				// neighbors.  They are not if they end up in different
-				// contigs; else they are if their diagonals are closer than
-				// ±d and their offsets are closer than ±r.
-				for( PreSeeds::iterator candidate = clump_end ;
-						candidate != input_end &&
-						candidate->diagonal <= open_in_clump->diagonal + d ;
-						++candidate )
-				{
-					if( abs( candidate->offset - open_in_clump->offset ) <= r
-							&& (candidate->offset>=0) == (open_in_clump->offset>=0) )
-					{
-						// make sure both parts belong to the same contig
-						Word_t next_gap = open_in_clump->offset + open_in_clump->diagonal ;
-						if( !gaps.first( next_gap ) || next_gap > (Word_t)
-								candidate->offset + candidate->diagonal ) 
-						{
-							std::swap( *clump_end++, *candidate ) ;
-							if( candidate < last_touched ) last_touched = candidate ;
-						}
-					}
-				}
-			}
-
-			// Okay, we have built our clump, but we left a mess behind
-			// it (between clump_end and last_touched).  Clean up the
-			// mess first.
-			if( clump_end < last_touched ) 
-				std::sort( clump_end, last_touched, compare_diag_then_offset() ) ;
-
-			// The new clump sits between clump_begin and clump_end.  We
-			// will now reduce this to at most one "best" seed.
-			PreSeeds::iterator best = clump_begin ;
-			uint32_t mlen = 0 ;
-			for( PreSeeds::iterator cur = clump_begin ; cur != clump_end ; ++cur )
-			{
-				mlen += cur->size ;
-				if( cur->size > best->size ) best = cur ;
-			}
-
-			// The whole clump is good enough if the total match length
-			// reaches m.  If so, we keep its biggest seed by moving it
-			// to out, else we do nothing.
-			if( mlen >= m ) 
-			{
-				ss->mutable_ref_positions()->Add( best->diagonal + best->offset + best->size/2 ) ;
-				ss->mutable_query_positions()->Add( best->offset + best->size/2 ) ;
-				++out ;
-			}
-
-			// Done with the clump.  Move to the next.
-			clump_begin = clump_end ;
-		}
+		if( s.wordsize >= m ) out = put_seed( ss, s, out ) ;
 	}
 	return out ;
 }
@@ -528,17 +535,8 @@ class Metagenome
 		//! descriptor, but mmap()s /dev/zero instead and read()s the
 		//! requested region from the file descriptor (intended for file
 		//! systems where mmap() is agonizingly slow, e.g.  GCFS).
-		static void *mmap( void *start, size_t length, int prot, int flags, int *fd, off_t offset ) ;
+		static void *mmap( void *start, size_t length, int *fd, off_t offset ) ;
 } ;
-
-static inline bool icompare( const std::string& a, const std::string& b )
-{
-    if( a.size() != b.size() ) return false ;
-    for( size_t i = 0 ; i != a.size() ; ++i )
-        if( tolower( a[i] ) != tolower( b[i] ) ) return false ;
-    return true ;
-}
-
 
 #endif
 

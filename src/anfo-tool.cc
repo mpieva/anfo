@@ -102,7 +102,7 @@ vector<string> split_string( const string& s )
 
 	for( string::size_type r, l = 0 ; ; l = r+1 )
 	{
-		r = s.find( ':', l ) ;
+		r = min( s.find( ':', l ), s.find( ',', l ) ) ;
 		t.push_back( s.substr( l, r-l ) ) ;
 		if( r == string::npos ) break ;
 	}
@@ -252,7 +252,7 @@ void desc_rmdup( ostream& ss, const ParamBlock& p )
 }
 
 Stream* mk_add_alns( const ParamBlock& p )
-{ return new GenTextAlignment( parse_int( p.arg, 0 ) ) ; }
+{ return new GenTextAlignment( parse_int( p.arg, 0 ), false ) ; }
 
 void desc_add_alns( ostream& ss, const ParamBlock& p )
 { ss << "add textual alignments with " << parse_int( p.arg, 0 ) << "nt of context." ; }
@@ -545,7 +545,7 @@ WRAPPED_MAIN
 	glob_t the_glob ;
 	the_glob.gl_pathv = 0 ;
 	the_glob.gl_pathc = 0 ;
-	int glob_flag = GLOB_NOSORT ;
+	int glob_flag = GLOB_NOSORT | GLOB_NOCHECK ;
 
 	while( const char* arg = poptGetArg( pc ) )
 	{
@@ -554,7 +554,6 @@ WRAPPED_MAIN
 			case 0: break ;
 			case GLOB_NOSPACE: throw "out of memory while globbing " + std::string(arg) ;
 			case GLOB_ABORTED: throw "read error on " + std::string(arg) ;
-			case GLOB_NOMATCH: throw "no match for " + std::string(arg) ;
 			default: throw "strange error from glob()" ;
 		}
 		glob_flag |= GLOB_APPEND ;
@@ -565,7 +564,10 @@ WRAPPED_MAIN
 	console.output( Console::notice, "Input files:" ) ;
 	if( the_glob.gl_pathc )
 		for( char **arg = the_glob.gl_pathv ; arg != the_glob.gl_pathv + the_glob.gl_pathc ; ++arg )
-			console.output( Console::notice, "  " + string(*arg) ) ;
+		{
+			if( !strcmp( *arg, "-" ) ) console.output( Console::notice, "  <stdin>" ) ;
+			else console.output( Console::notice, "  " + string(*arg) ) ;
+		}
 	else console.output( Console::notice, "  <stdin>" ) ;
 
 	if( !filters_initial.empty() ) 

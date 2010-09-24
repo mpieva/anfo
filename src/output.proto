@@ -59,12 +59,12 @@ message Header {
     optional bool is_sorted_by_all_genomes = 12 [default=false] ;
 }
 
-// XXX: a few easily accessible statistics could be included here,
+// XXX: a few easily accessible statistics should be included here,
 // assuming the footer is somehow easily found.  Requires a bit more
 // infrastructure, though.  While we're at it, an index would be well
 // placed here, too.
 message Footer {
-	required uint32 exit_code = 1 ;
+    optional uint32 exit_code = 1 [default=0] ;
 }
 
 // Result hits... all very ad-hoc and ugly.  We need:
@@ -79,54 +79,6 @@ message Footer {
 // - if best is on sex chromosomes, score of best hit on same genome
 //   outside sex chromosomes
 
-// deprecated, don't touch
-message OldHit {
-    // globally unique name of the genome (used when sorting hits be
-    // coordinate, can be used to locate the reference sequence if
-    // present; if absent, the sequence name should be globally unique)
-    optional string genome_name = 8 ;
-
-    // name of the subject sequence (== chromosome or similar)
-    required string sequence = 2 ;
-
-    // minimum position where any nucleotide aligns, zero-based
-    // This is the position of the 5'-most base if on the forward
-    // strand, the position of the 3'-most based if on the reverse strand
-    required uint32 start_pos = 3 ;
-
-    // length of alignment on reference sequence, negative if on the
-    // reverse strand
-    required sint32 aln_length = 4 ;
-
-    // Score (this is actually a penalty)
-	// This is optional, because the score may not be available after
-	// importing something weird (say, BAM).
-    optional sint32 score = 5 [ default = 0 ] ;
-
-    // E-value (because it's customary to have one)
-    optional float evalue = 6 ;
-
-    // alignment as (binary equivalent of) a CIGAR line
-    // Bytes 1..127 encode matches of 1..127nt, 129..191 is an insert of
-    // 1..63nt, 193..255 a deletion of 1..63nt.  A NUL byte is a marker
-    // for the place where the alignment started, bytes 128 and 192 are
-    // reserved.
-    required bytes cigar = 7 ;
-
-    // taxids if known: most specific, species and order
-    // An absent taxid means it's not known.
-    optional int32 taxid = 16 ;
-    optional int32 taxid_species = 17 ;
-    optional int32 taxid_order = 18 ;
-
-    // The alignment itself as pair of strings, along with a CLUSTAL
-    // style "conservation" line.  This is not normally stored in a
-    // file, it is generated from the CIGAR line; but it's cool to have
-    // for human readable output.
-    optional string ref = 32 ;
-    optional string qry = 33 ;
-    optional string con = 34 ;
-}
 
 enum Reason {
     // ordinary alignment
@@ -250,20 +202,38 @@ message Read {
 }
 
 // A set of starting points.  The understanding is that each one of them
-// is already "good enough", so we really only need to encode two
-// coordinates, no size and no quality of any kind.
+// is already long enough, but may still contain too many mismatches tio
+// be any good.
+// Invariant: ref_positions, query_positions and seed_sizes have the
+// same length.
 message Seeds {
     // genome we seeded on (typ. hg18, pt2, etc.)
     required string genome_name = 1 ;
 
-    // positions of starting points on the reference
+    // Positions of seed regions on the reference.  We always store the
+	// smallest coordinate of the seed region.
     repeated uint32 ref_positions = 2 [ packed=true, (show) = "show_uint32_array" ] ;
 
-    // positions of starting points on the query
-    // negative numbers mean to align on the reverse complemented strand
+	// Positions of starting points on the query.  We use negative
+	// numbers to indicate seeds on the reverse complemented strand in
+	// the following way:  a virtual sequence is constructed from the
+	// reverse-complemented query, a gap and the query.  The central gap
+	// has position 0.  We always store the smallest
+	// coordinate of the seed region.  (The central gap ensures that we
+	// never combine seeds on different strands by mistake.)
     repeated int32 query_positions = 3 [ packed=true, (show) = "show_int32_array" ] ;
 
-    optional uint32 repeat_threshold = 5 ;
+	// Sizes of seed regions.
+	repeated uint32 seed_sizes = 4 [ packed=true, (show) = "show_uint32_array" ] ;
+
+	// Maximum number of mismatches in seed region.  Passed on from
+	// indexing stage so the aligner doesn't need to parse the
+	// configuration again.
+	required uint32 max_mismatches = 5 ;
+
+	// Minimum seed length.  Passed on from indexing stage so the
+	// aligner doesn't need to parse the configuration again.
+	required uint32 min_seed_length = 6 ;
 }
 
 message Result {
@@ -353,16 +323,19 @@ message Hit {
     // different chromosome, to next on different class of chromosomes,
     // if they exist.  Classes for this purpose are sex chromosomes,
     // autosomes and organelles.
-    // This is the same as MAPQ in sam/bam.  If we're looking at a
-    // pseudo-assembly, it is actually the RMS of the MAPQs of the reads
-    // that were included in it.
-    optional sint32 diff_to_next = 8 ;
+	// This is the same as MAPQ in sam/bam, and it is calculated from
+	// all hits that were found besides the best one.  The calculation
+	// is more accurate than what maq and bwa do, but still a (pretty
+	// good) approximation.  If we're looking at a pseudo-assembly, it
+	// is actually the RMS of the MAPQs of the reads
+	// that were included in it.
+    optional sint32 map_quality = 8 ;
 
     // following two aren't actually used yet
     optional sint32 diff_to_next_chromosome = 9 ;
     optional sint32 diff_to_next_chromosome_class = 10 ;
 
-    // taxids if known: most specific, species and order
+    // Taxids if known: most specific, species and order
     // An absent taxid means it's not known.
     optional int32 taxid = 15 ;
     optional int32 taxid_species = 14 ;
@@ -393,4 +366,20 @@ message AlnStats {
     optional string tag = 15 ;
 }
 
+// Deprecated, don't touch.
+message OldHit {
+    required string sequence = 2 ;
+    required uint32 start_pos = 3 ;
+    required sint32 aln_length = 4 ;
+    optional sint32 score = 5 [ default = 0 ] ;
+    optional float  evalue = 6 ;
+    required bytes  cigar = 7 ;
+    optional string genome_name = 8 ;
+    optional int32  taxid = 16 ;
+    optional int32  taxid_species = 17 ;
+    optional int32  taxid_order = 18 ;
+    optional string ref = 32 ;
+    optional string qry = 33 ;
+    optional string con = 34 ;
+}
 // vim:expandtab

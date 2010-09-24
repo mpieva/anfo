@@ -127,7 +127,7 @@ inline bool encodes_nuc( char c ) { return to_ambicode(c) != 0 ; }
 //!
 //! To make arithmetic easier, the encoding is as follows:  The main
 //! pointer is converted to an int64_t, it is then shifted left and the
-//! sub-byte index (just one bit) is shifted in.  Then the sign in
+//! sub-byte index (just one bit) is shifted in.  Then the sign is
 //! inverted if and only if this is a pointer to the RC strand.  This way,
 //! arithmetic works on both strands the same way.  To dereference a
 //! pointer, the absolute value of the number is taken, interpreted as
@@ -195,15 +195,7 @@ class DnaP
 		DnaP &operator -= ( uint32_t o ) { p_ -= o ; return *this ; }
 		DnaP &operator -= ( int32_t  o ) { p_ -= o ; return *this ; }
 
-		// hack to make this compatible with Judy arrays on both 32 and
-		// 64 bit machines
-#if SMALL_SYS
-		unsigned long get() const { return p_ & ULONG_MAX ; }
-		unsigned long high() const { return p_ >> sizeof( unsigned long ) * CHAR_BIT ; }
-#else
 		unsigned long get() const { return p_ ; }
-		unsigned long high() const { return 0 ; }
-#endif
 
 		friend inline int64_t operator -  ( const DnaP &a, const DnaP &b ) { return a.p_  - b.p_ ; }
 		friend inline bool    operator == ( const DnaP &a, const DnaP &b ) { return a.p_ == b.p_ ; }
@@ -290,14 +282,19 @@ inline std::ostream& operator << ( std::ostream& s, const Sequ& d )
 //! We store four quality scores for the four possible bases.  If the
 //! sequence was read from a 4Q file (currently not supported, not that
 //! anyone cares), that's okay.  If it came from FASTQ or even FASTA,
-//! they are just an extrapolation.  
+//! they are just an extrapolation (error probability divided by 3).
+//! The sequence is duplicated and reverse-complemented, so that
+//! negative offsets actually yield pointers into the reverse strand.
+//! Note, the forward strand has offsets [1..len], the reverse strand
+//! has offsets [-len..-1].  At offset 0, there's a gap.  The interval
+//! [begin,end) also represents the forward strand, without gaps.
 class QSequence
 {
 	public:
 		//! \brief An ambiguity code and four qualities together.
-		//! The qualities are invalid if the ambiguity code encodes a
+		//! The qualities are undefined if the ambiguity code encodes a
 		//! gap.  We keep copies of the quality scores to avoid loss of
-		//! precision.
+		//! precision when regenerating a FastA file.
 		struct Base {
 			uint8_t ambicode ;
 			uint8_t qscore ;
@@ -313,6 +310,8 @@ class QSequence
 	private:
 		std::vector< Base > seq_ ;
 
+		// offset of the central zero
+		int middle_offset() const { return seq_.size()/2 ; }
 	public:
 		typedef std::vector< Base >::const_iterator const_iterator ;
 		typedef std::vector< Base >::const_reverse_iterator const_reverse_iterator ;
@@ -324,32 +323,33 @@ class QSequence
 		typedef Base value_type ;
 
 		//! \brief creates an empty sequence
-		//! The sequence is terminated correctly by two gaps and has no
-		//! bases.  It is basically considered invalid and used as a
-		//! placeholder where necessary.
+		//! The sequence is terminated correctly by three gaps (one in
+		//! the middle, one at either end) and has no bases.  It is
+		//! basically considered invalid and used as a placeholder where
+		//! necessary.
 		QSequence()
 		{
+			seq_.push_back( Base() ) ; 
 			seq_.push_back( Base() ) ; 
 			seq_.push_back( Base() ) ; 
 		}
 
 		//! \brief creates a quality sequence from a generic Read
 		//! Missing qualities are set to a constant, which is equivalent
-		//! to a Q score of 30 by default.
+		//! to a Q score of 30 by default.  A reverse-complemented
+		//! version is prepended.
 		QSequence( const output::Read& r, int default_q = 30 ) ;
 
 		void swap( QSequence& rhs ) { std::swap( seq_, rhs.seq_ ) ; }
 
-		const_pointer start() const { return &seq_[1] ; }
-		unsigned length() const { return seq_.size() - 2 ; }
+		const_pointer start() const { return &seq_[ middle_offset()] ; }
+		unsigned length() const { return seq_.size()/2 -1 ; }
 
-		const_iterator begin() const { return seq_.begin() + 1 ; }
+		const_iterator begin() const { return seq_.begin() + middle_offset() ; }
 		const_iterator end() const { return seq_.end() - 1 ; }
-		const_reverse_iterator rbegin() const { return seq_.rbegin() + 1 ; }
-		const_reverse_iterator rend() const { return seq_.rend() - 1 ; }
 
-		reference operator [] ( size_t ix ) { return seq_[1+ix] ; }
-		const_reference operator [] ( size_t ix ) const { return seq_[1+ix] ; }
+		reference operator [] ( size_t ix ) { return seq_[middle_offset()+ix] ; }
+		const_reference operator [] ( size_t ix ) const { return seq_[middle_offset()+ix] ; }
 } ;
 
 //! \brief reads a sequence from a FASTA, FASTQ or 4Q file

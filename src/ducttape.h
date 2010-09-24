@@ -17,7 +17,7 @@
 #ifndef INCLUDED_DUCTTAPE_H
 #define INCLUDED_DUCTTAPE_H
 
-#include "align.h"
+#include "align_fwd.h"
 #include "stream.h"
 #include "util.h"
 #include <string>
@@ -48,6 +48,7 @@ class DuctTaper : public Stream
 		string name_ ;
 		Chan report_ ;
 		Logdom het_prior_ ;
+		bool have_foot_ ;
 
 		// tracking of current reference sequence; we need to start a
 		// new contig if one of these changes
@@ -97,7 +98,7 @@ class DuctTaper : public Stream
 	public:
 		DuctTaper( const string& name, double hp = 0 )
 			: name_(name), het_prior_( Logdom::from_float(hp) )
-			, contig_start_(0), contig_end_(0)
+			, have_foot_(false), contig_start_(0), contig_end_(0)
 			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
 
 		virtual void put_header( const Header& ) ;
