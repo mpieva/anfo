@@ -7,16 +7,10 @@ Prerequisites are...
  - Not too ancient G++; 4.0 and later work fine, 3.x might cause some
    difficulties.  Also make, a shell, and so on.
 
- - protobuf.  Find it at http://code.google.com/p/protobuf or
-   ~udo_stenzel/opt/packages/protobuf-2.0.3.tar.bz2 
-
- - Judy.  Find it at http://judy.sf.net or
-   ~udo_stenzel/opt/packages/Judy-1.0.3.tar.gz or ask your friendly
-   admin.
+ - protobuf.  Find it at http://code.google.com/p/protobuf
 
  - popt.  You might already have it, else ask your admin or grab it at
-   http://rpm5.org/files/popt/ or
-   ~udo_stenzel/opt/packages/popt-1.10.4.tar.gz
+   http://rpm5.org/files/popt
 
  - Doxygen, if you want the documentation.  Can be found at http://doxygen.org
 
@@ -24,45 +18,43 @@ Prerequisites are...
 
  - libbz2 from bzip2.org
 
- - Guile from http://www.gnu.org/software/guile (optional).
+ - Elk from http://sam.zoy.org/elk/
 
 If you have those, call './configure', 'make', then 'make doc' to create
-the documentation, then 'make install'.  If you want to toy with it,
-'make anfo-shell' builds a scheme-based shell (that doesn't do much,
-yet).
+the documentation, then 'make install'.
 
 
 How to use it?
 
-To test, you need a genome, an index, and some input in FASTA or FASTQ format.
-Genomes and indices are littered everywhere (e.g. /ltmp/anfo at
-Garching, /var/tmp/udo on bionc02), but here's how to do it yourself:
+To test, you need a genome, an index, and some input in FastA or FastQ format:
 
  - Locate a genome in FASTA format (or any other format that has a converter;
-   .2bit is fine, my own .dna isn't (yet)).  Run fa2dna on it (--help
-   tells you how); you can pipe the input if you want.
+   .2bit is fine, my own .dna isn't).  Run fa2dna on it (--help tells
+   you how); you can pipe the input if you want.
 
  - On your new .dna file, run file-info.  It should spit out the meta data for
    that genome.  If not, you're hosed...
 
- - Build an index for the .dna file using dnaindex.  Choosing an
-   appropriate word size is the only parameter that really matters.
+ - Build an index for the .dna file using dnaindex (--help tells you
+   how, the defaults are probably fine)
 
  - You can run file-info on that, too.  It will tell you the word size
    you just set.  If not, you're hosed again...
 
- - Write a sensible anfo.cfg using the examples in conf/ and
+ - Write a sensible anfo.cfg using the examples in example/ and
    config.proto as guideline.
 
- - You can run index-test, anfo or anfo-sge now.  Index-test
-   just does lookups in the index, and optionally (on simulated data)
-   checks if a seed in the correct region was found.  
-   nonsense, something is fucked up.
+ - You can run index-test or anfo now.  Index-test just does lookups in
+   the index, and optionally (on simulated data) checks if a seed in the
+   correct region was found.  
 
- - anfo/anfo-sge can be run on any FASTA/FASTQ file now.  No offically
-   blessed, "correct" sets of output exist, yet.  Anfo can run
-   multi-threaded, anfo-sge will not, but contains numerous workarounds
-   for the hostile SGE environment.
+ - anfo can be run on any FASTA/FASTQ file now.
+
+ - anfo-tool can operate on the output files (but it's cumbersome to
+   use)
+
+ - the Elk binding can do what anfo and anfo-tool do, is much more
+   flexible, but undocumented.
 
 
 What's stable and what isn't?
@@ -72,11 +64,11 @@ Pretty much stabilized are...
  - Genome handling and creation (files sequence.h, sequence.cc, index.h, index.cc, fa2dna.cc)
 
    I store genomes with four bits per nucleotide, which sounded like a
-   fucking brilliant idea, since it's only half as wasteful as the text
-   form and still allows ambiguity code.  The headaches came with the
+   fscking brilliant idea, since it's only half as wasteful as the text
+   form and still allows ambiguity codes.  The headaches came with the
    implementation of the auxilliary DnaP class...  Anyway, the
    nucleotides A,C,T,G map to bits 0,1,2,3.  That order (you did notice
-   T coming before G, didn't you?) also sounded like a fucking brilliant
+   T coming before G, didn't you?) also sounded like a fscking brilliant
    idea, but in realilty it doesn't matter and I keep mixing it up.
    Chromosomes are split into contigs at long stretches of Ns, contigs
    are separated by single gaps and the first and last ones terminate in
@@ -96,8 +88,8 @@ Pretty much stabilized are...
  - Handling of reads (files sequence.h and sequence.cc)
 
    Just a simple structure for sequences with quality scores and a
-   FASTA/FASTQ/FOURQ reader.  There's no support for unmerged mate
-   pairs, I haven't evan decided what to do about them.
+   FastA/FastQ/FourQ reader.  There's no support for mate pairs, I
+   haven't even decided what to do about them.
 
  - File formats (genome, index, config file, output)
 
@@ -110,11 +102,10 @@ Pretty much stabilized are...
 
  - The aligner (align.h, align.cc)
 
-   In principle, this code is in it's final form, it is supposed to do what was
-   planned, and it works reasonably well.  The general structure and the
-   specific alignment mechanisms are somewhat separated from each other,
-   making extensions like a special 454 aligner possible at least in
-   principle.
+   Completely rewritten now, it is much faster than the previous version
+   and practically finished.  The general structure and the specific
+   alignment mechanisms are somewhat separated from each other, making
+   extensions like a special 454 aligner possible at least in principle.
 
 
 Copyright

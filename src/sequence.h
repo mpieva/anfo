@@ -31,12 +31,6 @@
 
 #include "output.pb.h"
 
-//! \brief Test macro whether this is a "small" system
-//!
-//! A system is considered "small" for our purposes, if long has no more
-//! than 32 bits.  This affects mainly the organization of Judy arrays.
-#define SMALL_SYS (ULONG_MAX < 0x100000000)
-
 /*! \defgroup typedefs Useful typedefs
  * These typedefs are used mostly for their documentation value;  C++
  * unfortunately won't be able to check their differences
@@ -239,9 +233,6 @@ class QDnaP
 		QDnaP &operator -= ( uint32_t o ) { p_ -= o ; return *this ; }
 		QDnaP &operator -= ( int32_t  o ) { p_ -= o ; return *this ; }
 
-#if SMALL_SYS
-		unsigned long high() const { return 0 ; }
-#endif
 		unsigned long get() const { return (unsigned long)p_ ; }
 
 		friend inline size_t operator -  ( const QDnaP &a, const QDnaP &b ) { return a.p_  - b.p_ ; }

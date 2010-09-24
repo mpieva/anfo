@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.60)
-AC_INIT([anfo], [0.97.1], [udo_stenzel@eva.mpg.de])
+AC_INIT([anfo], [0.98], [udo_stenzel@eva.mpg.de])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_CONFIG_SRCDIR([src/util.cc])
 AC_CONFIG_HEADER([config.h])
