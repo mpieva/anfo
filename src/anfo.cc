@@ -223,11 +223,9 @@ WRAPPED_MAIN
         }
     }
 
-	std::string of = output_file ;
-    of.append( ".#new#" ) ;
-	StreamHolder outs = new ChunkedWriter( of.c_str(), 25 ) ; // prefer speed over compression
-
 	{
+		StreamHolder outs = new ChunkedWriter( output_file, 25 ) ; // prefer speed over compression
+
 		output::Header ohdr ;
 		*ohdr.mutable_config() = conf ;
 		ohdr.set_version( PACKAGE_VERSION ) ;
@@ -235,26 +233,16 @@ WRAPPED_MAIN
 		if( const char *jobid = getenv( "SGE_JOB_ID" ) ) ohdr.set_sge_job_id( atoi( jobid ) ) ;
 		if( const char *taskid = getenv( "SGE_TASK_ID" ) ) ohdr.set_sge_task_id( atoi( taskid ) ) ;
 		comp->put_header( ohdr ) ; 
-	}
 
-	outs->put_header( comp->fetch_header() ) ;
-	while( !exit_with && comp->get_state() == Stream::have_output && outs->get_state() == Stream::need_input )
-		outs->put_result( comp->fetch_result() ) ;
+		outs->put_header( comp->fetch_header() ) ;
+		while( !exit_with && comp->get_state() == Stream::have_output && outs->get_state() == Stream::need_input )
+			outs->put_result( comp->fetch_result() ) ;
 
-	{
 		output::Footer ofoot = comp->fetch_footer() ;
 		exit_with |= ofoot.exit_code() ;
 		ofoot.set_exit_code( exit_with ) ;
 		outs->put_footer( ofoot ) ;
 	}
-		
-	if( !exit_with ) { // "mv -f"
-		rename( of.c_str(), output_file ) ;
-		if( 0 == access( of.c_str(), F_OK ) ) {
-			unlink( output_file ) ;
-			rename( of.c_str(), output_file ) ;
-		}
-	}
-	return 0 ;
+	return exit_with ;
 }
 

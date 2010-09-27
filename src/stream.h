@@ -254,6 +254,11 @@ class Stream
 		//! should be set in \c exit_code.
 		virtual Footer fetch_footer() { return foot_ ; }
 
+		//! \brief returns the footer by looking ahead
+		//! Only available for file formats that make finding the footer
+		//! possible, i.e. Anfo streams.
+		virtual Footer lookahead_footer() { throw "not supported" ; }
+
 		//! \brief sets the stream header
 		//! Output streams and stream filters need the header to become
 		//! valid streams.
@@ -362,6 +367,7 @@ class UniversalReader : public Stream
 		virtual Header fetch_header() ;
 		virtual Result fetch_result() { if( get_state() == have_output ) return str_->fetch_result() ; throw "calling sequence violated" ; }
 		virtual Footer fetch_footer() { return str_->fetch_footer() ; }
+		virtual Footer lookahead_footer() { return str_->lookahead_footer() ; }
 		virtual string type_name() const { return "UniversalReader(" + name_ + ")" ; }
 } ;
 
@@ -414,12 +420,14 @@ class ChunkedReader : public Stream
 		std::vector< char > buf_ ;											// in-memory buffer
 		std::auto_ptr< google::protobuf::io::ArrayInputStream > ais_ ;		// output to buffer
 		std::string name_ ;
+		int fd_ ;
 
 		bool get_next_chunk() ;
 
 	public: 
-		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) ;
+		ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name, int fd ) ;
 		virtual Result fetch_result() ;
+		virtual Footer lookahead_footer() ;
 
 		//! \internal
 		virtual string type_name() const { return "ChunkedReader(" + name_ + ")" ; }

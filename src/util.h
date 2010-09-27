@@ -59,6 +59,13 @@ T throw_errno_if_eq( T x, T y, const char* a, const char* b = 0 )
 }
 
 template< typename T >
+T throw_errno_if_uneq( T x, T y, const char* a, const char* b = 0 )
+{
+	if( x != y ) throw_errno( a, b ) ;
+	return x ;
+}
+
+template< typename T >
 T throw_if_negative( T x, const char* a, const char* b = 0 )
 {
 	if( x < 0 )

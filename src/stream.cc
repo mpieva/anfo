@@ -261,6 +261,7 @@ ChunkedWriter::ChunkedWriter( const char* fname, int l ) :
 void ChunkedWriter::flush_buffer( unsigned needed ) 
 {
 	uint32_t uncomp_size = aos_->ByteCount() ;
+	if( !uncomp_size ) return ;  // never write completely empty blocks
 	if( needed && buf_.size() - uncomp_size >= needed+8 ) return ;
 	aos_.reset( 0 ) ;
 
@@ -357,28 +358,9 @@ ChunkedWriter::~ChunkedWriter()
 	flush_buffer() ;
 }
 
-bool ChunkedReader::get_next_chunk() 
+static void decompress_chunk( std::vector<char>& buf_, std::vector<char>& tmp, int m )
 {
-	if( ais_.get() && (unsigned)ais_->ByteCount() < buf_.size() ) return true ;
-	ais_.reset( 0 ) ;
-
-	CodedInputStream cis( is_.get() ) ;
-	if( cis.ExpectAtEnd() ) return false ;
-
-	uint32_t uncomp_size, comp_size ;
-	if( !cis.ReadLittleEndian32( &uncomp_size ) || !cis.ReadLittleEndian32( &comp_size ) ) 
-		throw ParseError( "couldn't read chunk header from " + name_ ) ;
-
-	int m = comp_size >> 28 ;
-	comp_size &= ~(~0 << 28) ;
-
-	vector< char > tmp ;
-	buf_.resize( uncomp_size ) ;
-	tmp.resize( comp_size ) ;
-	if( !cis.ReadRaw( &tmp[0], comp_size ) ) 
-		throw ParseError( "couldn't read  whole chunk from " + name_ ) ;
-
-	uLongf dlen = uncomp_size ;
+	unsigned comp_size = tmp.size(), uncomp_size = buf_.size() ;
 	switch( m )
 	{
 		case ChunkedWriter::none:
@@ -393,9 +375,12 @@ bool ChunkedReader::get_next_chunk()
 
 		case ChunkedWriter::gzip: 
 #if HAVE_LIBZ && HAVE_ZLIB_H
-			if( Z_OK != uncompress( (Bytef*)&buf_[0], &dlen, (const Bytef*)&tmp[0], comp_size ) 
-					|| uncomp_size != dlen )
-				throw "GZip decompression failed" ;
+			{
+				uLongf dlen = uncomp_size ;
+				if( Z_OK != uncompress( (Bytef*)&buf_[0], &dlen, (const Bytef*)&tmp[0], comp_size ) 
+						|| uncomp_size != dlen )
+					throw "GZip decompression failed" ;
+			}
 #else
 			throw "GZip'ed chunk found, but no zlib support present." ;
 #endif
@@ -413,12 +398,35 @@ bool ChunkedReader::get_next_chunk()
 		default:
 			throw "unknown compression method" ;
 	}
+}
 
+bool ChunkedReader::get_next_chunk() 
+{
+	if( ais_.get() && (unsigned)ais_->ByteCount() < buf_.size() ) return true ;
+	ais_.reset( 0 ) ;
+
+	CodedInputStream cis( is_.get() ) ;
+	if( cis.ExpectAtEnd() ) return false ;
+
+	uint32_t uncomp_size, comp_size ;
+	if( !cis.ReadLittleEndian32( &uncomp_size ) || !cis.ReadLittleEndian32( &comp_size ) ) 
+		throw ParseError( "couldn't read chunk header from " + name_ ) ;
+
+	int m = comp_size >> 28 ;
+	comp_size &= ~(~0 << 28) ;
+
+	vector< char > tmp ;
+	tmp.resize( comp_size ) ;
+	if( !cis.ReadRaw( &tmp[0], comp_size ) ) 
+		throw ParseError( "couldn't read  whole chunk from " + name_ ) ;
+
+	buf_.resize( uncomp_size ) ;
+	decompress_chunk( buf_, tmp, m ) ;
 	ais_.reset( new ArrayInputStream( &buf_[0], uncomp_size ) ) ;
 	return true ;
 }
 
-ChunkedReader::ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name ) : is_( is ), name_( name )
+ChunkedReader::ChunkedReader( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const std::string& name, int fd ) : is_( is ), name_( name ), fd_( fd )
 {
 	{
 		std::string magic ;
@@ -468,6 +476,64 @@ Result ChunkedReader::fetch_result()
 	}
 	else state_ = end_of_stream ;
 	return r ;
+}
+
+Footer ChunkedReader::lookahead_footer()
+{
+	if( fd_ < 0 ) throw "no file" ;
+	struct stat the_stat ;
+	throw_errno_if_minus1( fstat( fd_, &the_stat ), "stat" ) ;
+	unsigned char buf[8] ;
+
+	if( the_stat.st_size < 8 ) throw "too small" ;
+	throw_errno_if_uneq( (ssize_t)8, pread( fd_, buf, 8, the_stat.st_size - 8 ), "pread offset" ) ;
+	uint64_t fo = 0 ;
+	for( int i = 0 ; i != 8 ; ++i )
+		fo |= uint64_t(buf[i]) << (8*i) ;
+
+	// sucky hack to support files with an empty block added...
+	if( fo == 0 ) {
+		the_stat.st_size -= 8 ;
+		if( the_stat.st_size < 8 ) throw "too small" ;
+		throw_errno_if_uneq( (ssize_t)8, pread( fd_, buf, 8, the_stat.st_size - 8 ), "pread offset" ) ;
+		for( int i = 0 ; i != 8 ; ++i )
+			fo |= uint64_t(buf[i]) << (8*i) ;
+	}
+
+	ssize_t footer_size = the_stat.st_size - fo - 8 ;
+	if(  fo > (uint64_t)the_stat.st_size || footer_size > 1000000 ) 
+	{
+		std::stringstream ss ;
+		ss << "unbelievable offset " << fo << " (size = " << footer_size << ")" ;
+		throw ss.str() ;
+	}
+
+	std::vector<char> buf2( footer_size ) ;
+	throw_errno_if_uneq( footer_size, pread( fd_, &buf2[0], footer_size, fo ), "pread footer" ) ;
+
+	uint32_t uncomp_size = 0, comp_size = 0 ;
+	for( int i = 0 ; i != 4 ; ++i )
+	{
+		uncomp_size |= (uint32_t)(buf2[i]) << (8*i) ;
+		comp_size |= (uint32_t)(buf2[i+4]) << (8*i) ;
+	}
+	buf2.erase( buf2.begin(), buf2.begin()+8 ) ;
+	if( comp_size + 8 != footer_size ) throw "size mismatch" ;
+
+	int m = comp_size >> 28 ;
+	comp_size &= ~(~0 << 28) ;
+
+	std::vector<char> buf3( uncomp_size ) ;
+	decompress_chunk( buf3, buf2, m ) ;
+
+	ArrayInputStream ais( &buf3[0], uncomp_size ) ;
+	CodedInputStream cis( &ais ) ;
+	uint32_t tag = cis.ReadTag(), size ;
+	if( tag != mk_msg_tag( 3 ) ) throw "not a footer" ;
+	cis.ReadVarint32( &size ) ;
+	output::Footer foot ;
+	foot.ParseFromCodedStream( &cis ) ;
+	return foot ;
 }
 
 template <typename E> void nub( google::protobuf::RepeatedPtrField<E>& r )
@@ -1146,7 +1212,7 @@ namespace {
 		return true ;
 	}
 
-	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin, const string& genome )
+	StreamHolder make_input_stream_( std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > is, const string& name, bool solexa_scores, char origin, const string& genome, int fd )
 	{
 		// peek into stream, but put it back.  then check magic numbers and
 		// create the right stream
@@ -1160,7 +1226,7 @@ namespace {
 		}
 		if( magic( p, l, "ANF1" ) ) {
 			console.output( Console::debug, name + ": chunked ANFO file" ) ;
-			return new ChunkedReader( is, name ) ;
+			return new ChunkedReader( is, name, fd ) ;
 		}
 		if( magic( p, l, ".sff" ) ) {
 			console.output( Console::debug, name + ": SFF file" ) ;
@@ -1177,7 +1243,7 @@ namespace {
 #if HAVE_LIBBZ2 && HAVE_BZLIB_H
 			console.output( Console::debug, name + ": BZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > bs( new BunzipStream( is ) ) ;
-			return make_input_stream_( bs, name, solexa_scores, origin, genome ) ;
+			return make_input_stream_( bs, name, solexa_scores, origin, genome, fd ) ;
 #else
 			throw "found BZip'ed file, but have no libbz2 support" ;
 #endif
@@ -1187,7 +1253,7 @@ namespace {
 #if HAVE_LIBZ && HAVE_ZLIB_H
 			console.output( Console::debug, name + ": GZip compressed" ) ;
 			std::auto_ptr< google::protobuf::io::ZeroCopyInputStream > zs( new InflateStream( is ) ) ;
-			return make_input_stream_( zs, name, solexa_scores, origin, genome ) ;
+			return make_input_stream_( zs, name, solexa_scores, origin, genome, fd ) ;
 #else
 			throw "found GZip'ed file, but have no zlib support" ;
 #endif
@@ -1228,8 +1294,9 @@ UniversalReader::UniversalReader(
 Header UniversalReader::fetch_header() 
 {
 	if( !str_ ) {
+		int fd = -1 ;
 		if( !is_.get() ) {
-			int fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening (UniversalReader) ", name_.c_str() ) ;
+			fd = throw_errno_if_minus1( open( name_.c_str(), O_RDONLY ), "opening (UniversalReader) ", name_.c_str() ) ;
 			std::auto_ptr< google::protobuf::io::FileInputStream > s( new google::protobuf::io::FileInputStream( fd ) ) ;
 			s->SetCloseOnDelete( true ) ;
 			struct stat st ;
@@ -1237,7 +1304,7 @@ Header UniversalReader::fetch_header()
 			else is_.reset( new StreamWithProgress( 
 						std::auto_ptr<google::protobuf::io::ZeroCopyInputStream>(s), name_, st.st_size ) ) ;
 		}
-		str_ = make_input_stream_( is_, name_, solexa_scores_, origin_, genome_ ) ;
+		str_ = make_input_stream_( is_, name_, solexa_scores_, origin_, genome_, fd ) ;
 	}
 	return str_->fetch_header() ;
 }
