@@ -202,7 +202,7 @@ void show_hit( const Message& m, const Reflection* r, const FieldDescriptor* f, 
 				s << string( i+2, ' ' ) << "QRY: " << q.substr( k, 50 ) << '\n' ;
 				s << string( i+2, ' ' ) << "CNS: " ;
 				for( size_t l = k ; l != k+50 && l != r.size() ; ++l )
-					s << " *"[ r[l] == q[l] ] ;
+					s << " *"[ r[l] != '-' && r[l] == q[l] ] ;
 				s << '\n' ;
 			}
 		}

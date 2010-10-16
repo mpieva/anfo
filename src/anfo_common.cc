@@ -254,10 +254,8 @@ void Indexer::put_result( const Result& r )
 }
 
 Mapper::Mapper( const config::Aligner &config, const string& genome_name ) :
-	conf_(config), genome_( Metagenome::find_genome( genome_name ) )
-{
-	parblock_ = adna_parblock( conf_ ) ;
-}
+	conf_(config), genome_( Metagenome::find_genome( genome_name ) ),
+	parblock_( adna_parblock( conf_ ) ) {}
 
 void Mapper::put_header( const Header& h )
 {

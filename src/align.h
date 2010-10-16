@@ -360,7 +360,7 @@ ExtendBothEnds<Cell>::ExtendBothEnds(
 			pb,
 			seed.reference_.reverse() + 1,
 			query.start() - seed.qoffs_ + 1,
-			(limit / seed.score_).sqrt() ) ;
+			( limit / seed.score_ ).sqrt() ) ;
 	ExtendAlignment<Cell> forwards2(
 			pb,
 			seed.reference_ + seed.size_,
@@ -390,7 +390,7 @@ template<> inline void ExtendAlignment<FullCell>::backtrace( std::vector<unsigne
 
 		x -= c.from_x_offset ;
 		y -= c.from_y_offset ;
-		s = c.from_state ;
+		s  = c.from_state ;
 	}
 }
 
