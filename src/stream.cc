@@ -633,7 +633,7 @@ void sanitize( Result& r )
 	{
 		string& g = *r.mutable_seeds(i)->mutable_genome_name() ;
 		lower_string( g ) ;
-		if( g.substr( g.size()-4 ) == ".dna" )
+		if( g.length() >= 4 && g.substr( g.size()-4 ) == ".dna" )
 			g = g.substr( 0, g.size()-4 ) ;
 	}
 }

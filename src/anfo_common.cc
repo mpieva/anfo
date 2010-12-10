@@ -374,7 +374,8 @@ void Mapper::put_result( const Result& r )
 		uint32_t size = ss.seed_sizes(i) ;
 			
 		if( check_seed_quality( reference, qs.start() + qoffs, size,
-					ss.max_mismatches(), ss.min_seed_length() ) )
+					ss.has_max_mismatches() ? ss.max_mismatches() : 0, 
+                    ss.has_min_seed_length() ? ss.min_seed_length() : size ) )
 			seedlist.push_back( SeededAlignment( parblock_, reference, qs, qoffs, size ) ) ;
 	}
 

@@ -229,11 +229,11 @@ message Seeds {
 	// Maximum number of mismatches in seed region.  Passed on from
 	// indexing stage so the aligner doesn't need to parse the
 	// configuration again.
-	required uint32 max_mismatches = 5 ;
+	optional uint32 max_mismatches = 5 ;
 
 	// Minimum seed length.  Passed on from indexing stage so the
 	// aligner doesn't need to parse the configuration again.
-	required uint32 min_seed_length = 6 ;
+	optional uint32 min_seed_length = 6 ;
 }
 
 message Result {
