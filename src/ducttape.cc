@@ -273,7 +273,7 @@ void DuctTaper::put_result_ancient( const Result& r )
 	Logdom rate_ss = Logdom::from_float( hdr_.config().aligner().rate_of_ss_deamination() ), 
 		   rate_ds = Logdom::from_float( hdr_.config().aligner().rate_of_ds_deamination() ) ; 
 
-	int mapq = h->has_map_quality() ? h->map_quality() : 254 ;
+	int mapq = h->has_map_quality() ? h->map_quality() : default_mapq ;
 	mapq_accum_ += mapq*mapq ;
 
 	if( cur_genome_ != h->genome_name()
@@ -447,10 +447,7 @@ void DuctTaper::put_result_recent( const Result& r )
 	const Hit* h = hit_to( r ) ;
 	if( !h ) return ;
 
-    // Default is 60, because it's realistic.  Arguably, 254 would be
-    // more correct, but doesn't work with the existing (arguably
-    // incorrect) data.
-	int mapq = h->has_map_quality() ? h->map_quality() : 60 ;
+	int mapq = h->has_map_quality() ? h->map_quality() : default_mapq ;
 	mapq_accum_ += mapq*mapq ;
 
 	if( cur_genome_ != h->genome_name()

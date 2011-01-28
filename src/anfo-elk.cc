@@ -244,7 +244,7 @@ WRAP( p_write_fasta,  ( Object f ), (f) ) { return wrap_stream( new FastaAlnWrit
 WRAP( p_write_wig,    ( Object f ), (f) ) { return wrap_stream( new WigCoverageWriter( open_any_output_std( f ) ) ) ; }
 
 // Processors
-WRAP( p_duct_tape, ( Object n, Object p ), (n,p) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ), Get_Double(p) ) ) ; }
+WRAP( p_duct_tape, ( Object n, Object p, Object m ), (n,p,m) ) { return wrap_stream( new DuctTaper( object_to_string( n, "contig" ), Get_Double(p), Get_Integer(m) ) ) ; }
 WRAP( p_add_alns, ( Object c, Object s ), (c,s) ) { return wrap_stream( new GenTextAlignment( Get_Integer( c ), Truep( s ) ) ) ; }
 WRAP( p_rmdup, ( Object s, Object i, Object q ), (s,i,q) ) { return wrap_stream( new RmdupStream( Get_Double(s), Get_Double(i), Get_Integer(q) ) ) ; }
 
@@ -437,7 +437,7 @@ void elk_init_libanfo()
 	Define_Primitive( (P)p_write_fasta,      "prim-write-fasta",    1, 1, EVAL ) ;
 	Define_Primitive( (P)p_write_wig,        "prim-write-wiggle",   1, 1, EVAL ) ;
 
-	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      2, 2, EVAL ) ;
+	Define_Primitive( (P)p_duct_tape,        "prim-duct-tape",      3, 3, EVAL ) ;
 	Define_Primitive( (P)p_add_alns,         "prim-add-alns",       2, 2, EVAL ) ;
 	Define_Primitive( (P)p_rmdup,            "prim-rmdup",          3, 3, EVAL ) ;
 	Define_Primitive( (P)p_trim,             "prim-trim",           3, 3, EVAL ) ;

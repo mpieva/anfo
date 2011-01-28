@@ -40,6 +40,7 @@
 (define intercept: 'intercept:)
 (define label:     'label:)
 (define left:      'left:)
+(define mapq:      'mapq:)
 (define max:       'max:)
 (define mem:       'mem:)
 (define min:       'min:)
@@ -68,8 +69,9 @@
 
 (define*
   (duct-tape (label: lbl "contig")
-             (prior: pri 0.0))
-  (bracket-stream (prim-duct-tape lbl pri)))
+             (prior: pri 0.0)
+             (mapq: mq 60))
+  (bracket-stream (prim-duct-tape lbl pri mq)))
 
 (define* 
   (add-alns (context: ctx 0)

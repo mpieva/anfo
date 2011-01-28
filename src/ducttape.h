@@ -49,6 +49,7 @@ class DuctTaper : public Stream
 		Chan report_ ;
 		Logdom het_prior_ ;
 		bool have_foot_ ;
+        int default_mapq ;
 
 		// tracking of current reference sequence; we need to start a
 		// new contig if one of these changes
@@ -96,9 +97,9 @@ class DuctTaper : public Stream
 		void flush_contig() ;
 
 	public:
-		DuctTaper( const string& name, double hp = 0 )
+		DuctTaper( const string& name, double hp = 0, int mq = 60 )
 			: name_(name), het_prior_( Logdom::from_float(hp) )
-			, have_foot_(false), contig_start_(0), contig_end_(0)
+			, have_foot_(false), default_mapq( mq ), contig_start_(0), contig_end_(0)
 			, nreads_(0), num_(0), mapq_accum_(0), adna_() {}
 
 		virtual void put_header( const Header& ) ;
