@@ -240,34 +240,18 @@
 
 (define write-native write-file)
 
-(define (anfo-with-input in)
-  (cond
-    ((procedure? in) in)
-    (else (bracket-stream (prim-read-file in *default-solexa-scale* *default-origin* "" #f)))))
-
-(define (anfo-with-output out)
-  (cond
-    ((procedure? out) out)
-    ((string? out) (bracket-stream (prim-write-native out *default-compression*)))
-    (else (error 'anfo-with-output "object does not denote an output stream: ~s" out))))
-
-(define (anfo-with-many-inputs args cont) (anfo-with-many anfo-with-input args cont))
-(define (anfo-with-many-outputs args cont) (anfo-with-many anfo-with-output args cont))
-(define (anfo-with-many-filters args cont) (anfo-with-many (lambda (x) x) args cont))
-
-(define (anfo-with-many fun args cont)
+(define (anfo-with-many args cont)
   (if (null? args)
     (cont '())
-    ((fun (car args))
+    ((car args)
      (lambda (s)
        (anfo-with-many
-	 fun
-	 (cdr args)
-	 (lambda (ss) (cont (cons s ss))))))))
+         (cdr args)
+         (lambda (ss) (cont (cons s ss))))))))
 
 (define (tee . args)
   (lambda (cont)
-    (anfo-with-many-outputs 
+    (anfo-with-many
       args
       (lambda (outs)
 	((bracket-stream 
@@ -276,7 +260,7 @@
 
 (define (chain . args)
   (lambda (cont)
-    (anfo-with-many-filters
+    (anfo-with-many
       args
       (lambda (outs)
 	((bracket-stream
@@ -285,7 +269,7 @@
 
 (define (merge . args)
   (lambda (cont)
-    (anfo-with-many-inputs
+    (anfo-with-many
       args
       (lambda (outs)
 	((bracket-stream
@@ -294,7 +278,7 @@
 
 (define (join . args)
   (lambda (cont)
-    (anfo-with-many-inputs
+    (anfo-with-many
       args
       (lambda (outs)
 	((bracket-stream
@@ -303,19 +287,18 @@
 
 (define (concat . args)
   (lambda (cont)
-    (anfo-with-many-inputs
+    (anfo-with-many
       args
       (lambda (outs)
 	((bracket-stream
 	   (apply prim-concat outs))
 	 cont)))))
 
-(define (anfo-run . args) 
-  ((anfo-with-input (car args))
-   (lambda (in-stream)
-     ((anfo-with-output (apply chain (cdr args)))
-      (lambda (out-stream)
-	(prim-anfo-run in-stream out-stream))))))
+(define (anfo-run inp . outs) 
+  (inp (lambda (in-stream)
+         ((apply chain outs)
+          (lambda (out-stream)
+            (prim-anfo-run in-stream out-stream))))))
 
 (define (fmap fun stream)
  (lambda (cont)

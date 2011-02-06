@@ -298,6 +298,8 @@ void DuctTaper::put_result_ancient( const Result& r )
 	Logdom lk_ds_3, lk_ss_3 = adna_.overhang_enter_penalty ;
 
 	GenomeHolder genome = Metagenome::find_sequence( h->genome_name(), h->sequence() ) ;
+    if( !genome ) throw "genome not found " + h->genome_name() ;
+
 	DnaP ref = genome->find_pos( h->sequence(), h->start_pos() ) ;
 	for( AlnIter aln_i( r.read(), *h ), aln_e( r.read(), *h, 1 ) ; aln_i != aln_e ; ++aln_i )
 	{
