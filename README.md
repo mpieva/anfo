@@ -1,6 +1,6 @@
 Where to start?
-
-Get the prerequisites, compile, create documentation, test.
+===
+Get the prerequisites, compile, create documentation, test.  Also see the Github Wiki.
 
 Prerequisites are...
 
@@ -25,7 +25,7 @@ the documentation, then 'make install'.
 
 
 How to use it?
-
+===
 To test, you need a genome, an index, and some input in FastA or FastQ format:
 
  - Locate a genome in FASTA format (or any other format that has a converter;
@@ -36,7 +36,8 @@ To test, you need a genome, an index, and some input in FastA or FastQ format:
    that genome.  If not, you're hosed...
 
  - Build an index for the .dna file using dnaindex (--help tells you
-   how, the defaults are probably fine)
+   how, the defaults are probably fine).  Use only the basename of the genome,
+   it will figure the extension out by itself.
 
  - You can run file-info on that, too.  It will tell you the word size
    you just set.  If not, you're hosed again...
@@ -58,7 +59,7 @@ To test, you need a genome, an index, and some input in FastA or FastQ format:
 
 
 What's stable and what isn't?
-
+===
 Pretty much stabilized are...
 
  - Genome handling and creation (files sequence.h, sequence.cc, index.h, index.cc, fa2dna.cc)
