@@ -15,8 +15,8 @@ EXTRA_DIST = anfo.scm.in
 BUILT_SOURCES = config.pb.h output.pb.h config.pb.cc output.pb.cc
 CLEANFILES = config.pb.h output.pb.h config.pb.cc output.pb.cc anfo.scm
 
-CFLAGS += $(protobuf_CFLAGS)
-CXXFLAGS += $(protobuf_CFLAGS)
+AM_CFLAGS = $(protobuf_CFLAGS)
+AM_CXXFLAGS = $(protobuf_CFLAGS)
 LDADD = libanfo.la
 
 libanfo_la_LDFLAGS = -version-info 0:0:0
@@ -44,10 +44,10 @@ anfo.scm: anfo.scm.in
 	sed -e "s#__LIBDIR__#$(libdir)#g" < $(srcdir)/anfo.scm.in >> anfo.scm
 
 config.pb.cc: config.proto
-	$(PROTOC) -I. -I$(dir $(PROTOC))../include --cpp_out=. config.proto
+	$(PROTOC) -I. -I$(PROTOBUF_INCLUDES) --cpp_out=. config.proto
 
 output.pb.cc: output.proto
-	$(PROTOC) -I. -I$(dir $(PROTOC))../include --cpp_out=. output.proto
+	$(PROTOC) -I. -I$(PROTOBUF_INCLUDES) --cpp_out=. output.proto
 
 config.pb.h: config.pb.cc
 	@:
